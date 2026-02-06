@@ -107,7 +107,7 @@ class FITSHandler:
             if include_history:
                 timestamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
                 header['HISTORY'] = f'WCS solution added by Split Image Solver at {timestamp}'
-                header['HISTORY'] = 'Image was split into tiles, solved with ASTAP, and integrated'
+                header['HISTORY'] = 'Image was split into tiles, plate-solved, and WCS integrated'
 
             # プレートソルブ済みフラグ
             header['PLTSOLVD'] = (True, 'Plate solved by Split Image Solver')

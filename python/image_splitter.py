@@ -216,7 +216,7 @@ class ImageSplitter:
 
             # XISF形式の場合とFITS形式の場合で処理を分岐
             if self.input_format == 'xisf':
-                # XISF形式: RGBのまま保存（ASTAPが自動でモノクロ変換）
+                # XISF形式: RGBのまま保存
                 filename = f"tile_{row:02d}_{col:02d}.xisf"
                 file_path = output_dir / filename
 
@@ -313,7 +313,7 @@ class ImageSplitter:
                 header['NAXIS1'] = tile_data.shape[1] if tile_data.ndim >= 2 else 1
                 header['NAXIS2'] = tile_data.shape[0]
 
-                # WCS情報が存在する場合は削除（後でASTAPが新しく追加する）
+                # WCS情報が存在する場合は削除（後でソルバーが新しく追加する）
                 wcs_keywords = [
                     'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2',
                     'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2',
