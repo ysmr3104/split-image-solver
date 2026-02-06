@@ -71,8 +71,10 @@ def calculate_tile_center_offset(
     tile_center_x = (tile_region['x_start'] + tile_region['x_end']) / 2.0
     tile_center_y = (tile_region['y_start'] + tile_region['y_end']) / 2.0
 
-    # オフセット（FITS座標系: X=右/東, Y=上/北）
-    offset_x = tile_center_x - image_center_x
-    offset_y = tile_center_y - image_center_y
+    # オフセット（標準天文画像の座標系: 北が上、東が左）
+    # X: 左=東=RA増加方向 → ピクセルX増加はRA減少なので符号反転
+    # Y: 上=北=Dec増加方向 → ピクセルY増加はDec減少なので符号反転
+    offset_x = image_center_x - tile_center_x
+    offset_y = image_center_y - tile_center_y
 
     return offset_x, offset_y

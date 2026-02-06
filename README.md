@@ -644,9 +644,45 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## ソルバー選択
+
+3つのプレートソルバーに対応しています。`--solver` で主ソルバーを、`--fallback-solver` でフォールバックソルバーを指定できます。
+
+### 利用可能なソルバー
+
+| ソルバー | 指定名 | 速度 | 精度 | 要件 |
+|---------|--------|------|------|------|
+| ASTAP | `astap` | 高速（1-2秒/タイル） | 高（< 20 arcsec/pixel） | ASTAP + 星データベース |
+| Astrometry.net Online | `astrometry` | 低速（1-5分/タイル） | 非常に高（超広角対応） | APIキー + インターネット |
+| Astrometry.net Local | `astrometry_local` | 中速（5-30秒/タイル） | 非常に高（超広角対応） | solve-field + 星カタログ |
+
+### 使用例
+
+```bash
+# ASTAP（デフォルト）
+python3 python/main.py --input image.fits --output solved.fits --solver astap
+
+# Astrometry.net Online API
+python3 python/main.py --input image.fits --output solved.fits --solver astrometry
+
+# Astrometry.net Local
+python3 python/main.py --input image.fits --output solved.fits --solver astrometry_local
+
+# フォールバック付き（ASTAP失敗時にAstrometry.net Onlineで再試行）
+python3 python/main.py --input image.fits --output solved.fits \
+  --solver astap --fallback-solver astrometry
+
+# 超広角向け（ローカル→オンラインのフォールバック）
+python3 python/main.py --input wide.fits --output solved.fits \
+  --solver astrometry_local --fallback-solver astrometry
+```
+
+### 設定ファイル（config/settings.json）
+
+各ソルバーの設定は `config/settings.json` で管理します。詳細は [Astrometry.net セットアップガイド](docs/ASTROMETRY_NET_SETUP.md) を参照してください。
+
 ## 制限事項
 
-- ASTAPが必須（他のプレートソルバーは未対応）
 - 超広角レンズの歪み補正は未実装（線形WCSのみ）
 
 ## 重要な仕様と実装詳細
@@ -838,9 +874,9 @@ XISF File → xisf.XISF.read()
 
 ### 制限事項
 
-1. **ASTAPのみサポート**
-   - 現在はASTAPのみ対応（Astrometry.netは未対応）
-   - ASTAPのインストールと星データベースが必須
+1. **ソルバー依存**
+   - 各ソルバーは個別のインストールが必要
+   - ASTAP: 星データベース必須、Astrometry.net Local: solve-fieldと星カタログ必須
 
 2. **線形WCSのみ**
    - SIP歪み補正は未実装

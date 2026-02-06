@@ -14,10 +14,37 @@ from typing import Dict
 import numpy as np
 
 from image_splitter import ImageSplitter, load_image
-from astap_solver import ASTAPSolver
+from solvers.factory import create_solver
 from wcs_integrator import WCSIntegrator
 from fits_handler import FITSHandler
 from utils.logger import setup_logger, get_logger
+
+
+def _build_solver_config(solver_type: str, args, config: Dict) -> Dict:
+    """ソルバー種別に応じた設定辞書を構築する"""
+    if solver_type == 'astap':
+        astap_path = args.astap_path or config.get('astap', {}).get('executable_path')
+        if not astap_path:
+            raise ValueError("ASTAP executable path not specified. Use --astap-path or config file.")
+        return {
+            'astap_executable_path': astap_path,
+            'database_path': args.astap_db or config.get('astap', {}).get('database_path'),
+            'timeout': args.astap_timeout,
+            'search_radius': config.get('astap', {}).get('search_radius', 10.0),
+        }
+    elif solver_type == 'astrometry':
+        return {
+            'api_key': config.get('astrometry', {}).get('api_key', ''),
+            'timeout': config.get('astrometry', {}).get('timeout', 900),
+        }
+    elif solver_type == 'astrometry_local':
+        return {
+            'solve_field_path': config.get('astrometry_local', {}).get('solve_field_path'),
+            'timeout': config.get('astrometry_local', {}).get('timeout', 600),
+            'search_radius': config.get('astrometry_local', {}).get('search_radius', 10.0),
+        }
+    else:
+        raise ValueError(f"Unknown solver type: {solver_type}")
 
 
 def load_config(config_path: Path) -> Dict:
@@ -63,6 +90,22 @@ def main():
         type=int,
         default=100,
         help='オーバーラップピクセル数 [デフォルト: 100]'
+    )
+
+    # ソルバー選択
+    parser.add_argument(
+        '--solver',
+        type=str,
+        default='astap',
+        choices=['astap', 'astrometry', 'astrometry_local'],
+        help='使用するプレートソルバー [デフォルト: astap]'
+    )
+    parser.add_argument(
+        '--fallback-solver',
+        type=str,
+        default=None,
+        choices=['astap', 'astrometry', 'astrometry_local'],
+        help='フォールバックソルバー [デフォルト: None]'
     )
 
     # ASTAP設定
@@ -169,10 +212,11 @@ def main():
     config_path = Path(args.config)
     config = load_config(config_path)
 
-    # ASTAP パスを決定
-    astap_path = args.astap_path or config.get('astap', {}).get('executable_path')
-    if not astap_path:
-        logger.error("ASTAP executable path not specified. Use --astap-path or config file.")
+    # ソルバー設定の決定
+    try:
+        solver_config = _build_solver_config(args.solver, args, config)
+    except ValueError as e:
+        logger.error(str(e))
         return 1
 
     # 入出力パス
@@ -245,14 +289,8 @@ def main():
         logger.info(f"Image split into {len(split_files)} tiles")
 
         # Step 3: 各分割画像をプレートソルブ
-        logger.info("\n[Step 3/6] Plate solving tiles with ASTAP...")
-        search_radius = config.get('astap', {}).get('search_radius', 10.0)
-        solver = ASTAPSolver(
-            astap_executable_path=astap_path,
-            database_path=args.astap_db or config.get('astap', {}).get('database_path'),
-            timeout=args.astap_timeout,
-            search_radius=search_radius
-        )
+        logger.info(f"\n[Step 3/6] Plate solving tiles with {args.solver}...")
+        solver = create_solver(args.solver, **solver_config)
 
         # 焦点距離とピクセルスケールから視野角を推定
         # 注: 超広角フィールドの場合、FOVヒントを指定することでASTAPの検索範囲が適切になる
@@ -360,8 +398,54 @@ def main():
         logger.info(f"Plate solving completed: {success_count}/{len(split_files)} successful")
 
         if success_count == 0:
-            logger.error("All tile solves failed")
-            return 1
+            if args.fallback_solver:
+                logger.info(f"Primary solver '{args.solver}' failed for all tiles. Trying fallback: {args.fallback_solver}")
+                try:
+                    fallback_config = _build_solver_config(args.fallback_solver, args, config)
+                except ValueError as e:
+                    logger.error(f"Fallback solver config error: {e}")
+                    return 1
+                fallback_solver = create_solver(args.fallback_solver, **fallback_config)
+
+                # フォールバックソルバーで再試行
+                if ra_hint is not None and dec_hint is not None and pixel_scale:
+                    # タイルごとのヒント付きソルブ（tile_hints, as_completedは既に定義済み）
+                    solve_results = {}
+                    with ThreadPoolExecutor(max_workers=4) as executor:
+                        future_to_tile = {}
+                        for sf, (tile_ra, tile_dec) in zip(split_files, tile_hints):
+                            future = executor.submit(
+                                fallback_solver.solve_image,
+                                sf['file_path'],
+                                fov_hint=fov_hint,
+                                ra_hint=tile_ra,
+                                dec_hint=tile_dec
+                            )
+                            future_to_tile[future] = sf['file_path']
+
+                        for future in as_completed(future_to_tile):
+                            path = future_to_tile[future]
+                            try:
+                                result = future.result()
+                                solve_results[str(path)] = result
+                            except Exception as e:
+                                logger.error(f"Exception solving {path} with fallback: {e}")
+                                solve_results[str(path)] = {
+                                    'success': False, 'wcs': None,
+                                    'error_message': str(e),
+                                    'file_path': path, 'solve_time': 0
+                                }
+                else:
+                    # ヒントなしのバッチソルブ
+                    tile_paths = [sf['file_path'] for sf in split_files]
+                    solve_results = fallback_solver.batch_solve(tile_paths, max_workers=4, fov_hint=fov_hint)
+
+                success_count = sum(1 for r in solve_results.values() if r['success'])
+                logger.info(f"Fallback solver completed: {success_count}/{len(split_files)} successful")
+
+            if success_count == 0:
+                logger.error("All tile solves failed (including fallback)")
+                return 1
 
         # Step 4: WCS情報を収集
         logger.info("\n[Step 4/6] Collecting WCS information...")
@@ -369,7 +453,11 @@ def main():
         solve_results_list = []
         filtered_regions = []
 
-        for sf, result in zip(split_files, solve_results.values()):
+        for sf in split_files:
+            result = solve_results.get(str(sf['file_path']))
+            if result is None:
+                logger.warning(f"No result for tile {sf['region']['index']}")
+                continue
             if result['success']:
                 split_wcs_list.append(result['wcs'])
                 solve_results_list.append(result)

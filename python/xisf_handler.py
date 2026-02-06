@@ -372,6 +372,44 @@ class XISFHandler:
         else:
             keywords['EQUINOX'] = 2000.0
 
+        # SIP歪み補正係数
+        if wcs.sip is not None:
+            sip = wcs.sip
+            if sip.a is not None:
+                order = sip.a_order
+                keywords['A_ORDER'] = int(order)
+                for i in range(order + 1):
+                    for j in range(order + 1 - i):
+                        if i + j >= 2:  # SIPは2次以上
+                            val = float(sip.a[i, j])
+                            if val != 0.0:
+                                keywords[f'A_{i}_{j}'] = val
+            if sip.b is not None:
+                order = sip.b_order
+                keywords['B_ORDER'] = int(order)
+                for i in range(order + 1):
+                    for j in range(order + 1 - i):
+                        if i + j >= 2:
+                            val = float(sip.b[i, j])
+                            if val != 0.0:
+                                keywords[f'B_{i}_{j}'] = val
+            if sip.ap is not None:
+                order = sip.ap_order
+                keywords['AP_ORDER'] = int(order)
+                for i in range(order + 1):
+                    for j in range(order + 1 - i):
+                        val = float(sip.ap[i, j])
+                        if val != 0.0:
+                            keywords[f'AP_{i}_{j}'] = val
+            if sip.bp is not None:
+                order = sip.bp_order
+                keywords['BP_ORDER'] = int(order)
+                for i in range(order + 1):
+                    for j in range(order + 1 - i):
+                        val = float(sip.bp[i, j])
+                        if val != 0.0:
+                            keywords[f'BP_{i}_{j}'] = val
+
         # プレートソルブ済みフラグ
         keywords['PLTSOLVD'] = 'T'
 
@@ -380,7 +418,7 @@ class XISFHandler:
     @staticmethod
     def _fits_keywords_to_wcs(fits_keywords: Dict) -> Optional[WCS]:
         """
-        FITSキーワード辞書からWCSオブジェクトを構築
+        FITSキーワード辞書からWCSオブジェクトを構築（SIP歪み補正対応）
         """
         try:
             # 必須キーワードの確認
@@ -390,14 +428,15 @@ class XISFHandler:
 
             wcs = WCS(naxis=2)
 
+            crpix = [
+                float(fits_keywords['CRPIX1']),
+                float(fits_keywords['CRPIX2'])
+            ]
             wcs.wcs.crval = [
                 float(fits_keywords['CRVAL1']),
                 float(fits_keywords['CRVAL2'])
             ]
-            wcs.wcs.crpix = [
-                float(fits_keywords['CRPIX1']),
-                float(fits_keywords['CRPIX2'])
-            ]
+            wcs.wcs.crpix = crpix
 
             # CD matrix
             if all(k in fits_keywords for k in ['CD1_1', 'CD1_2', 'CD2_1', 'CD2_2']):
@@ -426,6 +465,50 @@ class XISFHandler:
                 wcs.wcs.equinox = float(fits_keywords['EQUINOX'])
             else:
                 wcs.wcs.equinox = 2000.0
+
+            # SIP歪み補正係数の読み込み
+            has_sip = ('A_ORDER' in fits_keywords and 'B_ORDER' in fits_keywords)
+            if has_sip:
+                from astropy.wcs import Sip
+
+                a_order = int(fits_keywords['A_ORDER'])
+                b_order = int(fits_keywords['B_ORDER'])
+                sip_order = max(a_order, b_order)
+
+                a = np.zeros((sip_order + 1, sip_order + 1))
+                b = np.zeros((sip_order + 1, sip_order + 1))
+
+                for i in range(sip_order + 1):
+                    for j in range(sip_order + 1 - i):
+                        if i + j >= 2:
+                            key_a = f'A_{i}_{j}'
+                            key_b = f'B_{i}_{j}'
+                            if key_a in fits_keywords:
+                                a[i, j] = float(fits_keywords[key_a])
+                            if key_b in fits_keywords:
+                                b[i, j] = float(fits_keywords[key_b])
+
+                # 逆SIP係数
+                ap = np.zeros((sip_order + 1, sip_order + 1))
+                bp = np.zeros((sip_order + 1, sip_order + 1))
+
+                if 'AP_ORDER' in fits_keywords:
+                    ap_order = int(fits_keywords['AP_ORDER'])
+                    for i in range(ap_order + 1):
+                        for j in range(ap_order + 1 - i):
+                            key = f'AP_{i}_{j}'
+                            if key in fits_keywords:
+                                ap[i, j] = float(fits_keywords[key])
+
+                if 'BP_ORDER' in fits_keywords:
+                    bp_order = int(fits_keywords['BP_ORDER'])
+                    for i in range(bp_order + 1):
+                        for j in range(bp_order + 1 - i):
+                            key = f'BP_{i}_{j}'
+                            if key in fits_keywords:
+                                bp[i, j] = float(fits_keywords[key])
+
+                wcs.sip = Sip(a, b, ap, bp, crpix)
 
             return wcs
 
