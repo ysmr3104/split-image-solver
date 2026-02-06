@@ -255,7 +255,7 @@ def main():
         )
 
         # 焦点距離とピクセルスケールから視野角を推定
-        # 注: FOVヒントを指定しない方がASTAPの自動検出が正確に動作する場合がある
+        # 注: 超広角フィールドの場合、FOVヒントを指定することでASTAPの検索範囲が適切になる
         fov_hint = None
         pixel_scale = args.pixel_scale  # arcsec/pixel
         focal_length = args.focal_length  # mm
@@ -274,9 +274,9 @@ def main():
         if pixel_scale:
             tile_width_pixels = split_files[0]['region']['x_end'] - split_files[0]['region']['x_start']
             tile_fov = (pixel_scale * tile_width_pixels) / 3600.0  # arcsec -> degrees
-            # FOVヒントは使用しない（ASTAPの自動検出の方が精度が高い）
-            # fov_hint = tile_fov
-            logger.info(f"Pixel scale: {pixel_scale:.2f} arcsec/pixel, estimated tile FOV: {tile_fov:.1f}° (not used as hint)")
+            # FOVヒントを使用して、ASTAPの検索範囲を分割後のタイルサイズに合わせる
+            fov_hint = tile_fov
+            logger.info(f"Pixel scale: {pixel_scale:.2f} arcsec/pixel, tile FOV: {tile_fov:.1f}° (using as hint)")
         elif focal_length:
             # 焦点距離からピクセルスケールとFOVを計算
             # ピクセルピッチ = センサー幅 / 画像幅
@@ -287,9 +287,9 @@ def main():
 
             tile_width_pixels = split_files[0]['region']['x_end'] - split_files[0]['region']['x_start']
             tile_fov = (pixel_scale * tile_width_pixels) / 3600.0  # degrees
-            # FOVヒントは使用しない（ASTAPの自動検出の方が精度が高い）
-            # fov_hint = tile_fov
-            logger.info(f"Calculated from FOCALLEN={focal_length}mm: pixel_scale={pixel_scale:.2f} arcsec/pixel, estimated tile FOV={tile_fov:.1f}° (not used as hint)")
+            # FOVヒントを使用して、ASTAPの検索範囲を分割後のタイルサイズに合わせる
+            fov_hint = tile_fov
+            logger.info(f"Calculated from FOCALLEN={focal_length}mm: pixel_scale={pixel_scale:.2f} arcsec/pixel, tile FOV={tile_fov:.1f}° (using as hint)")
 
         # RA/DECヒント
         ra_hint = args.ra  # degrees (画像全体の中心)
