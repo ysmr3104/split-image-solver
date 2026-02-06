@@ -1,0 +1,35 @@
+{
+  "astap": {
+    "executable_path": "/usr/local/bin/astap",
+    "database_path": "/usr/local/share/astap",
+    "timeout_seconds": 300,
+    "downsample_factor": 1,
+    "search_radius": 5
+  },
+  "splitting": {
+    "default_grid": "2x2",
+    "default_overlap_pixels": 100,
+    "min_overlap_pixels": 50,
+    "max_overlap_pixels": 500
+  },
+  "wcs_integration": {
+    "method": "weighted_least_squares",
+    "overlap_tolerance_arcsec": 5.0,
+    "control_points_per_tile": 25,
+    "enable_distortion_correction": false
+  },
+  "python": {
+    "script_path": "./python/main.py",
+    "python_executable": "python3"
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "/tmp/split_image_solver.log",
+    "console_output": true
+  },
+  "temp_files": {
+    "keep_on_error": true,
+    "keep_on_success": false,
+    "directory": "/tmp/split_image_solver"
+  }
+}
