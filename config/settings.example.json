@@ -1,13 +1,11 @@
 {
-  "astap": {
-    "executable_path": "/usr/local/bin/astap",
-    "database_path": "/usr/local/share/astap",
-    "timeout_seconds": 300,
-    "downsample_factor": 1,
-    "search_radius": 5
+  "astrometry_local": {
+    "solve_field_path": null,
+    "timeout": 600,
+    "search_radius": 10.0
   },
   "splitting": {
-    "default_grid": "2x2",
+    "default_grid": "3x3",
     "default_overlap_pixels": 100,
     "min_overlap_pixels": 50,
     "max_overlap_pixels": 500

@@ -61,7 +61,7 @@ htmlcov/
 *.fts
 *.xisf
 
-# ASTAP temporary files
+# Solver temporary files
 *_wcs.fits
 *.ini
 *.wcs

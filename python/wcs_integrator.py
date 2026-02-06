@@ -37,7 +37,7 @@ class WCSIntegrator:
             original_image_shape: (height, width) 元画像サイズ
             split_regions_info: List[Dict] 分割領域情報（ImageSplitterから）
             split_wcs_list: List[WCS] 各分割のWCS
-            solve_results: List[Dict] ASTAPソルブ結果（品質情報含む）
+            solve_results: List[Dict] プレートソルブ結果（品質情報含む）
         """
         self.original_height, self.original_width = original_image_shape
         self.split_regions = split_regions_info

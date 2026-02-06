@@ -40,7 +40,7 @@ try:
     print("✨ XISF形式のサポートは正常に動作しています！")
     print()
     print("次のステップ:")
-    print("  1. ASTAPをインストール: https://www.hnsky.org/astap.htm")
+    print("  1. solve-fieldをインストール: brew install astrometry-net")
     print("  2. 実際のプレートソルブを実行")
     
 except Exception as e:
