@@ -137,6 +137,13 @@ def main():
         help='ログファイルパス'
     )
 
+    # 出力形式
+    parser.add_argument(
+        '--json-output',
+        action='store_true',
+        help='結果をJSON形式で標準出力に出力（PixInsight連携用）'
+    )
+
     # 設定ファイル
     parser.add_argument(
         '--config',
@@ -148,10 +155,12 @@ def main():
     args = parser.parse_args()
 
     # ロガーをセットアップ
+    # --json-output時はstdoutをJSON専用にし、ログはstderrへ
     logger = setup_logger(
         level=args.log_level,
         log_file=args.log_file,
-        console_output=True
+        console_output=True,
+        use_stderr=args.json_output
     )
 
     logger.info("=" * 60)
@@ -171,6 +180,8 @@ def main():
 
     if not input_path.exists():
         logger.error(f"Input file not found: {input_path}")
+        if args.json_output:
+            print(json.dumps({"success": False, "error": f"Input file not found: {input_path}"}))
         return 1
 
     # 一時ディレクトリ
@@ -230,6 +241,8 @@ def main():
 
         if not split_files:
             logger.error("Image splitting failed")
+            if args.json_output:
+                print(json.dumps({"success": False, "error": "Image splitting failed"}))
             return 1
 
         logger.info(f"Image split into {len(split_files)} tiles")
@@ -347,6 +360,8 @@ def main():
 
         if success_count == 0:
             logger.error("All tile solves failed")
+            if args.json_output:
+                print(json.dumps({"success": False, "error": "All tile solves failed"}))
             return 1
 
         # Step 4: WCS情報を収集
@@ -449,10 +464,31 @@ def main():
         logger.info(f"Output: {output_path}")
         logger.info("=" * 60)
 
+        # JSON出力モード（PixInsight連携用）
+        if args.json_output:
+            json_result = {
+                "success": True,
+                "output_path": str(output_path),
+                "tiles_solved": success_count,
+                "tiles_total": len(split_files),
+                "wcs": {
+                    "crval1": float(integrated_wcs.wcs.crval[0]),
+                    "crval2": float(integrated_wcs.wcs.crval[1]),
+                    "pixel_scale": float(pixel_scale) if pixel_scale else None
+                }
+            }
+            print(json.dumps(json_result))
+
         return 0
 
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
+        if args.json_output:
+            json_result = {
+                "success": False,
+                "error": str(e)
+            }
+            print(json.dumps(json_result))
         return 1
 
     finally:
