@@ -13,7 +13,8 @@ def setup_logger(
     name: str = "split_image_solver",
     level: str = "INFO",
     log_file: Optional[str] = None,
-    console_output: bool = True
+    console_output: bool = True,
+    use_stderr: bool = False
 ) -> logging.Logger:
     """
     ロガーをセットアップ
@@ -23,6 +24,7 @@ def setup_logger(
         level: ログレベル (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_file: ログファイルパス (Noneの場合はファイル出力なし)
         console_output: コンソール出力を有効にするか
+        use_stderr: Trueの場合、コンソール出力をstderrに送る（--json-output用）
 
     Returns:
         logging.Logger: 設定されたロガー
@@ -41,7 +43,7 @@ def setup_logger(
 
     # コンソールハンドラー
     if console_output:
-        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler = logging.StreamHandler(sys.stderr if use_stderr else sys.stdout)
         console_handler.setLevel(getattr(logging, level.upper()))
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
