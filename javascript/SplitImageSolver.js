@@ -245,10 +245,23 @@ function SolverEngine() {
             console.writeln("<span style='color: #ff6666;'>[PYTHON] " + lines[i] + "</span>");
       }
 
-      //終了コードチェック
+            //終了コードチェック
       if (P.exitCode !== 0) {
          console.warningln("Process exited with code: " + P.exitCode);
-         //stdoutにJSON出力があるか試行
+         
+         // エラー時でもstdoutの内容をデバッグ用に常に表示
+         if (stdout.length > 0) {
+            console.warningln("Process output (stdout):");
+            var lines = stdout.split("
+");
+            var maxLines = 100;
+            for (var i = 0; i < Math.min(lines.length, maxLines); i++)
+               console.warningln(lines[i]);
+            if (lines.length > maxLines)
+               console.warningln("... (" + (lines.length - maxLines) + " lines truncated)");
+         }
+
+         // JSONパースを試みて、もしerrorキーがあればその内容を投げる
          if (stdout.length > 0) {
             try {
                var result = JSON.parse(stdout);
@@ -258,15 +271,6 @@ function SolverEngine() {
             catch (e) {
                if (e.message.indexOf("Solver failed") === 0)
                   throw e;
-
-               // JSONでない場合はエラー内容として表示
-               console.warningln("Process output (stdout):");
-               var lines = stdout.split("\n");
-               var maxLines = 100;
-               for (var i = 0; i < Math.min(lines.length, maxLines); i++)
-                  console.warningln(lines[i]);
-               if (lines.length > maxLines)
-                  console.warningln("... (" + (lines.length - maxLines) + " lines truncated)");
             }
          }
          throw new Error("Solver process exited with code " + P.exitCode);

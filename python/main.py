@@ -494,8 +494,11 @@ def main():
     finally:
         # 一時ファイルのクリーンアップ
         if not args.keep_temp and temp_dir_obj:
-            temp_dir_obj.cleanup()
-            logger.info("Temporary files cleaned up")
+            try:
+                temp_dir_obj.cleanup()
+                logger.info("Temporary files cleaned up")
+            except Exception as e:
+                logger.warning(f"Cleanup failed: {e}")
         elif args.keep_temp:
             logger.info(f"Temporary files kept at: {temp_dir_path}")
 
