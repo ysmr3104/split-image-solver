@@ -7,19 +7,19 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。\
+#feature - id    SplitImageSolver: Utilities > SplitImageSolver
+#feature - info  広角星空画像を分割プレートソルブしWCSを統合します。\
 Pythonバックエンドでastrometry.net照合とWCS統合を行います。
 
 #define VERSION "1.0.0"
 
-#include <pjsr/DataType.jsh>
-   #include <pjsr/StdIcon.jsh>
-   #include <pjsr/StdButton.jsh>
-   #include <pjsr/TextAlign.jsh>
-   #include <pjsr/Sizer.jsh>
-   #include <pjsr/FrameStyle.jsh>
-   #include <pjsr/NumericControl.jsh>
+#include < pjsr / DataType.jsh >
+   #include < pjsr / StdIcon.jsh >
+   #include < pjsr / StdButton.jsh >
+   #include < pjsr / TextAlign.jsh >
+   #include < pjsr / Sizer.jsh >
+   #include < pjsr / FrameStyle.jsh >
+   #include < pjsr / NumericControl.jsh >
    function byteArrayToString(ba) {
       var s = "";
       for (var i = 0; i < ba.length; ++i)
@@ -245,15 +245,14 @@ function SolverEngine() {
             console.writeln("<span style='color: #ff6666;'>[PYTHON] " + lines[i] + "</span>");
       }
 
-            //終了コードチェック
+      //終了コードチェック
       if (P.exitCode !== 0) {
          console.warningln("Process exited with code: " + P.exitCode);
-         
+
          // エラー時でもstdoutの内容をデバッグ用に常に表示
          if (stdout.length > 0) {
             console.warningln("Process output (stdout):");
-            var lines = stdout.split("
-");
+            var lines = stdout.split("\n");
             var maxLines = 100;
             for (var i = 0; i < Math.min(lines.length, maxLines); i++)
                console.warningln(lines[i]);
