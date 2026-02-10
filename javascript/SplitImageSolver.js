@@ -7,19 +7,19 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。\
-   Pythonバックエンドでastrometry.net照合とWCS統合を行います。
+#feature - id    SplitImageSolver: Utilities > SplitImageSolver
+#feature - info  広角星空画像を分割プレートソルブしWCSを統合します。\
+Pythonバックエンドでastrometry.net照合とWCS統合を行います。
 
 #define VERSION "1.0.0"
 
-#include <pjsr/DataType.jsh>
-#include <pjsr/StdIcon.jsh>
-#include <pjsr/StdButton.jsh>
-#include <pjsr/TextAlign.jsh>
-#include <pjsr/Sizer.jsh>
-#include <pjsr/FrameStyle.jsh>
-#include <pjsr/NumericControl.jsh>
+#include < pjsr / DataType.jsh >
+   #include < pjsr / StdIcon.jsh >
+   #include < pjsr / StdButton.jsh >
+   #include < pjsr / TextAlign.jsh >
+   #include < pjsr / Sizer.jsh >
+   #include < pjsr / FrameStyle.jsh >
+   #include < pjsr / NumericControl.jsh >
    function byteArrayToString(ba) {
       var s = "";
       for (var i = 0; i < ba.length; ++i)
@@ -258,6 +258,15 @@ function SolverEngine() {
             catch (e) {
                if (e.message.indexOf("Solver failed") === 0)
                   throw e;
+
+               // JSONでない場合はエラー内容として表示
+               console.warningln("Process output (stdout):");
+               var lines = stdout.split("\n");
+               var maxLines = 100;
+               for (var i = 0; i < Math.min(lines.length, maxLines); i++)
+                  console.warningln(lines[i]);
+               if (lines.length > maxLines)
+                  console.warningln("... (" + (lines.length - maxLines) + " lines truncated)");
             }
          }
          throw new Error("Solver process exited with code " + P.exitCode);
