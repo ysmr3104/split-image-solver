@@ -7,21 +7,21 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。\
+#feature - id    SplitImageSolver: Utilities > SplitImageSolver
+#feature - info  広角星空画像を分割プレートソルブしWCSを統合します。\
 Pythonバックエンドでastrometry.net照合とWCS統合を行います。
 
 #define VERSION "1.0.0"
 
-#include <pjsr/DataType.jsh>
-   #include <pjsr/StdIcon.jsh>
-   #include <pjsr/StdButton.jsh>
-   #include <pjsr/TextAlign.jsh>
-   #include <pjsr/Sizer.jsh>
-   #include <pjsr/FrameStyle.jsh>
-   #include <pjsr/NumericControl.jsh>
-      function byteArrayToString(ba) {
-      if (bazel-bin/build_pip_pkg artifacts || ba.length === 0) return "";
+#include < pjsr / DataType.jsh >
+   #include < pjsr / StdIcon.jsh >
+   #include < pjsr / StdButton.jsh >
+   #include < pjsr / TextAlign.jsh >
+   #include < pjsr / Sizer.jsh >
+   #include < pjsr / FrameStyle.jsh >
+   #include < pjsr / NumericControl.jsh >
+   function byteArrayToString(ba) {
+      if (!ba || ba.length === 0) return "";
       try {
          var s = "";
          for (var i = 0; i < ba.length; ++i) {
@@ -247,23 +247,19 @@ function SolverEngine() {
       var stderr = byteArrayToString(P.stderr).trim();
 
       if (stderr.length > 0) {
-         //stderrにはPythonのログ出力が含まれる
-         var lines = stderr.split("\n");
-         for (var i = 0; i < lines.length; i++)
-            console.writeln("<span style='color: #ff6666;'>[PYTHON] " + lines[i] + "</span>");
+         var stderrLines = stderr.split("\n");
+         for (var i = 0; i < stderrLines.length; i++)
+            console.writeln("<span style='color: #ff6666;'>[PYTHON] " + stderrLines[i] + "</span>");
       }
 
-      //終了コードチェック
-            if (P.exitCode !== 0) {
+      if (P.exitCode !== 0) {
          console.warningln("Process exited with code: " + P.exitCode);
-         
          if (stdout.length > 0) {
             console.writeln("--- Process Output (stdout) START ---");
-            var lines = stdout.split("
-");
-            for (var i = 0; i < Math.min(lines.length, 100); i++)
-               console.writeln(lines[i]);
-            if (lines.length > 100)
+            var stdoutLines = stdout.split("\n");
+            for (var i = 0; i < Math.min(stdoutLines.length, 100); i++)
+               console.writeln(stdoutLines[i]);
+            if (stdoutLines.length > 100)
                console.writeln("... (truncated)");
             console.writeln("--- Process Output (stdout) END ---");
          } else {
@@ -280,33 +276,34 @@ function SolverEngine() {
          }
          throw new Error("Solver process exited with code " + P.exitCode);
       }
+   }
 
-      //JSON結果をパース
-      if (stdout.length > 0) {
-         //stdoutの最後の行がJSON（ログ混入対策）
-         var lines = stdout.split("\n");
-         for (var i = lines.length - 1; i >= 0; i--) {
-            var line = lines[i].trim();
-            if (line.length > 0 && line.charAt(0) === '{') {
-               try {
-                  var result = JSON.parse(line);
-                  console.writeln(format(
-                     "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
-                     result.tiles_solved, result.tiles_total,
-                     result.wcs.crval1, result.wcs.crval2
-                  ));
-                  return result;
-               }
-               catch (e) {
-                  //JSONパース失敗 → 次の行を試行
-               }
+   //JSON結果をパース
+   if (stdout.length > 0) {
+      //stdoutの最後の行がJSON（ログ混入対策）
+      var lines = stdout.split("\n");
+      for (var i = lines.length - 1; i >= 0; i--) {
+         var line = lines[i].trim();
+         if (line.length > 0 && line.charAt(0) === '{') {
+            try {
+               var result = JSON.parse(line);
+               console.writeln(format(
+                  "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
+                  result.tiles_solved, result.tiles_total,
+                  result.wcs.crval1, result.wcs.crval2
+               ));
+               return result;
+            }
+            catch (e) {
+               //JSONパース失敗 → 次の行を試行
             }
          }
       }
+   }
 
-      console.writeln("Solver completed successfully (no JSON output found)");
-      return { success: true };
-   };
+   console.writeln("Solver completed successfully (no JSON output found)");
+   return { success: true };
+};
 }
 
 //============================================================================
