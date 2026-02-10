@@ -7,20 +7,20 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。\
-   Pythonバックエンドでastrometry.netのsolve-fieldを並列実行し、\
-   分割タイルのWCS情報を統合して元画像に書き込みます。
+#feature - id    SplitImageSolver: Utilities > SplitImageSolver
+#feature - info  広角星空画像を分割プレートソルブしWCSを統合します。\
+Pythonバックエンドでastrometry.netのsolve - fieldを並列実行し、\
+分割タイルのWCS情報を統合して元画像に書き込みます。
 
 #define VERSION "1.0.0"
 
-#include <pjsr/DataType.jsh>
-#include <pjsr/StdIcon.jsh>
-#include <pjsr/StdButton.jsh>
-#include <pjsr/TextAlign.jsh>
-#include <pjsr/Sizer.jsh>
-#include <pjsr/FrameStyle.jsh>
-#include <pjsr/NumericControl.jsh>
+#include < pjsr / DataType.jsh >
+   #include < pjsr / StdIcon.jsh >
+   #include < pjsr / StdButton.jsh >
+   #include < pjsr / TextAlign.jsh >
+   #include < pjsr / Sizer.jsh >
+   #include < pjsr / FrameStyle.jsh >
+   #include < pjsr / NumericControl.jsh >
    // --- Helper Functions ---
    function byteArrayToString(ba) {
       var s = "";
@@ -234,6 +234,9 @@ function SolverEngine() {
       }
 
       //stdout/stderrをコンソールに出力
+      console.writeln("Stdout size: " + P.stdout.length + " bytes");
+      console.writeln("Stderr size: " + P.stderr.length + " bytes");
+
       var stdout = byteArrayToString(P.stdout).trim();
       var stderr = byteArrayToString(P.stderr).trim();
 
