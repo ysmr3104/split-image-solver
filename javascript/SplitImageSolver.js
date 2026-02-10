@@ -20,11 +20,19 @@ Pythonバックエンドでastrometry.net照合とWCS統合を行います。
    #include <pjsr/Sizer.jsh>
    #include <pjsr/FrameStyle.jsh>
    #include <pjsr/NumericControl.jsh>
-   function byteArrayToString(ba) {
-      var s = "";
-      for (var i = 0; i < ba.length; ++i)
-         s += String.fromCharCode(ba.at(i));
-      return s;
+      function byteArrayToString(ba) {
+      if (bazel-bin/build_pip_pkg artifacts || ba.length === 0) return "";
+      try {
+         var s = "";
+         for (var i = 0; i < ba.length; ++i) {
+            var c = ba.at(i);
+            if (c > 0) s += String.fromCharCode(c);
+         }
+         return s;
+      } catch (e) {
+         console.warningln("byteArrayToString failed: " + e.message);
+         return "";
+      }
    }
 
 
@@ -232,7 +240,7 @@ function SolverEngine() {
       }
 
       //stdout/stderrをコンソールに出力
-      console.writeln("Stdout size: " + P.stdout.length + " bytes");
+      console.writeln("Stdout type: " + (typeof P.stdout) + ", size: " + P.stdout.length + " bytes");
       console.writeln("Stderr size: " + P.stderr.length + " bytes");
 
       var stdout = byteArrayToString(P.stdout).trim();
@@ -246,30 +254,28 @@ function SolverEngine() {
       }
 
       //終了コードチェック
-      if (P.exitCode !== 0) {
+            if (P.exitCode !== 0) {
          console.warningln("Process exited with code: " + P.exitCode);
-
-         // エラー時でもstdoutの内容をデバッグ用に常に表示
+         
          if (stdout.length > 0) {
-            console.warningln("Process output (stdout):");
-            var lines = stdout.split("\n");
-            var maxLines = 100;
-            for (var i = 0; i < Math.min(lines.length, maxLines); i++)
-               console.warningln(lines[i]);
-            if (lines.length > maxLines)
-               console.warningln("... (" + (lines.length - maxLines) + " lines truncated)");
+            console.writeln("--- Process Output (stdout) START ---");
+            var lines = stdout.split("
+");
+            for (var i = 0; i < Math.min(lines.length, 100); i++)
+               console.writeln(lines[i]);
+            if (lines.length > 100)
+               console.writeln("... (truncated)");
+            console.writeln("--- Process Output (stdout) END ---");
+         } else {
+            console.warningln("Process output (stdout) is empty.");
          }
 
-         // JSONパースを試みて、もしerrorキーがあればその内容を投げる
          if (stdout.length > 0) {
             try {
                var result = JSON.parse(stdout);
-               if (result.error)
-                  throw new Error("Solver failed: " + result.error);
-            }
-            catch (e) {
-               if (e.message.indexOf("Solver failed") === 0)
-                  throw e;
+               if (result.error) throw new Error("Solver failed: " + result.error);
+            } catch (e) {
+               if (e.message.indexOf("Solver failed") === 0) throw e;
             }
          }
          throw new Error("Solver process exited with code " + P.exitCode);
