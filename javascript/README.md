@@ -18,16 +18,40 @@ cd /path/to/split-image-solver
 pip install -r requirements.txt
 ```
 
-### astrometry.net
+### astrometry.net + netpbm
 
 ローカルの `solve-field` コマンドが利用可能であること。
 macOSの場合:
 
 ```bash
-brew install astrometry-net
+brew install astrometry-net netpbm
 ```
 
-インデックスファイル（4100シリーズ等）もダウンロードしておくこと。
+- `netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します（**必須**）
+- インデックスファイル（星カタログ）のダウンロードも必要です（下記参照）
+
+### インデックスファイル（星カタログ）
+
+`solve-field` がプレートソルブするには、撮影画像の FOV に合ったインデックスファイルが必要です。
+
+**セットアップ手順:**
+
+```bash
+# 1. astrometry.cfg でインデックスファイルの配置先を確認
+cat /opt/homebrew/etc/astrometry.cfg | grep addpath
+# 出力例: addpath /opt/homebrew/share/astrometry/data
+
+# 2. インデックスファイルをダウンロード（35mm レンズの例）
+cd /opt/homebrew/share/astrometry/data
+for i in $(seq 4110 4119); do
+  curl -O http://data.astrometry.net/4100/index-${i}.fits
+done
+
+# 3. ファイルが配置されたか確認
+ls /opt/homebrew/share/astrometry/data/index-41*.fits
+```
+
+焦点距離ごとの推奨インデックスについては [Astrometry.net セットアップガイド](../docs/ASTROMETRY_NET_SETUP.md) を参照してください。
 
 ## インストール
 
@@ -80,7 +104,7 @@ Pythonの実行パスを指定してください:
    - **Grid**: 分割数（2x2, 3x3, 4x4）
    - **Overlap**: タイル間のオーバーラップピクセル数
    - **RA/DEC**: FITSヘッダーから自動取得（手動入力も可能）
-   - **Pixel scale**: 焦点距離・ピクセルサイズから自動計算
+   - **Focal Length / Pixel Pitch**: 焦点距離（mm）とピクセルピッチ（μm）を入力
 5. 「Execute」をクリック
 6. Process Consoleにsolve-fieldのログがリアルタイム表示される
 7. 完了後、画像がWCS情報付きで再読み込みされる
@@ -109,10 +133,13 @@ Pythonの実行パスを指定してください:
 - 未設定の場合、solve-fieldがブラインドソルブを試行（時間がかかる）
 - 手動入力する場合は度（degrees）単位
 
-### Pixel Scale
+### Focal Length / Pixel Pitch
 
-- `FOCALLEN` と `XPIXSZ` から自動計算: `206.265 × XPIXSZ / FOCALLEN`
-- 未設定の場合、solve-fieldがスケール推定を試行
+- **Focal Length（焦点距離）**: レンズの焦点距離（mm 単位）。例: 35mm レンズなら `35`
+- **Pixel Pitch（ピクセルピッチ）**: カメラセンサーのピクセルサイズ（μm 単位）。例: Sony α7III なら `5.93`
+- FITS ヘッダーに `FOCALLEN` / `XPIXSZ` があれば自動取得されます
+- 内部でピクセルスケールを自動計算: `206.265 × PixelPitch / FocalLength` arcsec/pixel
+- 両方の値が入力されていないと Execute ボタンが有効になりません
 
 ## トラブルシューティング
 
@@ -136,11 +163,25 @@ Pythonの実行パスを指定してください:
 - venv環境の場合、`.venv/bin/python`（macOS/Linux）を指定
 - 必要パッケージがインストール済みか確認: `pip install -r requirements.txt`
 
-### ソルブ失敗（0 tiles solved）
+### ソルブ失敗（0 tiles solved / All tile solves failed）
 
-- インデックスファイルがインストールされているか確認
+**インデックスファイル関連（最も多い原因）:**
+
+1. `astrometry.cfg` の `addpath` を確認:
+   ```bash
+   cat /opt/homebrew/etc/astrometry.cfg | grep addpath
+   ```
+2. `addpath` が指すディレクトリにインデックスファイルがあるか確認:
+   ```bash
+   ls /opt/homebrew/share/astrometry/data/index-41*.fits
+   ```
+3. ファイルがなければ[セットアップガイド](../docs/ASTROMETRY_NET_SETUP.md)に従ってダウンロード
+
+**その他の原因:**
+
 - 画像のFOVに対してグリッドが細かすぎないか確認（タイルのFOVが小さすぎるとソルブ失敗しやすい）
 - RA/DEC ヒントを手動で入力してみる
+- `netpbm` がインストールされているか確認: `brew install netpbm`
 
 ## 技術仕様
 

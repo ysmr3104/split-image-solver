@@ -18,7 +18,8 @@ PixInsightの ImageSolver では対応できない超広角な範囲の星空画
 
 - **Python 3.8以降**
 - **Astrometry.net（solve-field）** - ローカルプレートソルバー
-  - インストール: `brew install astrometry-net`（macOS）
+  - インストール: `brew install astrometry-net netpbm`（macOS）
+  - `netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します
   - 星カタログ（インデックスファイル）が必要
   - 詳細: [セットアップガイド](docs/ASTROMETRY_NET_SETUP.md)
 
@@ -74,7 +75,7 @@ solve-field --help
 **macOSの場合:**
 
 ```bash
-brew install astrometry-net
+brew install astrometry-net netpbm
 ```
 
 **星カタログのダウンロード:**
@@ -108,6 +109,98 @@ pip install -r requirements.txt
 ```bash
 cp config/settings.example.json config/settings.json
 ```
+
+## PixInsight ユーザー向けクイックスタート
+
+PixInsight から Split Image Solver を使うための手順です。上から順に進めてください。
+
+### 1. リポジトリをクローン
+
+```bash
+git clone https://github.com/yourusername/split-image-solver.git
+cd split-image-solver
+```
+
+### 2. Python 環境をセットアップ
+
+```bash
+make install-dev
+```
+
+これにより `.venv/` 仮想環境が作成され、すべての依存パッケージがインストールされます。
+
+### 3. astrometry-net と netpbm をインストール
+
+```bash
+brew install astrometry-net netpbm
+```
+
+`netpbm` は `solve-field` が内部で使用するため必須です。インストール後、動作確認:
+
+```bash
+solve-field --help
+```
+
+### 4. インデックスファイル（星カタログ）をダウンロード
+
+撮影に使用したレンズの焦点距離に応じたインデックスファイルが必要です。
+
+```bash
+# astrometry.cfg が参照するディレクトリを確認
+cat /opt/homebrew/etc/astrometry.cfg | grep addpath
+# 出力例: addpath /opt/homebrew/share/astrometry/data
+
+# そのディレクトリにインデックスファイルをダウンロード
+# 35mm レンズ（FOV ~60°）の場合: 4100 シリーズ全体
+cd /opt/homebrew/share/astrometry/data
+for i in $(seq 4110 4119); do
+  curl -O http://data.astrometry.net/4100/index-${i}.fits
+done
+```
+
+| レンズ焦点距離 | FOV (フルサイズ) | 必要なインデックス |
+|--------------|-----------------|------------------|
+| 24mm | ~74° | 4110 ~ 4119 |
+| 35mm | ~54° | 4110 ~ 4119 |
+| 50mm | ~40° | 4112 ~ 4118 |
+| 85mm | ~24° | 4115 ~ 4119, 4200 シリーズ |
+
+詳細: [Astrometry.net セットアップガイド](docs/ASTROMETRY_NET_SETUP.md)
+
+### 5. astrometry.cfg の確認
+
+```bash
+cat /opt/homebrew/etc/astrometry.cfg
+```
+
+`addpath` が指すディレクトリにインデックスファイルがあることを確認:
+
+```bash
+ls /opt/homebrew/share/astrometry/data/index-41*.fits
+```
+
+ファイルが表示されれば OK です。
+
+### 6. PixInsight にスクリプトを配置
+
+```bash
+# macOS の場合
+cp javascript/SplitImageSolver.js ~/PixInsight/scripts/
+```
+
+PixInsight を再起動し、**Script > Utilities > SplitImageSolver** から実行可能になります。
+
+### 7. PixInsight で初回実行
+
+1. PixInsight で対象画像を開き、ディスクに保存（File > Save As）
+2. **Script > Utilities > SplitImageSolver** を実行
+3. Settings で Python パスを設定: `.venv/bin/python` のフルパス
+4. Script Directory にリポジトリのルートパスを設定
+5. **Focal Length**（焦点距離 mm）と **Pixel Pitch**（ピクセルピッチ μm）を入力
+6. Grid を **3x3**（広角レンズ推奨）に設定
+7. 「Execute」をクリック
+
+詳細なパラメータ説明は [PixInsight スクリプト README](javascript/README.md) を参照してください。
 
 ## 使い方
 
@@ -251,8 +344,25 @@ FileNotFoundError: solve-field command not found
 
 **原因と解決方法:**
 - **星カタログが不足**: 対象の視野角に合ったインデックスファイルをダウンロード
+- **インデックスファイルのパスが合っていない**: `astrometry.cfg` の `addpath` が指すディレクトリにインデックスファイルがあるか確認（下記参照）
 - **視野が広すぎる**: 分割数を増やす（3x3推奨）
 - **RA/DECヒントを活用**: `--ra` `--dec` `--pixel-scale` を指定して検索範囲を絞る
+
+### インデックスファイルのパスが合わない
+
+`solve-field` がインデックスファイルを見つけられない場合:
+
+```bash
+# 1. astrometry.cfg の場所と addpath を確認
+cat /opt/homebrew/etc/astrometry.cfg | grep addpath
+
+# 2. そのディレクトリにインデックスファイルがあるか確認
+ls /opt/homebrew/share/astrometry/data/index-*.fits
+
+# 3. ファイルがなければダウンロード、または addpath を修正
+```
+
+Homebrew のバージョンアップ等で `addpath` のディレクトリが変わる場合があります。インデックスファイルの実体がある場所を `addpath` に設定してください。
 
 ### オーバーラップ検証失敗
 
