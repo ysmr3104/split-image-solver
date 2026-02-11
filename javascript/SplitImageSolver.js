@@ -97,6 +97,46 @@
       return format("%s%02d %02d %05.2f", sign, degrees, minutes, seconds);
    }
 
+   // WCS関連のFITSキーワードかどうかを判定
+   function isWCSKeyword(name) {
+      var wcsNames = [
+         "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2",
+         "CD1_1", "CD1_2", "CD2_1", "CD2_2",
+         "CDELT1", "CDELT2", "CROTA1", "CROTA2",
+         "CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2",
+         "RADESYS", "EQUINOX",
+         "A_ORDER", "B_ORDER", "AP_ORDER", "BP_ORDER",
+         "PLTSOLVD"
+      ];
+      for (var i = 0; i < wcsNames.length; i++) {
+         if (name === wcsNames[i]) return true;
+      }
+      // SIP係数: A_i_j, B_i_j, AP_i_j, BP_i_j
+      if (/^[AB]P?_\d+_\d+$/.test(name)) return true;
+      return false;
+   }
+
+   // FITSKeywordの型を値から判定して適切なFITSKeywordオブジェクトを生成
+   function makeFITSKeyword(name, value) {
+      var strVal = value.toString();
+      // 論理値
+      if (strVal === "T" || strVal === "true") {
+         return new FITSKeyword(name, "T", "");
+      }
+      if (strVal === "F" || strVal === "false") {
+         return new FITSKeyword(name, "F", "");
+      }
+      // 文字列型のCTYPE, CUNIT, RADESYS等
+      var stringKeys = ["CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2", "RADESYS", "PLTSOLVD"];
+      for (var i = 0; i < stringKeys.length; i++) {
+         if (name === stringKeys[i]) {
+            return new FITSKeyword(name, "'" + strVal + "'", "");
+         }
+      }
+      // 数値（整数または浮動小数点）
+      return new FITSKeyword(name, strVal, "");
+   }
+
    // 天体名からRA/DECを検索（CDS Sesame name resolver）
    function searchObjectCoordinates(objectName) {
       var encoded = objectName.replace(/ /g, "+");
@@ -290,14 +330,14 @@ function SolverEngine() {
    };
 
    //コマンド配列を構築
-   this.buildCommand = function (inputPath, params) {
+   this.buildCommand = function (inputPath, outputPath, params) {
       var scriptPath = params.scriptDir + "/python/main.py";
 
       var args = [
          params.pythonPath,
          scriptPath,
          "--input", inputPath,
-         "--output", inputPath,    //上書きモード
+         "--output", outputPath,
          "--grid", params.grid,
          "--overlap", params.overlap.toString(),
          "--json-output"
@@ -322,8 +362,8 @@ function SolverEngine() {
    };
 
    //Python main.pyを実行
-   this.execute = function (inputPath, params) {
-      var args = this.buildCommand(inputPath, params);
+   this.execute = function (inputPath, outputPath, params) {
+      var args = this.buildCommand(inputPath, outputPath, params);
 
       console.writeln("<b>Split Image Solver: Executing...</b>");
       console.writeln("Command: " + args.join(" "));
@@ -978,18 +1018,13 @@ function main() {
       return;
    }
 
-   //3. ファイルパスを取得
+   //3. 画像情報を表示
    var filePath = window.filePath;
-   if (filePath.length === 0) {
-      var mb = new MessageBox(
-         "The active image has not been saved to disk.\n" +
-         "Please save the image first (File> Save As).",
-         TITLE, StdIcon_Error, StdButton_Ok);
-      mb.execute();
-      return;
+   if (filePath.length > 0) {
+      console.writeln("Image: " + filePath);
+   } else {
+      console.writeln("Image: (unsaved)");
    }
-
-   console.writeln("Image: " + filePath);
    console.writeln(format("Size: %d x %d", window.mainView.image.width,
       window.mainView.image.height));
 
@@ -1041,31 +1076,85 @@ function main() {
    //7. 設定を保存
    params.save();
 
-   //8. Python main.pyを実行
+   //8. 現在のビュー状態を一時ファイルに保存してPython main.pyを実行
    console.writeln("");
    console.writeln("<b>Starting solver...</b>");
    console.flush();
 
+   // 一時ファイルパスを生成
+   var tmpInput = File.systemTempDirectory + "/split_solver_input.xisf";
+   var tmpOutput = File.systemTempDirectory + "/split_solver_output.xisf";
+
    try {
-      var result = engine.execute(filePath, params);
+      // 現在のビュー状態（編集中のピクセルデータ含む）を一時XISFに保存
+      // FileFormatInstanceを使い、window.filePathを変えないようにする
+      console.writeln("Saving current view to temporary file...");
+      if (File.exists(tmpInput)) File.remove(tmpInput);
+
+      var xisfFormat = new FileFormat("XISF", false/*toRead*/, true/*toWrite*/);
+      var writer = new FileFormatInstance(xisfFormat);
+      if (!writer.create(tmpInput))
+         throw new Error("Failed to create temp file: " + tmpInput);
+      // FITSキーワードをコピー（メタデータ保持のため）
+      writer.keywords = window.keywords;
+      var imgDesc = new ImageDescription;
+      imgDesc.bitsPerSample = 32;
+      imgDesc.ieeefpSampleFormat = true;
+      if (!writer.setOptions(imgDesc))
+         throw new Error("Failed to set image options for temp file");
+      if (!writer.writeImage(window.mainView.image))
+         throw new Error("Failed to write image data to temp file");
+      writer.close();
+      console.writeln("Saved: " + tmpInput);
+
+      var result = engine.execute(tmpInput, tmpOutput, params);
 
       if (result.success) {
-         //9. 成功時: 画像を再読み込み
+         //9. 成功時: WCSキーワードをアクティブウィンドウに直接適用
          console.writeln("");
          console.writeln("<b>Solver completed successfully!</b>");
-         console.writeln("Reloading image...");
+         console.writeln("Applying WCS keywords to active window...");
 
-         //現在のウィンドウを閉じて再度開く
-         var id = window.mainView.id;
-         window.forceClose();
+         if (result.wcs_keywords) {
+            // 既存キーワードからWCS関連を除去
+            var existingKw = window.keywords;
+            var cleanedKw = [];
+            for (var i = 0; i < existingKw.length; i++) {
+               if (!isWCSKeyword(existingKw[i].name)) {
+                  cleanedKw.push(existingKw[i]);
+               }
+            }
 
-         var newWindows = ImageWindow.open(filePath);
-         if (newWindows.length > 0) {
-            newWindows[0].show();
-            console.writeln("Image reloaded with WCS information.");
-         }
-         else {
-            console.warningln("Failed to reopen image. Please open manually: " + filePath);
+            // 新しいWCSキーワードを追加
+            var wcsKeys = result.wcs_keywords;
+            var addedCount = 0;
+            for (var key in wcsKeys) {
+               if (wcsKeys.hasOwnProperty(key)) {
+                  cleanedKw.push(makeFITSKeyword(key, wcsKeys[key]));
+                  addedCount++;
+               }
+            }
+
+            window.keywords = cleanedKw;
+            console.writeln(format("Added %d WCS keywords.", addedCount));
+
+            // アストロメトリックソリューション表示を再生成
+            window.regenerateAstrometricSolution();
+            console.writeln("Astrometric solution applied. View state preserved.");
+         } else {
+            console.warningln("No WCS keywords in result. Falling back to file reload...");
+            // フォールバック: 一時出力ファイルからWCSを読み込み
+            if (File.exists(tmpOutput)) {
+               var id = window.mainView.id;
+               window.forceClose();
+               var newWindows = ImageWindow.open(tmpOutput);
+               if (newWindows.length > 0) {
+                  newWindows[0].show();
+                  console.writeln("Image loaded from solver output.");
+               } else {
+                  console.warningln("Failed to open solver output.");
+               }
+            }
          }
       }
       else {
@@ -1090,6 +1179,11 @@ function main() {
             TITLE, StdIcon_Error, StdButton_Ok);
          mb.execute();
       }
+   }
+   finally {
+      // 一時ファイルのクリーンアップ
+      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
    }
 
    console.writeln("");
