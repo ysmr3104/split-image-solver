@@ -7,19 +7,19 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature - id    SplitImageSolver: Utilities > SplitImageSolver
-#feature - info  広角星空画像を分割プレートソルブしWCSを統合します。\
-Pythonバックエンドでastrometry.net照合とWCS統合を行います。
+#feature-id    SplitImageSolver: Utilities > SplitImageSolver
+#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。Pythonバックエンドでastrometry.net照合とWCS統合を行います。
 
 #define VERSION "1.0.0"
 
-#include < pjsr / DataType.jsh >
-   #include < pjsr / StdIcon.jsh >
-   #include < pjsr / StdButton.jsh >
-   #include < pjsr / TextAlign.jsh >
-   #include < pjsr / Sizer.jsh >
-   #include < pjsr / FrameStyle.jsh >
-   #include < pjsr / NumericControl.jsh >
+#include <pjsr/DataType.jsh>
+#include <pjsr/StdIcon.jsh>
+#include <pjsr/StdButton.jsh>
+#include <pjsr/TextAlign.jsh>
+#include <pjsr/Sizer.jsh>
+#include <pjsr/FrameStyle.jsh>
+#include <pjsr/NumericControl.jsh>
+
    function byteArrayToString(ba) {
       if (!ba || ba.length === 0) return "";
       try {
@@ -238,7 +238,6 @@ function SolverEngine() {
          P.kill();
          throw new Error("Process timed out after 30 minutes");
       }
-
       //stdout/stderrをコンソールに出力
       console.writeln("Stdout type: " + (typeof P.stdout) + ", size: " + P.stdout.length + " bytes");
       console.writeln("Stderr size: " + P.stderr.length + " bytes");
@@ -276,34 +275,32 @@ function SolverEngine() {
          }
          throw new Error("Solver process exited with code " + P.exitCode);
       }
-   }
-
-   //JSON結果をパース
-   if (stdout.length > 0) {
-      //stdoutの最後の行がJSON（ログ混入対策）
-      var lines = stdout.split("\n");
-      for (var i = lines.length - 1; i >= 0; i--) {
-         var line = lines[i].trim();
-         if (line.length > 0 && line.charAt(0) === '{') {
-            try {
-               var result = JSON.parse(line);
-               console.writeln(format(
-                  "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
-                  result.tiles_solved, result.tiles_total,
-                  result.wcs.crval1, result.wcs.crval2
-               ));
-               return result;
-            }
-            catch (e) {
-               //JSONパース失敗 → 次の行を試行
+      // JSONパース（正常終了時またはエラー詳細取得用）
+      if (stdout.length > 0) {
+         //stdoutの最後の行がJSON（ログ混入対策）
+         var lines = stdout.split("\n");
+         for (var i = lines.length - 1; i >= 0; i--) {
+            var line = lines[i].trim();
+            if (line.length > 0 && line.charAt(0) === '{') {
+               try {
+                  var result = JSON.parse(line);
+                  console.writeln(format(
+                     "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
+                     result.tiles_solved, result.tiles_total,
+                     result.wcs.crval1, result.wcs.crval2
+                  ));
+                  return result;
+               }
+               catch (e) {
+                  //JSONパース失敗 → 次の行を試行
+               }
             }
          }
       }
-   }
 
-   console.writeln("Solver completed successfully (no JSON output found)");
-   return { success: true };
-};
+      console.writeln("Solver completed successfully (no JSON output found)");
+      return { success: true };
+   };
 }
 
 //============================================================================
