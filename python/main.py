@@ -270,11 +270,11 @@ def main():
         if pixel_scale:
             tile_width_pixels = split_files[0]['region']['x_end'] - split_files[0]['region']['x_start']
             tile_height_pixels = split_files[0]['region']['y_end'] - split_files[0]['region']['y_start']
-            # 短辺からFOVを計算
-            tile_shorter_pixels = min(tile_width_pixels, tile_height_pixels)
-            tile_fov = (pixel_scale * tile_shorter_pixels) / 3600.0  # arcsec -> degrees
+            # 長辺からFOVを計算（solver側がmax_dimensionで逆算するため一致させる）
+            tile_longer_pixels = max(tile_width_pixels, tile_height_pixels)
+            tile_fov = (pixel_scale * tile_longer_pixels) / 3600.0  # arcsec -> degrees
             fov_hint = tile_fov
-            logger.info(f"Pixel scale: {pixel_scale:.2f} arcsec/pixel, tile FOV (shorter side): {tile_fov:.1f}° (using as hint)")
+            logger.info(f"Pixel scale: {pixel_scale:.2f} arcsec/pixel, tile FOV (longer side): {tile_fov:.1f}° (using as hint)")
         elif focal_length:
             # 焦点距離からピクセルスケールとFOVを計算
             # ピクセルピッチ = センサー幅 / 画像幅
@@ -285,10 +285,11 @@ def main():
 
             tile_width_pixels = split_files[0]['region']['x_end'] - split_files[0]['region']['x_start']
             tile_height_pixels = split_files[0]['region']['y_end'] - split_files[0]['region']['y_start']
-            tile_shorter_pixels = min(tile_width_pixels, tile_height_pixels)
-            tile_fov = (pixel_scale * tile_shorter_pixels) / 3600.0  # degrees
+            # 長辺からFOVを計算（solver側がmax_dimensionで逆算するため一致させる）
+            tile_longer_pixels = max(tile_width_pixels, tile_height_pixels)
+            tile_fov = (pixel_scale * tile_longer_pixels) / 3600.0  # degrees
             fov_hint = tile_fov
-            logger.info(f"Calculated from FOCALLEN={focal_length}mm: pixel_scale={pixel_scale:.2f} arcsec/pixel, tile FOV (shorter side)={tile_fov:.1f}° (using as hint)")
+            logger.info(f"Calculated from FOCALLEN={focal_length}mm: pixel_scale={pixel_scale:.2f} arcsec/pixel, tile FOV (longer side)={tile_fov:.1f}° (using as hint)")
 
         # RA/DECヒント
         ra_hint = args.ra  # degrees (画像全体の中心)
