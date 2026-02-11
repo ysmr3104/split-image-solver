@@ -65,7 +65,8 @@ function SolverParameters() {
    this.overlap = 100;
    this.ra = undefined;
    this.dec = undefined;
-   this.pixelScale = undefined;
+   this.focalLength = undefined;
+   this.pixelPitch = undefined;
 
    //Settings APIから読み込み
    this.load = function () {
@@ -210,9 +211,11 @@ function SolverEngine() {
          args.push("--dec");
          args.push(params.dec.toString());
       }
-      if (params.pixelScale !== undefined && params.pixelScale !== null) {
+      if (params.focalLength !== undefined && params.focalLength !== null
+         && params.pixelPitch !== undefined && params.pixelPitch !== null) {
+         var pixelScale = (206.265 * params.pixelPitch) / params.focalLength;
          args.push("--pixel-scale");
-         args.push(params.pixelScale.toString());
+         args.push(pixelScale.toFixed(4));
       }
 
       return args;
@@ -607,37 +610,85 @@ function ParameterDialog(params, windowInfo) {
    decSizer.add(decUnitLabel);
    decSizer.addStretch();
 
-   var scaleLabel = new Label(coordGroup);
-   scaleLabel.text = "Pixel scale:";
-   scaleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   scaleLabel.setFixedWidth(120);
+   var flLabel = new Label(coordGroup);
+   flLabel.text = "Focal length:";
+   flLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   flLabel.setFixedWidth(120);
 
-   this.scaleEdit = new Edit(coordGroup);
-   this.scaleEdit.text = (params.pixelScale !== undefined && params.pixelScale !== null)
-      ? params.pixelScale.toFixed(2) : "";
-   this.scaleEdit.toolTip = "Pixel scale in arcseconds per pixel (optional)";
-   this.scaleEdit.setFixedWidth(120);
-   this.scaleEdit.onTextUpdated = function () {
-      var v = parseFloat(this.dialog.scaleEdit.text);
-      params.pixelScale = isNaN(v) ? undefined : v;
+   this.focalLengthEdit = new Edit(coordGroup);
+   this.focalLengthEdit.text = (params.focalLength !== undefined && params.focalLength !== null)
+      ? params.focalLength.toString() : "";
+   this.focalLengthEdit.toolTip = "Focal length in mm";
+   this.focalLengthEdit.setFixedWidth(120);
+
+   var flUnitLabel = new Label(coordGroup);
+   flUnitLabel.text = "mm";
+
+   var flSizer = new HorizontalSizer;
+   flSizer.spacing = 4;
+   flSizer.add(flLabel);
+   flSizer.add(this.focalLengthEdit);
+   flSizer.add(flUnitLabel);
+   flSizer.addStretch();
+
+   var ppLabel = new Label(coordGroup);
+   ppLabel.text = "Pixel pitch:";
+   ppLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   ppLabel.setFixedWidth(120);
+
+   this.pixelPitchEdit = new Edit(coordGroup);
+   this.pixelPitchEdit.text = (params.pixelPitch !== undefined && params.pixelPitch !== null)
+      ? params.pixelPitch.toString() : "";
+   this.pixelPitchEdit.toolTip = "Pixel pitch (pixel size) in micrometers";
+   this.pixelPitchEdit.setFixedWidth(120);
+
+   var ppUnitLabel = new Label(coordGroup);
+   ppUnitLabel.text = "\u00B5m";
+
+   // 計算されたピクセルスケール表示ラベル
+   this.scaleInfoLabel = new Label(coordGroup);
+   this.scaleInfoLabel.text = "";
+
+   var ppSizer = new HorizontalSizer;
+   ppSizer.spacing = 4;
+   ppSizer.add(ppLabel);
+   ppSizer.add(this.pixelPitchEdit);
+   ppSizer.add(ppUnitLabel);
+   ppSizer.addSpacing(8);
+   ppSizer.add(this.scaleInfoLabel);
+   ppSizer.addStretch();
+
+   // ピクセルスケール表示とExecuteボタン有効化を更新するヘルパー
+   var dialog = this;
+   var updateScaleAndButton = function () {
+      var fl = parseFloat(dialog.focalLengthEdit.text);
+      var pp = parseFloat(dialog.pixelPitchEdit.text);
+      params.focalLength = isNaN(fl) ? undefined : fl;
+      params.pixelPitch = isNaN(pp) ? undefined : pp;
+      if (!isNaN(fl) && fl > 0 && !isNaN(pp) && pp > 0) {
+         var ps = (206.265 * pp) / fl;
+         dialog.scaleInfoLabel.text = format("(%.2f arcsec/px)", ps);
+         dialog.execButton.enabled = true;
+      } else {
+         dialog.scaleInfoLabel.text = "";
+         dialog.execButton.enabled = false;
+      }
    };
 
-   var scaleUnitLabel = new Label(coordGroup);
-   scaleUnitLabel.text = "arcsec/px";
-
-   var scaleSizer = new HorizontalSizer;
-   scaleSizer.spacing = 4;
-   scaleSizer.add(scaleLabel);
-   scaleSizer.add(this.scaleEdit);
-   scaleSizer.add(scaleUnitLabel);
-   scaleSizer.addStretch();
+   this.focalLengthEdit.onTextUpdated = function () {
+      updateScaleAndButton();
+   };
+   this.pixelPitchEdit.onTextUpdated = function () {
+      updateScaleAndButton();
+   };
 
    coordGroup.sizer = new VerticalSizer;
    coordGroup.sizer.margin = 6;
    coordGroup.sizer.spacing = 4;
    coordGroup.sizer.add(raSizer);
    coordGroup.sizer.add(decSizer);
-   coordGroup.sizer.add(scaleSizer);
+   coordGroup.sizer.add(flSizer);
+   coordGroup.sizer.add(ppSizer);
 
    //--- Settings button ---
    this.settingsButton = new PushButton(this);
@@ -658,6 +709,9 @@ function ParameterDialog(params, windowInfo) {
    this.execButton.onClick = function () {
       this.dialog.ok();
    };
+
+   // Focal length と Pixel pitch が両方入力されている場合のみ Execute を有効化
+   updateScaleAndButton();
 
    this.cancelButton = new PushButton(this);
    this.cancelButton.text = "Cancel";
@@ -748,12 +802,14 @@ function main() {
       console.writeln(format("Auto-detected DEC: %.4f deg", metadata.dec));
       params.dec = metadata.dec;
    }
-   if (metadata.pixelScale !== undefined) {
-      console.writeln(format("Auto-detected pixel scale: %.2f arcsec/px", metadata.pixelScale));
-      params.pixelScale = metadata.pixelScale;
-   }
-   if (metadata.focalLength !== undefined)
+   if (metadata.focalLength !== undefined) {
       console.writeln(format("Auto-detected focal length: %.1f mm", metadata.focalLength));
+      params.focalLength = metadata.focalLength;
+   }
+   if (metadata.pixelSize !== undefined) {
+      console.writeln(format("Auto-detected pixel pitch: %.2f \u00B5m", metadata.pixelSize));
+      params.pixelPitch = metadata.pixelSize;
+   }
 
    //6. パラメータダイアログ表示
    var windowInfo = {
