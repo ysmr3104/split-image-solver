@@ -10,7 +10,7 @@
 #feature-id    SplitImageSolver: Utilities > SplitImageSolver
 #feature-info  広角星空画像を分割プレートソルブしWCSを統合します。Pythonバックエンドでastrometry.net照合とWCS統合を行います。
 
-#define VERSION "1.0.0"
+#define VERSION "1.0.1"
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -19,6 +19,11 @@
 #include <pjsr/Sizer.jsh>
 #include <pjsr/FrameStyle.jsh>
 #include <pjsr/NumericControl.jsh>
+
+   // パス内のスペースをシェル用にエスケープ
+   function quotePath(path) {
+      return "'" + path.replace(/'/g, "'\\''") + "'";
+   }
 
    function byteArrayToString(ba) {
       if (!ba || ba.length === 0) return "";
@@ -226,11 +231,16 @@ function SolverEngine() {
       //作業ディレクトリをスクリプトディレクトリに設定
       P.workingDirectory = params.scriptDir;
 
-      //プログラムと引数を設定
-      var program = args[0];
-      var processArgs = args.slice(1);
+      // ExternalProcess.start() はパス内のスペースを正しく扱えないため
+      // /bin/sh -c 経由でクォート付きコマンドを実行する
+      var cmdParts = [];
+      for (var i = 0; i < args.length; i++) {
+         cmdParts.push(quotePath(args[i]));
+      }
+      var shellCmd = cmdParts.join(" ");
+      console.writeln("Shell command: " + shellCmd);
 
-      P.start(program, processArgs);
+      P.start("/bin/sh", ["-c", shellCmd]);
 
       //完了まで待機（タイムアウト: 30分）
       var timeoutMs = 30 * 60 * 1000;
