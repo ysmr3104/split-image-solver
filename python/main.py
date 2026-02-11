@@ -466,6 +466,10 @@ def main():
 
         # JSON出力モード（PixInsight連携用）
         if args.json_output:
+            # 全WCSキーワードを取得（SIP係数含む）
+            from xisf_handler import XISFHandler
+            wcs_keywords = XISFHandler._wcs_to_fits_keywords(integrated_wcs)
+
             json_result = {
                 "success": True,
                 "output_path": str(output_path),
@@ -475,7 +479,8 @@ def main():
                     "crval1": float(integrated_wcs.wcs.crval[0]),
                     "crval2": float(integrated_wcs.wcs.crval[1]),
                     "pixel_scale": float(pixel_scale) if pixel_scale else None
-                }
+                },
+                "wcs_keywords": wcs_keywords
             }
             print(json.dumps(json_result))
 
