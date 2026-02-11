@@ -238,11 +238,18 @@ function SolverEngine() {
          cmdParts.push(quotePath(args[i]));
       }
 
+      // macOS GUIアプリはHomebrew等のPATHを持たないため、
+      // Python実行ファイルのディレクトリとHomebrewパスをPATHに追加
+      var pythonDir = File.extractDirectory(params.pythonPath);
+      var pathPrefix = "export PATH="
+         + quotePath(pythonDir)
+         + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
+
       // ExternalProcess が /bin/sh 子プロセスの出力をキャプチャできない場合に備え
       // stdout/stderr をテンポラリファイルにリダイレクトして読み戻す
       var stdoutFile = File.systemTempDirectory + "/split_solver_stdout.log";
       var stderrFile = File.systemTempDirectory + "/split_solver_stderr.log";
-      var shellCmd = cmdParts.join(" ")
+      var shellCmd = pathPrefix + cmdParts.join(" ")
          + " > " + quotePath(stdoutFile)
          + " 2> " + quotePath(stderrFile);
       console.writeln("Shell command: " + shellCmd);
