@@ -40,6 +40,106 @@
       }
    }
 
+   // RA入力をパース（HMS "HH MM SS.ss" / "HH:MM:SS.ss" または度数）
+   function parseRAInput(text) {
+      text = text.trim();
+      if (text.length === 0) return undefined;
+      var parts = text.split(/[\s:]+/);
+      if (parts.length >= 3) {
+         var h = parseFloat(parts[0]);
+         var m = parseFloat(parts[1]);
+         var s = parseFloat(parts[2]);
+         if (!isNaN(h) && !isNaN(m) && !isNaN(s))
+            return (h + m / 60.0 + s / 3600.0) * 15.0;
+      }
+      var v = parseFloat(text);
+      return isNaN(v) ? undefined : v;
+   }
+
+   // DEC入力をパース（DMS "±DD MM SS.ss" / "±DD:MM:SS.ss" または度数）
+   function parseDECInput(text) {
+      text = text.trim();
+      if (text.length === 0) return undefined;
+      var sign = 1;
+      if (text.charAt(0) === '-') { sign = -1; text = text.substring(1); }
+      else if (text.charAt(0) === '+') { text = text.substring(1); }
+      var parts = text.split(/[\s:]+/);
+      if (parts.length >= 3) {
+         var d = parseFloat(parts[0]);
+         var m = parseFloat(parts[1]);
+         var s = parseFloat(parts[2]);
+         if (!isNaN(d) && !isNaN(m) && !isNaN(s))
+            return sign * (d + m / 60.0 + s / 3600.0);
+      }
+      var v = parseFloat(text);
+      return isNaN(v) ? undefined : sign * v;
+   }
+
+   // 度数をHMS文字列に変換
+   function degreesToHMS(deg) {
+      if (deg < 0) deg += 360;
+      var h = deg / 15.0;
+      var hours = Math.floor(h);
+      var rem = (h - hours) * 60;
+      var minutes = Math.floor(rem);
+      var seconds = (rem - minutes) * 60;
+      return format("%02d %02d %05.2f", hours, minutes, seconds);
+   }
+
+   // 度数をDMS文字列に変換
+   function degreesToDMS(deg) {
+      var sign = deg >= 0 ? "+" : "-";
+      var d = Math.abs(deg);
+      var degrees = Math.floor(d);
+      var rem = (d - degrees) * 60;
+      var minutes = Math.floor(rem);
+      var seconds = (rem - minutes) * 60;
+      return format("%s%02d %02d %05.2f", sign, degrees, minutes, seconds);
+   }
+
+   // 天体名からRA/DECを検索（CDS Sesame name resolver）
+   function searchObjectCoordinates(objectName) {
+      var encoded = objectName.replace(/ /g, "+");
+      var url = "http://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?" + encoded;
+      var tmpFile = File.systemTempDirectory + "/sesame_query.txt";
+
+      var P = new ExternalProcess;
+      P.start("/usr/bin/curl", ["-s", "-o", tmpFile, "-m", "10", url]);
+      if (!P.waitForFinished(15000)) {
+         P.kill();
+         return null;
+      }
+      if (P.exitCode !== 0) return null;
+
+      if (!File.exists(tmpFile)) return null;
+      var content = "";
+      try {
+         content = File.readTextFile(tmpFile);
+         File.remove(tmpFile);
+      } catch (e) {
+         return null;
+      }
+
+      // %J 行から座標を取得: "%J 83.82208 -5.39111 = 05:35:17.30 -05:23:28.0"
+      var lines = content.split("\n");
+      for (var i = 0; i < lines.length; i++) {
+         var line = lines[i].trim();
+         if (line.indexOf("%J") === 0) {
+            var coords = line.substring(2).trim();
+            var eqIdx = coords.indexOf("=");
+            if (eqIdx > 0) coords = coords.substring(0, eqIdx).trim();
+            var parts = coords.split(/\s+/);
+            if (parts.length >= 2) {
+               var ra = parseFloat(parts[0]);
+               var dec = parseFloat(parts[1]);
+               if (!isNaN(ra) && !isNaN(dec))
+                  return { ra: ra, dec: dec };
+            }
+         }
+      }
+      return null;
+   }
+
 
 #define TITLE   "Split Image Solver"
 
@@ -259,10 +359,68 @@ function SolverEngine() {
 
       P.start("/bin/sh", ["-c", shellCmd]);
 
-      //完了まで待機（タイムアウト: 30分）
+      // Process Console の Abort ボタンを有効化
+      console.abortEnabled = true;
+      console.writeln("Press <b>Abort</b> button in Process Console to cancel.");
+      console.flush();
+
+      // ポーリングループで完了を待機（Abort 対応）
       var timeoutMs = 30 * 60 * 1000;
-      if (!P.waitForFinished(timeoutMs)) {
+      var pollIntervalMs = 500;
+      var elapsed = 0;
+      var aborted = false;
+      var lastStderrSize = 0;
+
+      while (elapsed < timeoutMs) {
+         if (P.waitForFinished(pollIntervalMs)) {
+            break; // プロセス完了
+         }
+
+         processEvents();
+
+         if (console.abortRequested) {
+            console.writeln("");
+            console.warningln("<b>Abort requested by user. Killing process...</b>");
+            P.kill();
+            aborted = true;
+            break;
+         }
+
+         // stderr をリアルタイム表示（進捗確認用）
+         try {
+            if (File.exists(stderrFile)) {
+               var currentStderr = File.readTextFile(stderrFile);
+               if (currentStderr.length > lastStderrSize) {
+                  var newOutput = currentStderr.substring(lastStderrSize).trim();
+                  if (newOutput.length > 0) {
+                     var newLines = newOutput.split("\n");
+                     for (var li = 0; li < newLines.length; li++) {
+                        console.writeln("[PYTHON] " + newLines[li]);
+                     }
+                     console.flush();
+                  }
+                  lastStderrSize = currentStderr.length;
+               }
+            }
+         } catch (e) {
+            // ファイル読み込み失敗は無視（書き込み中の競合等）
+         }
+
+         elapsed += pollIntervalMs;
+      }
+
+      console.abortEnabled = false;
+
+      if (aborted) {
+         try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
+         try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
+         throw new Error("Process aborted by user");
+      }
+
+      if (elapsed >= timeoutMs && !P.waitForFinished(0)) {
          P.kill();
+         try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
+         try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
          throw new Error("Process timed out after 30 minutes");
       }
 
@@ -289,10 +447,14 @@ function SolverEngine() {
       console.writeln("Stdout length: " + stdout.length + " chars");
       console.writeln("Stderr length: " + stderr.length + " chars");
 
-      if (stderr.length > 0) {
-         var stderrLines = stderr.split("\n");
-         for (var i = 0; i < stderrLines.length; i++)
-            console.writeln("[PYTHON] " + stderrLines[i]);
+      // ポーリング中にリアルタイム表示されなかった残りの stderr を表示
+      if (stderr.length > lastStderrSize) {
+         var remainingStderr = stderr.substring(lastStderrSize).trim();
+         if (remainingStderr.length > 0) {
+            var stderrLines = remainingStderr.split("\n");
+            for (var i = 0; i < stderrLines.length; i++)
+               console.writeln("[PYTHON] " + stderrLines[i]);
+         }
       }
 
       if (P.exitCode !== 0) {
@@ -558,8 +720,59 @@ function ParameterDialog(params, windowInfo) {
 
    //--- Coordinate hints ---
    var coordGroup = new GroupBox(this);
-   coordGroup.title = "Coordinate Hints (auto-detected)";
+   coordGroup.title = "Coordinate Hints";
 
+   var dialog = this;
+
+   // Object name search
+   var objLabel = new Label(coordGroup);
+   objLabel.text = "Object name:";
+   objLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   objLabel.setFixedWidth(120);
+
+   this.objectNameEdit = new Edit(coordGroup);
+   this.objectNameEdit.toolTip = "Enter object name to search (e.g., M42, NGC2024, Orion Nebula)";
+
+   this.searchButton = new PushButton(coordGroup);
+   this.searchButton.text = "Search";
+   this.searchButton.icon = this.scaledResource(":/icons/find.png");
+   this.searchButton.toolTip = "Search coordinates using CDS Sesame name resolver";
+   this.searchButton.onClick = function () {
+      var name = dialog.objectNameEdit.text.trim();
+      if (name.length === 0) {
+         var mb = new MessageBox("Please enter an object name.",
+            TITLE, StdIcon_Warning, StdButton_Ok);
+         mb.execute();
+         return;
+      }
+      console.writeln("Searching for: " + name + " ...");
+      console.flush();
+      var result = searchObjectCoordinates(name);
+      if (result) {
+         dialog.raEdit.text = degreesToHMS(result.ra);
+         dialog.decEdit.text = degreesToDMS(result.dec);
+         params.ra = result.ra;
+         params.dec = result.dec;
+         console.writeln(format("Found: RA=%s (%.4f\u00B0), DEC=%s (%.4f\u00B0)",
+            degreesToHMS(result.ra), result.ra,
+            degreesToDMS(result.dec), result.dec));
+      } else {
+         var mb = new MessageBox(
+            "Object '" + name + "' not found.\n\n" +
+            "Please check the name and try again.\n" +
+            "Examples: M42, NGC2024, IC434, Vega",
+            TITLE, StdIcon_Warning, StdButton_Ok);
+         mb.execute();
+      }
+   };
+
+   var objSizer = new HorizontalSizer;
+   objSizer.spacing = 4;
+   objSizer.add(objLabel);
+   objSizer.add(this.objectNameEdit, 100);
+   objSizer.add(this.searchButton);
+
+   // RA (HMS format)
    var raLabel = new Label(coordGroup);
    raLabel.text = "RA:";
    raLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -567,24 +780,24 @@ function ParameterDialog(params, windowInfo) {
 
    this.raEdit = new Edit(coordGroup);
    this.raEdit.text = (params.ra !== undefined && params.ra !== null)
-      ? params.ra.toFixed(4) : "";
-   this.raEdit.toolTip = "Right Ascension in degrees (optional)";
-   this.raEdit.setFixedWidth(120);
+      ? degreesToHMS(params.ra) : "";
+   this.raEdit.toolTip = "Right Ascension: HH MM SS.ss (or degrees)";
+   this.raEdit.setFixedWidth(160);
    this.raEdit.onTextUpdated = function () {
-      var v = parseFloat(this.dialog.raEdit.text);
-      params.ra = isNaN(v) ? undefined : v;
+      params.ra = parseRAInput(dialog.raEdit.text);
    };
 
-   var raUnitLabel = new Label(coordGroup);
-   raUnitLabel.text = "deg";
+   var raHintLabel = new Label(coordGroup);
+   raHintLabel.text = "(HH MM SS.ss)";
 
    var raSizer = new HorizontalSizer;
    raSizer.spacing = 4;
    raSizer.add(raLabel);
    raSizer.add(this.raEdit);
-   raSizer.add(raUnitLabel);
+   raSizer.add(raHintLabel);
    raSizer.addStretch();
 
+   // DEC (DMS format)
    var decLabel = new Label(coordGroup);
    decLabel.text = "DEC:";
    decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -592,24 +805,24 @@ function ParameterDialog(params, windowInfo) {
 
    this.decEdit = new Edit(coordGroup);
    this.decEdit.text = (params.dec !== undefined && params.dec !== null)
-      ? params.dec.toFixed(4) : "";
-   this.decEdit.toolTip = "Declination in degrees (optional)";
-   this.decEdit.setFixedWidth(120);
+      ? degreesToDMS(params.dec) : "";
+   this.decEdit.toolTip = "Declination: \u00B1DD MM SS.ss (or degrees)";
+   this.decEdit.setFixedWidth(160);
    this.decEdit.onTextUpdated = function () {
-      var v = parseFloat(this.dialog.decEdit.text);
-      params.dec = isNaN(v) ? undefined : v;
+      params.dec = parseDECInput(dialog.decEdit.text);
    };
 
-   var decUnitLabel = new Label(coordGroup);
-   decUnitLabel.text = "deg";
+   var decHintLabel = new Label(coordGroup);
+   decHintLabel.text = "(\u00B1DD MM SS.ss)";
 
    var decSizer = new HorizontalSizer;
    decSizer.spacing = 4;
    decSizer.add(decLabel);
    decSizer.add(this.decEdit);
-   decSizer.add(decUnitLabel);
+   decSizer.add(decHintLabel);
    decSizer.addStretch();
 
+   // Focal length
    var flLabel = new Label(coordGroup);
    flLabel.text = "Focal length:";
    flLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -631,6 +844,7 @@ function ParameterDialog(params, windowInfo) {
    flSizer.add(flUnitLabel);
    flSizer.addStretch();
 
+   // Pixel pitch
    var ppLabel = new Label(coordGroup);
    ppLabel.text = "Pixel pitch:";
    ppLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -659,7 +873,6 @@ function ParameterDialog(params, windowInfo) {
    ppSizer.addStretch();
 
    // ピクセルスケール表示とExecuteボタン有効化を更新するヘルパー
-   var dialog = this;
    var updateScaleAndButton = function () {
       var fl = parseFloat(dialog.focalLengthEdit.text);
       var pp = parseFloat(dialog.pixelPitchEdit.text);
@@ -685,6 +898,7 @@ function ParameterDialog(params, windowInfo) {
    coordGroup.sizer = new VerticalSizer;
    coordGroup.sizer.margin = 6;
    coordGroup.sizer.spacing = 4;
+   coordGroup.sizer.add(objSizer);
    coordGroup.sizer.add(raSizer);
    coordGroup.sizer.add(decSizer);
    coordGroup.sizer.add(flSizer);
@@ -795,11 +1009,11 @@ function main() {
    var metadata = engine.extractMetadataFromWindow(window);
 
    if (metadata.ra !== undefined) {
-      console.writeln(format("Auto-detected RA: %.4f deg", metadata.ra));
+      console.writeln(format("Auto-detected RA: %s (%.4f\u00B0)", degreesToHMS(metadata.ra), metadata.ra));
       params.ra = metadata.ra;
    }
    if (metadata.dec !== undefined) {
-      console.writeln(format("Auto-detected DEC: %.4f deg", metadata.dec));
+      console.writeln(format("Auto-detected DEC: %s (%.4f\u00B0)", degreesToDMS(metadata.dec), metadata.dec));
       params.dec = metadata.dec;
    }
    if (metadata.focalLength !== undefined) {
@@ -864,13 +1078,18 @@ function main() {
       }
    }
    catch (error) {
-      //10. 失敗時: エラーダイアログ
-      console.criticalln("Error: " + error.message);
-      var mb = new MessageBox(
-         "Solver failed:\n\n" + error.message +
-         "\n\nCheck the Process Console for details.",
-         TITLE, StdIcon_Error, StdButton_Ok);
-      mb.execute();
+      //10. 失敗時
+      if (error.message.indexOf("aborted by user") >= 0) {
+         // Abort はユーザー操作なのでエラーダイアログは出さない
+         console.warningln("Solver aborted by user.");
+      } else {
+         console.criticalln("Error: " + error.message);
+         var mb = new MessageBox(
+            "Solver failed:\n\n" + error.message +
+            "\n\nCheck the Process Console for details.",
+            TITLE, StdIcon_Error, StdButton_Ok);
+         mb.execute();
+      }
    }
 
    console.writeln("");
