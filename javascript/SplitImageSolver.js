@@ -237,7 +237,14 @@ function SolverEngine() {
       for (var i = 0; i < args.length; i++) {
          cmdParts.push(quotePath(args[i]));
       }
-      var shellCmd = cmdParts.join(" ");
+
+      // ExternalProcess が /bin/sh 子プロセスの出力をキャプチャできない場合に備え
+      // stdout/stderr をテンポラリファイルにリダイレクトして読み戻す
+      var stdoutFile = File.systemTempDirectory + "/split_solver_stdout.log";
+      var stderrFile = File.systemTempDirectory + "/split_solver_stderr.log";
+      var shellCmd = cmdParts.join(" ")
+         + " > " + quotePath(stdoutFile)
+         + " 2> " + quotePath(stderrFile);
       console.writeln("Shell command: " + shellCmd);
 
       P.start("/bin/sh", ["-c", shellCmd]);
@@ -248,31 +255,46 @@ function SolverEngine() {
          P.kill();
          throw new Error("Process timed out after 30 minutes");
       }
-      //stdout/stderrをコンソールに出力
-      console.writeln("Stdout type: " + (typeof P.stdout) + ", size: " + P.stdout.length + " bytes");
-      console.writeln("Stderr size: " + P.stderr.length + " bytes");
 
-      var stdout = byteArrayToString(P.stdout).trim();
-      var stderr = byteArrayToString(P.stderr).trim();
+      //テンポラリファイルから出力を読み戻す
+      var stdout = "";
+      var stderr = "";
+      try {
+         if (File.exists(stdoutFile)) {
+            stdout = File.readTextFile(stdoutFile).trim();
+            File.remove(stdoutFile);
+         }
+      } catch (e) {
+         console.warningln("Failed to read stdout log: " + e.message);
+      }
+      try {
+         if (File.exists(stderrFile)) {
+            stderr = File.readTextFile(stderrFile).trim();
+            File.remove(stderrFile);
+         }
+      } catch (e) {
+         console.warningln("Failed to read stderr log: " + e.message);
+      }
+
+      console.writeln("Stdout length: " + stdout.length + " chars");
+      console.writeln("Stderr length: " + stderr.length + " chars");
 
       if (stderr.length > 0) {
          var stderrLines = stderr.split("\n");
          for (var i = 0; i < stderrLines.length; i++)
-            console.writeln("<span style='color: #ff6666;'>[PYTHON] " + stderrLines[i] + "</span>");
+            console.writeln("[PYTHON] " + stderrLines[i]);
       }
 
       if (P.exitCode !== 0) {
          console.warningln("Process exited with code: " + P.exitCode);
          if (stdout.length > 0) {
-            console.writeln("--- Process Output (stdout) START ---");
+            console.writeln("--- stdout START ---");
             var stdoutLines = stdout.split("\n");
             for (var i = 0; i < Math.min(stdoutLines.length, 100); i++)
                console.writeln(stdoutLines[i]);
             if (stdoutLines.length > 100)
                console.writeln("... (truncated)");
-            console.writeln("--- Process Output (stdout) END ---");
-         } else {
-            console.warningln("Process output (stdout) is empty.");
+            console.writeln("--- stdout END ---");
          }
 
          if (stdout.length > 0) {
