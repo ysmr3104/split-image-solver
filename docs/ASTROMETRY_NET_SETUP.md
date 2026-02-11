@@ -5,8 +5,10 @@
 ### macOS（Homebrew）
 
 ```bash
-brew install astrometry-net
+brew install astrometry-net netpbm
 ```
+
+`netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します。
 
 ### Linux（apt）
 

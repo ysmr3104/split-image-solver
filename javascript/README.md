@@ -24,10 +24,11 @@ pip install -r requirements.txt
 macOSの場合:
 
 ```bash
-brew install astrometry-net
+brew install astrometry-net netpbm
 ```
 
-インデックスファイル（4100シリーズ等）もダウンロードしておくこと。
+- `netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します
+- インデックスファイル（4100シリーズ等）もダウンロードしておくこと
 
 ## インストール
 

@@ -77,5 +77,5 @@ PYTHONPATH="." .venv/bin/pytest tests/python/test_image_splitter.py::test_grid_p
 
 ## 外部依存
 
-- **astrometry.net**（`solve-field`）のローカルインストールが必要: macOS では `brew install astrometry-net`
+- **astrometry.net**（`solve-field`）のローカルインストールが必要: macOS では `brew install astrometry-net netpbm`
 - 対象画像の FOV に合った星カタログ（インデックスファイル）のダウンロードが必要
