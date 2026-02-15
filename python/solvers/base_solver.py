@@ -30,7 +30,9 @@ class BasePlateSolver(ABC):
     """
 
     @abstractmethod
-    def solve_image(self, image_path, fov_hint=None, ra_hint=None, dec_hint=None) -> Dict:
+    def solve_image(
+        self, image_path, fov_hint=None, ra_hint=None, dec_hint=None, scale_margin=0.2
+    ) -> Dict:
         """
         単一画像のプレートソルブ
 
@@ -39,6 +41,7 @@ class BasePlateSolver(ABC):
             fov_hint: 視野角ヒント（度）
             ra_hint: 赤経ヒント（度）
             dec_hint: 赤緯ヒント（度）
+            scale_margin: スケール許容マージン（0.2 = ±20%）
 
         Returns:
             Dict: ソルブ結果
