@@ -395,11 +395,139 @@ def main():
                         "solve_time": 0,
                     }
 
-        # 成功数をカウント
+        # 成功数をカウント（1st pass）
         success_count = sum(1 for r in solve_results.values() if r["success"])
         logger.info(
-            f"Plate solving completed: {success_count}/{len(split_files)} successful"
+            f"1st pass completed: {success_count}/{len(split_files)} tiles solved"
         )
+
+        # 2パスソルブ: 成功タイルのWCSから正確なRA/DECヒントを計算して失敗タイルをリトライ
+        # 画像の回転・反転が未知でも、ソルブ済みWCSが実際の座標系を提供する
+        failed_indices = [
+            i
+            for i, sf in enumerate(split_files)
+            if not solve_results.get(str(sf["file_path"]), {}).get("success")
+        ]
+
+        if failed_indices and success_count > 0:
+            logger.info(
+                f"\n[Step 3b/6] 2nd pass: Retrying {len(failed_indices)} failed tiles "
+                f"using WCS-derived hints from {success_count} solved tiles..."
+            )
+
+            # 成功タイルの参照情報を収集
+            success_refs = []
+            for i, sf in enumerate(split_files):
+                result = solve_results.get(str(sf["file_path"]))
+                if result and result["success"]:
+                    region = sf["region"]
+                    cx = (region["x_start"] + region["x_end"]) / 2.0
+                    cy = (region["y_start"] + region["y_end"]) / 2.0
+                    success_refs.append(
+                        {
+                            "index": i,
+                            "cx": cx,
+                            "cy": cy,
+                            "wcs": result["wcs"],
+                            "region": region,
+                            "pixel_scale": result.get("pixel_scale"),
+                        }
+                    )
+
+            # 各失敗タイルに最も近い成功タイルのWCSで正確なRA/DECを計算してリトライ
+            retry_futures = {}
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for idx in failed_indices:
+                    sf = split_files[idx]
+                    region = sf["region"]
+                    tile_cx = (region["x_start"] + region["x_end"]) / 2.0
+                    tile_cy = (region["y_start"] + region["y_end"]) / 2.0
+
+                    # 最も近い成功タイルを参照として選択
+                    nearest = min(
+                        success_refs,
+                        key=lambda ref: np.sqrt(
+                            (tile_cx - ref["cx"]) ** 2 + (tile_cy - ref["cy"]) ** 2
+                        ),
+                    )
+
+                    ref_wcs = nearest["wcs"]
+                    ref_region = nearest["region"]
+
+                    # 失敗タイルの中心を参照タイルのローカル座標に変換
+                    local_x = tile_cx - ref_region["x_start"]
+                    local_y = tile_cy - ref_region["y_start"]
+
+                    # 参照タイルのWCSで天球座標を取得
+                    try:
+                        tile_ra, tile_dec = ref_wcs.pixel_to_world_values(
+                            local_x, local_y
+                        )
+                        tile_ra = float(tile_ra) % 360.0
+                        tile_dec = float(tile_dec)
+                    except Exception as e:
+                        logger.warning(
+                            f"Tile {region['index']}: "
+                            f"WCS hint computation failed: {e}"
+                        )
+                        continue
+
+                    ref_dist = np.sqrt(
+                        (tile_cx - nearest["cx"]) ** 2 + (tile_cy - nearest["cy"]) ** 2
+                    )
+                    logger.info(
+                        f"Tile {region['index']}: WCS hint "
+                        f"RA={tile_ra:.2f}° DEC={tile_dec:+.2f}° "
+                        f"(ref=tile {nearest['region']['index']}, "
+                        f"dist={ref_dist:.0f}px)"
+                    )
+
+                    # 2nd passではスケール制約を外す
+                    # 正確なRA/DECヒントがあるので、solve-fieldに全スケールを
+                    # 探索させた方がインデックスファイルとのマッチ機会が増える
+                    future = executor.submit(
+                        solver.solve_image,
+                        sf["file_path"],
+                        fov_hint=None,
+                        ra_hint=tile_ra,
+                        dec_hint=tile_dec,
+                    )
+                    retry_futures[future] = (idx, sf["file_path"])
+
+                # リトライ結果を収集
+                retry_success = 0
+                for future in as_completed(retry_futures):
+                    idx, path = retry_futures[future]
+                    try:
+                        result = future.result()
+                        if result["success"]:
+                            solve_results[str(path)] = result
+                            retry_success += 1
+                            logger.info(
+                                f"2nd pass OK: tile "
+                                f"{split_files[idx]['region']['index']} "
+                                f"RA={result['ra_center']:.2f}° "
+                                f"DEC={result['dec_center']:+.2f}°"
+                            )
+                        else:
+                            logger.debug(
+                                f"2nd pass fail: tile "
+                                f"{split_files[idx]['region']['index']}"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"2nd pass error: tile "
+                            f"{split_files[idx]['region']['index']}: {e}"
+                        )
+
+            logger.info(
+                f"2nd pass: {retry_success}/{len(failed_indices)} "
+                f"additional tiles solved"
+            )
+
+            # 成功数を再計算
+            success_count = sum(1 for r in solve_results.values() if r["success"])
+            logger.info(f"Total: {success_count}/{len(split_files)} tiles solved")
 
         if success_count == 0:
             logger.error("All tile solves failed")
