@@ -201,6 +201,8 @@ class AstrometryLocalSolver(BasePlateSolver):
         ra_hint: Optional[float] = None,
         dec_hint: Optional[float] = None,
         scale_margin: float = 0.2,
+        timeout_override: Optional[int] = None,
+        tweak_order: int = 4,
     ) -> Dict:
         """
         単一画像をプレートソルブ
@@ -254,6 +256,9 @@ class AstrometryLocalSolver(BasePlateSolver):
         else:
             work_path = image_path
 
+        # タイムアウト決定
+        effective_timeout = timeout_override if timeout_override else self.timeout
+
         try:
             # solve-fieldコマンドライン引数を構築
             cmd = [
@@ -262,6 +267,8 @@ class AstrometryLocalSolver(BasePlateSolver):
                 "--no-plots",  # プロットファイル不要
                 "--no-remove-lines",  # 直線除去しない
                 "--no-verify-uniformize",  # 高速化
+                "--crpix-center",  # 歪みの基準点を画像中心に固定
+                "--tweak-order", str(tweak_order),  # SIP多項式次数
                 str(work_path),
             ]
 
@@ -300,7 +307,7 @@ class AstrometryLocalSolver(BasePlateSolver):
                 cmd.extend(["--radius", str(self.search_radius)])
 
             # タイムアウト設定（solve-fieldの--cpulimitオプション）
-            cmd.extend(["--cpulimit", str(self.timeout)])
+            cmd.extend(["--cpulimit", str(effective_timeout)])
 
             logger.debug(f"solve-field command: {' '.join(cmd)}")
 
@@ -310,7 +317,7 @@ class AstrometryLocalSolver(BasePlateSolver):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout
+                timeout=effective_timeout
                 + 10,  # プロセス全体のタイムアウト（cpulimit + 余裕）
             )
             solve_time = time.time() - start_time
@@ -478,13 +485,13 @@ class AstrometryLocalSolver(BasePlateSolver):
                 }
 
         except subprocess.TimeoutExpired:
-            logger.error(f"solve-field timeout after {self.timeout}s for {image_path}")
+            logger.error(f"solve-field timeout after {effective_timeout}s for {image_path}")
             return {
                 "success": False,
                 "wcs": None,
-                "error_message": f"Timeout after {self.timeout} seconds",
+                "error_message": f"Timeout after {effective_timeout} seconds",
                 "file_path": image_path,
-                "solve_time": self.timeout,
+                "solve_time": effective_timeout,
             }
 
         except Exception as e:

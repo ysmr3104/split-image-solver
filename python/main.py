@@ -122,6 +122,23 @@ def main():
     )
     parser.add_argument("--log-file", type=str, help="ログファイルパス")
 
+    # 機材指定
+    parser.add_argument(
+        "--camera",
+        type=str,
+        help="カメラモデル名 (例: 'Sony ILCE-7RM5'). 未指定時はヘッダーから自動検出",
+    )
+    parser.add_argument(
+        "--lens",
+        type=str,
+        help="レンズモデル名 (例: 'Sony FE 14mm f/1.8 GM'). 未指定時は焦点距離から推定",
+    )
+    parser.add_argument(
+        "--equipment-db",
+        type=str,
+        help="機材データベースYAMLパス [デフォルト: config/equipment.yaml]",
+    )
+
     # 出力形式
     parser.add_argument(
         "--json-output",
@@ -215,6 +232,49 @@ def main():
             image_data, original_header = load_image(input_path)
             original_metadata = None
 
+        # Step 1.5: 機材自動検出 + ピクセルスケール計算の準備
+        from utils.equipment import load_equipment_db, detect_equipment_from_header, lookup_camera, lookup_lens
+
+        equipment_db_path = Path(args.equipment_db) if args.equipment_db else None
+        equipment_db = load_equipment_db(equipment_db_path)
+
+        camera_info, lens_info, header_params = detect_equipment_from_header(
+            original_header, equipment_db
+        )
+
+        # CLI引数を取得
+        pixel_scale = args.pixel_scale
+        focal_length = args.focal_length
+        pixel_pitch = args.pixel_pitch
+
+        # CLI 指定があればそちらを優先
+        if args.camera:
+            camera_info = lookup_camera(equipment_db, args.camera)
+            if camera_info:
+                logger.info(f"カメラ (CLI指定): {camera_info.get('display_name', args.camera)}")
+        if args.lens:
+            lenses = equipment_db.get("lenses", {})
+            for name, info in lenses.items():
+                if args.lens.lower() in name.lower():
+                    lens_info = info
+                    logger.info(f"レンズ (CLI指定): {info.get('display_name', args.lens)}")
+                    break
+
+        # 検出結果から pixel_pitch を取得
+        if not pixel_pitch and camera_info:
+            pixel_pitch = camera_info.get("pixel_pitch_um")
+            if pixel_pitch:
+                logger.info(f"Pixel pitch from equipment DB: {pixel_pitch:.2f} μm")
+
+        # 検出結果から焦点距離を取得
+        if not focal_length and header_params.get("focal_length_mm"):
+            focal_length = header_params["focal_length_mm"]
+            logger.info(f"Focal length from header: {focal_length:.1f} mm")
+
+        # F値の表示
+        if header_params.get("f_number"):
+            logger.info(f"F-number from header: f/{header_params['f_number']:.1f}")
+
         # Step 2: 画像を分割
         logger.info("\n[Step 2/6] Splitting image...")
         splitter = ImageSplitter(
@@ -240,24 +300,6 @@ def main():
         # Step 3: 各分割画像をプレートソルブ
         logger.info(f"\n[Step 3/6] Plate solving tiles with astrometry_local...")
         solver = create_solver(**solver_config)
-
-        # 焦点距離とピクセルスケールから視野角を推定
-        pixel_scale = args.pixel_scale  # arcsec/pixel（画像中心でのスケール）
-        focal_length = args.focal_length  # mm
-        pixel_pitch = args.pixel_pitch  # μm
-
-        # コマンドライン引数が指定されていない場合、ヘッダーから取得を試みる
-        if not focal_length:
-            focal_length_raw = original_header.get("FOCALLEN")
-            if focal_length_raw:
-                if isinstance(focal_length_raw, (int, float, str)):
-                    focal_length = float(focal_length_raw)
-                elif isinstance(focal_length_raw, list) and len(focal_length_raw) > 0:
-                    if (
-                        isinstance(focal_length_raw[0], dict)
-                        and "value" in focal_length_raw[0]
-                    ):
-                        focal_length = float(focal_length_raw[0]["value"])
 
         # ピクセルスケールの決定
         if pixel_scale:
@@ -402,7 +444,6 @@ def main():
         )
 
         # 2パスソルブ: 成功タイルのWCSから正確なRA/DECヒントを計算して失敗タイルをリトライ
-        # 画像の回転・反転が未知でも、ソルブ済みWCSが実際の座標系を提供する
         failed_indices = [
             i
             for i, sf in enumerate(split_files)
@@ -417,6 +458,7 @@ def main():
 
             # 成功タイルの参照情報を収集
             success_refs = []
+            success_scales = []
             for i, sf in enumerate(split_files):
                 result = solve_results.get(str(sf["file_path"]))
                 if result and result["success"]:
@@ -433,9 +475,23 @@ def main():
                             "pixel_scale": result.get("pixel_scale"),
                         }
                     )
+                    if result.get("pixel_scale"):
+                        success_scales.append(result["pixel_scale"])
+
+            # 成功タイルのスケール統計（偽陽性フィルタ用）
+            if success_scales:
+                median_scale = float(np.median(success_scales))
+                scale_std = float(np.std(success_scales))
+                logger.info(
+                    f"1st pass scale stats: median={median_scale:.2f}\"/px, "
+                    f"std={scale_std:.2f}\"/px, range={min(success_scales):.2f}-{max(success_scales):.2f}"
+                )
+            else:
+                median_scale = None
 
             # 各失敗タイルに最も近い成功タイルのWCSで正確なRA/DECを計算してリトライ
             retry_futures = {}
+            retry_hints = {}  # 偽陽性フィルタ用にヒントを保存
             with ThreadPoolExecutor(max_workers=4) as executor:
                 for idx in failed_indices:
                     sf = split_files[idx]
@@ -475,40 +531,98 @@ def main():
                     ref_dist = np.sqrt(
                         (tile_cx - nearest["cx"]) ** 2 + (tile_cy - nearest["cy"]) ** 2
                     )
+
+                    # タイル位置での推定スケールから FOV ヒントを計算
+                    # 成功タイルのスケールを基に広めのマージンで制約
+                    retry_fov = tile_fov_hints[idx] if tile_fov_hints[idx] else None
+                    retry_margin = 0.5  # 2nd pass は ±50% の広めマージン
+
                     logger.info(
                         f"Tile {region['index']}: WCS hint "
                         f"RA={tile_ra:.2f}° DEC={tile_dec:+.2f}° "
                         f"(ref=tile {nearest['region']['index']}, "
-                        f"dist={ref_dist:.0f}px)"
+                        f"dist={ref_dist:.0f}px), "
+                        f"FOV hint={retry_fov:.1f}° ±{retry_margin:.0%}"
+                        if retry_fov else
+                        f"Tile {region['index']}: WCS hint "
+                        f"RA={tile_ra:.2f}° DEC={tile_dec:+.2f}° "
+                        f"(ref=tile {nearest['region']['index']}, "
+                        f"dist={ref_dist:.0f}px), no FOV hint"
                     )
 
-                    # 2nd passではスケール制約を外す
-                    # 正確なRA/DECヒントがあるので、solve-fieldに全スケールを
-                    # 探索させた方がインデックスファイルとのマッチ機会が増える
+                    retry_hints[idx] = {
+                        "ra": tile_ra,
+                        "dec": tile_dec,
+                        "fov": retry_fov,
+                    }
+
+                    # 2nd pass: スケール制約付き + 短タイムアウト
                     future = executor.submit(
                         solver.solve_image,
                         sf["file_path"],
-                        fov_hint=None,
+                        fov_hint=retry_fov,
                         ra_hint=tile_ra,
                         dec_hint=tile_dec,
+                        scale_margin=retry_margin,
+                        timeout_override=180,  # 2nd pass は 180s
                     )
                     retry_futures[future] = (idx, sf["file_path"])
 
-                # リトライ結果を収集
+                # リトライ結果を収集（偽陽性フィルタ付き）
                 retry_success = 0
+                retry_rejected = 0
                 for future in as_completed(retry_futures):
                     idx, path = retry_futures[future]
                     try:
                         result = future.result()
                         if result["success"]:
-                            solve_results[str(path)] = result
-                            retry_success += 1
-                            logger.info(
-                                f"2nd pass OK: tile "
-                                f"{split_files[idx]['region']['index']} "
-                                f"RA={result['ra_center']:.2f}° "
-                                f"DEC={result['dec_center']:+.2f}°"
-                            )
+                            # 偽陽性フィルタ: スケールと座標の整合性チェック
+                            hint = retry_hints.get(idx, {})
+                            is_valid = True
+                            reject_reason = ""
+
+                            # スケール整合性: 成功タイルの中央値から大きく外れていないか
+                            if median_scale and result.get("pixel_scale"):
+                                scale_ratio = result["pixel_scale"] / median_scale
+                                if scale_ratio < 0.3 or scale_ratio > 3.0:
+                                    is_valid = False
+                                    reject_reason = (
+                                        f"scale={result['pixel_scale']:.2f}\"/px "
+                                        f"(median={median_scale:.2f}, ratio={scale_ratio:.2f})"
+                                    )
+
+                            # 座標整合性: WCSヒントから大きく離れていないか
+                            if is_valid and hint.get("ra") is not None:
+                                ra_diff = abs(result["ra_center"] - hint["ra"])
+                                if ra_diff > 180:
+                                    ra_diff = 360 - ra_diff
+                                dec_diff = abs(result["dec_center"] - hint["dec"])
+                                coord_diff = np.sqrt(ra_diff**2 + dec_diff**2)
+                                # search_radius の 1.5 倍を超えたら拒否
+                                if coord_diff > solver_config.get("search_radius", 10.0) * 1.5:
+                                    is_valid = False
+                                    reject_reason = (
+                                        f"coord deviation={coord_diff:.1f}° "
+                                        f"(hint RA={hint['ra']:.2f}° DEC={hint['dec']:+.2f}°, "
+                                        f"result RA={result['ra_center']:.2f}° DEC={result['dec_center']:+.2f}°)"
+                                    )
+
+                            if is_valid:
+                                solve_results[str(path)] = result
+                                retry_success += 1
+                                logger.info(
+                                    f"2nd pass OK: tile "
+                                    f"{split_files[idx]['region']['index']} "
+                                    f"RA={result['ra_center']:.2f}° "
+                                    f"DEC={result['dec_center']:+.2f}° "
+                                    f"scale={result.get('pixel_scale', 0):.2f}\"/px"
+                                )
+                            else:
+                                retry_rejected += 1
+                                logger.warning(
+                                    f"2nd pass REJECTED (false positive): tile "
+                                    f"{split_files[idx]['region']['index']} — {reject_reason}"
+                                )
                         else:
                             logger.debug(
                                 f"2nd pass fail: tile "
@@ -521,8 +635,8 @@ def main():
                         )
 
             logger.info(
-                f"2nd pass: {retry_success}/{len(failed_indices)} "
-                f"additional tiles solved"
+                f"2nd pass: {retry_success}/{len(failed_indices)} additional tiles solved"
+                + (f" ({retry_rejected} false positives rejected)" if retry_rejected else "")
             )
 
             # 成功数を再計算

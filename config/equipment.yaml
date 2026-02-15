@@ -1,0 +1,49 @@
+# 機材データベース
+# FITS/XISF ヘッダーの INSTRUME, FOCALLEN, APTDIA からカメラ・レンズを自動判別し、
+# pixel_pitch や lensfun 検索キーを提供する
+
+cameras:
+  # キー: INSTRUME ヘッダー値（完全一致）
+  "Sony ILCE-7RM5":
+    maker: Sony
+    display_name: "Sony α7RV"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM5
+
+  "Sony ILCE-7M3":
+    maker: Sony
+    display_name: "Sony α7III"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 5.93
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M3
+
+lenses:
+  # キー: 任意の識別名。focal_length_mm + camera_makers で自動マッチング
+  "Sony FE 14mm f/1.8 GM":
+    maker: Sony
+    display_name: "SEL14F18GM"
+    type: rectilinear
+    focal_length_mm: 14.0
+    max_aperture: 1.8
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 14mm"
+
+  "Sony FE 35mm f/1.4 GM":
+    maker: Sony
+    display_name: "SEL35F14GM"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 35mm"
