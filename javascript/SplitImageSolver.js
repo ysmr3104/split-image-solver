@@ -1513,12 +1513,36 @@ function main() {
             console.warningln("No WCS keywords in result. Falling back to file reload...");
             // フォールバック: 一時出力ファイルからWCSを読み込み
             if (File.exists(tmpOutput)) {
+               // ウィンドウ位置とSTFを保存
+               var savedPosition = new Point(window.position.x, window.position.y);
+               var savedSTF = [];
+               for (var si = 0; si < window.mainView.stf.length; si++) {
+                  savedSTF.push(window.mainView.stf[si]);
+               }
+               var savedZoom = window.zoomFactor;
+
                var id = window.mainView.id;
                window.forceClose();
                var newWindows = ImageWindow.open(tmpOutput);
                if (newWindows.length > 0) {
-                  newWindows[0].show();
-                  console.writeln("Image loaded from solver output.");
+                  var newWin = newWindows[0];
+                  // STFを復元
+                  try {
+                     newWin.mainView.stf = savedSTF;
+                  } catch (e) {
+                     console.warningln("Failed to restore STF: " + e.message);
+                  }
+                  // ウィンドウ位置を復元
+                  try {
+                     newWin.position = savedPosition;
+                     if (savedZoom !== 0) {
+                        newWin.zoomFactor = savedZoom;
+                     }
+                  } catch (e) {
+                     console.warningln("Failed to restore window position: " + e.message);
+                  }
+                  newWin.show();
+                  console.writeln("Image loaded from solver output (view state restored).");
                } else {
                   console.warningln("Failed to open solver output.");
                }
