@@ -191,6 +191,10 @@
 #define KEY_SCRIPT_DIR     SETTINGS_KEY_PREFIX + "scriptDir"
 #define KEY_GRID           SETTINGS_KEY_PREFIX + "grid"
 #define KEY_OVERLAP        SETTINGS_KEY_PREFIX + "overlap"
+#define KEY_CAMERA         SETTINGS_KEY_PREFIX + "camera"
+#define KEY_LENS           SETTINGS_KEY_PREFIX + "lens"
+#define KEY_FOCAL_LEN      SETTINGS_KEY_PREFIX + "focalLength"
+#define KEY_PIXEL_PITCH    SETTINGS_KEY_PREFIX + "pixelPitch"
 
 //============================================================================
 //SolverParameters - パラメータの保持と永続化
@@ -207,6 +211,9 @@ function SolverParameters() {
    this.dec = undefined;
    this.focalLength = undefined;
    this.pixelPitch = undefined;
+   this.camera = "";
+   this.lens = "";
+   this.equipmentDB = null;
 
    //Settings APIから読み込み
    this.load = function () {
@@ -234,6 +241,30 @@ function SolverParameters() {
          if (val !== null)
             this.overlap = val;
       } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_CAMERA, DataType_String);
+         if (val !== null)
+            this.camera = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_LENS, DataType_String);
+         if (val !== null)
+            this.lens = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_FOCAL_LEN, DataType_Double);
+         if (val !== null)
+            this.focalLength = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_PIXEL_PITCH, DataType_Double);
+         if (val !== null)
+            this.pixelPitch = val;
+      } catch (e) { }
    };
 
    //Settings APIに保存
@@ -242,6 +273,12 @@ function SolverParameters() {
       Settings.write(KEY_SCRIPT_DIR, DataType_String, this.scriptDir);
       Settings.write(KEY_GRID, DataType_String, this.grid);
       Settings.write(KEY_OVERLAP, DataType_Int32, this.overlap);
+      Settings.write(KEY_CAMERA, DataType_String, this.camera || "");
+      Settings.write(KEY_LENS, DataType_String, this.lens || "");
+      if (this.focalLength !== undefined && this.focalLength !== null)
+         Settings.write(KEY_FOCAL_LEN, DataType_Double, this.focalLength);
+      if (this.pixelPitch !== undefined && this.pixelPitch !== null)
+         Settings.write(KEY_PIXEL_PITCH, DataType_Double, this.pixelPitch);
    };
 
    //環境設定が有効かチェック
@@ -261,7 +298,8 @@ function SolverEngine() {
          dec: undefined,
          pixelScale: undefined,
          focalLength: undefined,
-         pixelSize: undefined
+         pixelSize: undefined,
+         instrume: undefined
       };
 
       var keywords = window.keywords;
@@ -288,6 +326,9 @@ function SolverEngine() {
             case "XPIXSZ":
                result.pixelSize = parseFloat(kw.strippedValue);
                break;
+            case "INSTRUME":
+               result.instrume = kw.strippedValue;
+               break;
          }
       }
 
@@ -298,6 +339,62 @@ function SolverEngine() {
       }
 
       return result;
+   };
+
+   //機材データベースをPython経由で取得
+   this.loadEquipmentDB = function (params) {
+      if (!params.isConfigured()) return null;
+
+      var scriptPath = params.scriptDir + "/python/main.py";
+      var stdoutFile = File.systemTempDirectory + "/split_solver_equip_stdout.log";
+      var stderrFile = File.systemTempDirectory + "/split_solver_equip_stderr.log";
+
+      var pythonDir = File.extractDirectory(params.pythonPath);
+      var pathPrefix = "export PATH="
+         + quotePath(pythonDir)
+         + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
+
+      var shellCmd = pathPrefix
+         + quotePath(params.pythonPath) + " "
+         + quotePath(scriptPath) + " --list-equipment"
+         + " > " + quotePath(stdoutFile)
+         + " 2> " + quotePath(stderrFile);
+
+      var P = new ExternalProcess;
+      P.workingDirectory = params.scriptDir;
+      P.start("/bin/sh", ["-c", shellCmd]);
+
+      if (!P.waitForFinished(10000)) {
+         P.kill();
+         console.warningln("Equipment DB load timed out.");
+         return null;
+      }
+
+      if (P.exitCode !== 0) {
+         console.warningln("Equipment DB load failed (exit code " + P.exitCode + ").");
+         try { if (File.exists(stderrFile)) {
+            console.warningln(File.readTextFile(stderrFile));
+         }} catch (e) {}
+         return null;
+      }
+
+      var stdout = "";
+      try {
+         if (File.exists(stdoutFile)) {
+            stdout = File.readTextFile(stdoutFile).trim();
+            File.remove(stdoutFile);
+         }
+      } catch (e) {}
+      try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
+
+      if (stdout.length === 0) return null;
+
+      try {
+         return JSON.parse(stdout);
+      } catch (e) {
+         console.warningln("Equipment DB JSON parse failed: " + e.message);
+         return null;
+      }
    };
 
    //HMS文字列 "HH MM SS.ss" をdegrees に変換
@@ -351,11 +448,21 @@ function SolverEngine() {
          args.push("--dec");
          args.push(params.dec.toString());
       }
-      if (params.focalLength !== undefined && params.focalLength !== null
-         && params.pixelPitch !== undefined && params.pixelPitch !== null) {
-         var pixelScale = (206.265 * params.pixelPitch) / params.focalLength;
-         args.push("--pixel-scale");
-         args.push(pixelScale.toFixed(4));
+      if (params.focalLength !== undefined && params.focalLength !== null) {
+         args.push("--focal-length");
+         args.push(params.focalLength.toString());
+      }
+      if (params.pixelPitch !== undefined && params.pixelPitch !== null) {
+         args.push("--pixel-pitch");
+         args.push(params.pixelPitch.toString());
+      }
+      if (params.camera && params.camera.length > 0) {
+         args.push("--camera");
+         args.push(params.camera);
+      }
+      if (params.lens && params.lens.length > 0) {
+         args.push("--lens");
+         args.push(params.lens);
       }
 
       return args;
@@ -712,20 +819,61 @@ function ParameterDialog(params, windowInfo) {
    this.gridCombo.addItem("2x2");
    this.gridCombo.addItem("3x3");
    this.gridCombo.addItem("4x4");
+   this.gridCombo.addItem("5x5");
+   this.gridCombo.addItem("6x6");
+   this.gridCombo.addItem("8x8");
+   this.gridCombo.addItem("Custom...");
+
+   var gridOptions = ["2x2", "3x3", "4x4", "5x5", "6x6", "8x8"];
+   var GRID_CUSTOM_INDEX = gridOptions.length; // "Custom..." のインデックス
+
+   // Custom 入力用 Edit
+   this.gridCustomEdit = new Edit(gridGroup);
+   this.gridCustomEdit.toolTip = "Custom grid pattern (e.g., 7x5, 10x8)";
+   this.gridCustomEdit.setFixedWidth(80);
+   this.gridCustomEdit.visible = false;
 
    //現在の設定に合わせて選択
-   var gridOptions = ["2x2", "3x3", "4x4"];
    var gridIndex = gridOptions.indexOf(params.grid);
-   this.gridCombo.currentItem = gridIndex >= 0 ? gridIndex : 1; //default: 3x3
+   if (gridIndex >= 0) {
+      this.gridCombo.currentItem = gridIndex;
+   } else if (params.grid && params.grid.length > 0) {
+      // カスタム値
+      this.gridCombo.currentItem = GRID_CUSTOM_INDEX;
+      this.gridCustomEdit.text = params.grid;
+      this.gridCustomEdit.visible = true;
+   } else {
+      this.gridCombo.currentItem = 1; //default: 3x3
+   }
 
    this.gridCombo.onItemSelected = function (index) {
-      params.grid = gridOptions[index];
+      if (index === GRID_CUSTOM_INDEX) {
+         dialog.gridCustomEdit.visible = true;
+         if (dialog.gridCustomEdit.text.length > 0)
+            params.grid = dialog.gridCustomEdit.text;
+      } else {
+         dialog.gridCustomEdit.visible = false;
+         params.grid = gridOptions[index];
+      }
    };
+
+   this.gridCustomEdit.onTextUpdated = function () {
+      var text = dialog.gridCustomEdit.text.trim();
+      if (/^\d+x\d+$/.test(text))
+         params.grid = text;
+   };
+
+   // 推奨グリッド表示ラベル
+   this.gridRecommendLabel = new Label(gridGroup);
+   this.gridRecommendLabel.text = "";
 
    var gridSizer = new HorizontalSizer;
    gridSizer.spacing = 4;
    gridSizer.add(gridLabel);
    gridSizer.add(this.gridCombo);
+   gridSizer.add(this.gridCustomEdit);
+   gridSizer.addSpacing(8);
+   gridSizer.add(this.gridRecommendLabel);
    gridSizer.addStretch();
 
    var overlapLabel = new Label(gridGroup);
@@ -758,11 +906,127 @@ function ParameterDialog(params, windowInfo) {
    gridGroup.sizer.add(gridSizer);
    gridGroup.sizer.add(overlapSizer);
 
+   //--- Equipment ---
+   var equipGroup = new GroupBox(this);
+   equipGroup.title = "Equipment";
+
+   var dialog = this;
+
+   var camLabel = new Label(equipGroup);
+   camLabel.text = "Camera:";
+   camLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   camLabel.setFixedWidth(120);
+
+   this.cameraCombo = new ComboBox(equipGroup);
+   this.cameraCombo.addItem("(none)");
+
+   // 機材DBからカメラリストを動的生成
+   this.cameraKeys = [];  // DBキー配列（インデックス対応）
+   if (params.equipmentDB && params.equipmentDB.cameras) {
+      var cams = params.equipmentDB.cameras;
+      for (var k in cams) {
+         if (cams.hasOwnProperty(k)) {
+            this.cameraKeys.push(k);
+            var displayStr = cams[k].display_name + " (" + k + ")";
+            this.cameraCombo.addItem(displayStr);
+         }
+      }
+   }
+
+   // 現在のカメラ設定に合わせて選択
+   var camIdx = 0;
+   for (var ci = 0; ci < this.cameraKeys.length; ci++) {
+      if (this.cameraKeys[ci] === params.camera) {
+         camIdx = ci + 1; // +1 for "(none)"
+         break;
+      }
+   }
+   this.cameraCombo.currentItem = camIdx;
+
+   this.cameraCombo.onItemSelected = function (index) {
+      if (index === 0) {
+         params.camera = "";
+      } else {
+         var key = dialog.cameraKeys[index - 1];
+         params.camera = key;
+         // pixel_pitch 自動入力
+         if (params.equipmentDB && params.equipmentDB.cameras) {
+            var camInfo = params.equipmentDB.cameras[key];
+            if (camInfo && camInfo.pixel_pitch_um) {
+               dialog.pixelPitchEdit.text = camInfo.pixel_pitch_um.toString();
+               params.pixelPitch = camInfo.pixel_pitch_um;
+            }
+         }
+      }
+   };
+
+   var camSizer = new HorizontalSizer;
+   camSizer.spacing = 4;
+   camSizer.add(camLabel);
+   camSizer.add(this.cameraCombo, 100);
+
+   var lensLabel = new Label(equipGroup);
+   lensLabel.text = "Lens:";
+   lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   lensLabel.setFixedWidth(120);
+
+   this.lensCombo = new ComboBox(equipGroup);
+   this.lensCombo.addItem("(none)");
+
+   // 機材DBからレンズリストを動的生成
+   this.lensKeys = [];
+   if (params.equipmentDB && params.equipmentDB.lenses) {
+      var lenses = params.equipmentDB.lenses;
+      for (var lk in lenses) {
+         if (lenses.hasOwnProperty(lk)) {
+            this.lensKeys.push(lk);
+            var lDisplayStr = lenses[lk].display_name + " (" + lk + ")";
+            this.lensCombo.addItem(lDisplayStr);
+         }
+      }
+   }
+
+   // 現在のレンズ設定に合わせて選択
+   var lensIdx = 0;
+   for (var li = 0; li < this.lensKeys.length; li++) {
+      if (this.lensKeys[li] === params.lens) {
+         lensIdx = li + 1;
+         break;
+      }
+   }
+   this.lensCombo.currentItem = lensIdx;
+
+   this.lensCombo.onItemSelected = function (index) {
+      if (index === 0) {
+         params.lens = "";
+      } else {
+         var key = dialog.lensKeys[index - 1];
+         params.lens = key;
+         // focal_length 自動入力
+         if (params.equipmentDB && params.equipmentDB.lenses) {
+            var lensInfo = params.equipmentDB.lenses[key];
+            if (lensInfo && lensInfo.focal_length_mm) {
+               dialog.focalLengthEdit.text = lensInfo.focal_length_mm.toString();
+               params.focalLength = lensInfo.focal_length_mm;
+            }
+         }
+      }
+   };
+
+   var lensSizer = new HorizontalSizer;
+   lensSizer.spacing = 4;
+   lensSizer.add(lensLabel);
+   lensSizer.add(this.lensCombo, 100);
+
+   equipGroup.sizer = new VerticalSizer;
+   equipGroup.sizer.margin = 6;
+   equipGroup.sizer.spacing = 4;
+   equipGroup.sizer.add(camSizer);
+   equipGroup.sizer.add(lensSizer);
+
    //--- Coordinate hints ---
    var coordGroup = new GroupBox(this);
    coordGroup.title = "Coordinate Hints";
-
-   var dialog = this;
 
    // Object name search
    var objLabel = new Label(coordGroup);
@@ -912,7 +1176,7 @@ function ParameterDialog(params, windowInfo) {
    ppSizer.add(this.scaleInfoLabel);
    ppSizer.addStretch();
 
-   // ピクセルスケール表示とExecuteボタン有効化を更新するヘルパー
+   // ピクセルスケール表示・推奨グリッド・Executeボタン有効化を更新するヘルパー
    var updateScaleAndButton = function () {
       var fl = parseFloat(dialog.focalLengthEdit.text);
       var pp = parseFloat(dialog.pixelPitchEdit.text);
@@ -922,8 +1186,29 @@ function ParameterDialog(params, windowInfo) {
          var ps = (206.265 * pp) / fl;
          dialog.scaleInfoLabel.text = format("(%.2f arcsec/px)", ps);
          dialog.execButton.enabled = true;
+
+         // 推奨グリッドサイズ計算（画像サイズが分かっている場合）
+         var w = windowInfo.width;
+         var h = windowInfo.height;
+         if (w > 0 && h > 0) {
+            var diagPixels = Math.sqrt(w * w + h * h);
+            var diagFov = (ps * diagPixels) / 3600.0;
+            var recommended;
+            if (diagFov > 90)
+               recommended = "8x8";
+            else if (diagFov > 60)
+               recommended = "5x5";
+            else if (diagFov > 30)
+               recommended = "3x3";
+            else
+               recommended = "2x2";
+            dialog.gridRecommendLabel.text = format("Recommended: %s (diag FOV: %.1f\u00B0)", recommended, diagFov);
+         } else {
+            dialog.gridRecommendLabel.text = "";
+         }
       } else {
          dialog.scaleInfoLabel.text = "";
+         dialog.gridRecommendLabel.text = "";
          dialog.execButton.enabled = false;
       }
    };
@@ -986,6 +1271,7 @@ function ParameterDialog(params, windowInfo) {
    this.sizer.margin = 8;
    this.sizer.spacing = 8;
    this.sizer.add(infoGroup);
+   this.sizer.add(equipGroup);
    this.sizer.add(gridGroup);
    this.sizer.add(coordGroup);
    this.sizer.addSpacing(4);
@@ -1058,6 +1344,54 @@ function main() {
    if (metadata.pixelSize !== undefined) {
       console.writeln(format("Auto-detected pixel pitch: %.2f \u00B5m", metadata.pixelSize));
       params.pixelPitch = metadata.pixelSize;
+   }
+
+   //5b. 機材データベース取得
+   console.writeln("Loading equipment database...");
+   var equipDB = engine.loadEquipmentDB(params);
+   if (equipDB) {
+      params.equipmentDB = equipDB;
+      console.writeln(format("Equipment DB loaded: %d cameras, %d lenses",
+         (function() { var n = 0; for (var k in equipDB.cameras) if (equipDB.cameras.hasOwnProperty(k)) n++; return n; })(),
+         (function() { var n = 0; for (var k in equipDB.lenses) if (equipDB.lenses.hasOwnProperty(k)) n++; return n; })()
+      ));
+
+      //INSTRUME 自動マッチング → カメラ選択 + pixel_pitch 自動取得
+      if (metadata.instrume && metadata.instrume.length > 0) {
+         console.writeln("INSTRUME header: " + metadata.instrume);
+         if (equipDB.cameras && equipDB.cameras.hasOwnProperty(metadata.instrume)) {
+            params.camera = metadata.instrume;
+            var camInfo = equipDB.cameras[metadata.instrume];
+            if (camInfo.pixel_pitch_um && (params.pixelPitch === undefined || params.pixelPitch === null)) {
+               params.pixelPitch = camInfo.pixel_pitch_um;
+               console.writeln(format("Auto-matched camera: %s (pixel pitch: %.2f \u00B5m)",
+                  camInfo.display_name, camInfo.pixel_pitch_um));
+            }
+         }
+      }
+
+      //焦点距離からレンズを自動推定
+      if (metadata.focalLength !== undefined) {
+         var bestLensKey = "";
+         var lenses = equipDB.lenses;
+         for (var lk in lenses) {
+            if (lenses.hasOwnProperty(lk)) {
+               if (lenses[lk].focal_length_mm !== undefined) {
+                  if (Math.abs(lenses[lk].focal_length_mm - metadata.focalLength) < 0.5) {
+                     bestLensKey = lk;
+                     break;
+                  }
+               }
+            }
+         }
+         if (bestLensKey.length > 0) {
+            params.lens = bestLensKey;
+            console.writeln(format("Auto-matched lens: %s",
+               equipDB.lenses[bestLensKey].display_name));
+         }
+      }
+   } else {
+      console.warningln("Equipment DB not available (Python not configured or DB load failed).");
    }
 
    //6. パラメータダイアログ表示

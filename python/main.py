@@ -40,18 +40,104 @@ def load_config(config_path: Path) -> Dict:
         return json.load(f)
 
 
+def _handle_list_equipment(args) -> int:
+    """--list-equipment: 機材データベースをJSON出力"""
+    from utils.equipment import load_equipment_db
+
+    equipment_db_path = Path(args.equipment_db) if args.equipment_db else None
+    db = load_equipment_db(equipment_db_path)
+
+    # JS側で使いやすい形式に変換
+    output = {"cameras": {}, "lenses": {}}
+    for name, cam in db.get("cameras", {}).items():
+        output["cameras"][name] = {
+            "display_name": cam.get("display_name", name),
+            "pixel_pitch_um": cam.get("pixel_pitch_um"),
+            "sensor_width_mm": cam.get("sensor_width_mm"),
+        }
+    for name, lens in db.get("lenses", {}).items():
+        output["lenses"][name] = {
+            "display_name": lens.get("display_name", name),
+            "focal_length_mm": lens.get("focal_length_mm"),
+            "type": lens.get("type", "rectilinear"),
+        }
+
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
+def _handle_recommend_grid(args) -> int:
+    """--recommend-grid: 推奨グリッドサイズをJSON出力"""
+    focal_length = args.focal_length
+    pixel_pitch = args.pixel_pitch
+    image_width = args.image_width
+    image_height = args.image_height
+
+    if not focal_length or not pixel_pitch:
+        print(
+            json.dumps(
+                {
+                    "error": "--focal-length and --pixel-pitch are required for --recommend-grid"
+                }
+            )
+        )
+        return 1
+
+    # ピクセルスケール (arcsec/pixel)
+    pixel_scale = (206.265 * pixel_pitch) / focal_length
+
+    result = {"pixel_scale_arcsec": round(pixel_scale, 4)}
+
+    if image_width and image_height:
+        # 対角ピクセル数と対角FOV
+        diag_pixels = (image_width**2 + image_height**2) ** 0.5
+        diag_fov = (pixel_scale * diag_pixels) / 3600.0  # degrees
+
+        # 推奨グリッドサイズ（対角FOV基準）
+        if diag_fov > 90:
+            recommended = "8x8"
+        elif diag_fov > 60:
+            recommended = "5x5"
+        elif diag_fov > 30:
+            recommended = "3x3"
+        else:
+            recommended = "2x2"
+
+        result["image_width"] = image_width
+        result["image_height"] = image_height
+        result["diagonal_fov_deg"] = round(diag_fov, 2)
+        result["recommended_grid"] = recommended
+
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def main():
     """メインエントリーポイント"""
     parser = argparse.ArgumentParser(
         description="Split Image Solver - 広角星空画像の分割プレートソルブ"
     )
 
-    # 必須引数
+    # 入出力（--list-equipment / --recommend-grid 使用時は不要）
+    parser.add_argument("--input", type=str, help="入力FITS/XISF画像パス")
+    parser.add_argument("--output", type=str, help="出力FITS/XISF画像パス")
+
+    # ユーティリティモード
     parser.add_argument(
-        "--input", type=str, required=True, help="入力FITS/XISF画像パス"
+        "--list-equipment",
+        action="store_true",
+        help="機材データベースをJSON出力して終了",
     )
     parser.add_argument(
-        "--output", type=str, required=True, help="出力FITS/XISF画像パス"
+        "--recommend-grid",
+        action="store_true",
+        help="推奨グリッドサイズをJSON出力して終了",
+    )
+    parser.add_argument(
+        "--image-width", type=int, help="画像幅 (px) - --recommend-grid用"
+    )
+    parser.add_argument(
+        "--image-height", type=int, help="画像高さ (px) - --recommend-grid用"
     )
 
     # 分割設定
@@ -153,6 +239,20 @@ def main():
 
     args = parser.parse_args()
 
+    # ユーティリティモード: --list-equipment
+    if args.list_equipment:
+        return _handle_list_equipment(args)
+
+    # ユーティリティモード: --recommend-grid
+    if args.recommend_grid:
+        return _handle_recommend_grid(args)
+
+    # 通常モードでは --input / --output が必須
+    if not args.input:
+        parser.error("--input is required")
+    if not args.output:
+        parser.error("--output is required")
+
     # ロガーをセットアップ
     # --json-output時はstdoutをJSON専用にし、ログはstderrへ
     logger = setup_logger(
@@ -233,7 +333,12 @@ def main():
             original_metadata = None
 
         # Step 1.5: 機材自動検出 + ピクセルスケール計算の準備
-        from utils.equipment import load_equipment_db, detect_equipment_from_header, lookup_camera, lookup_lens
+        from utils.equipment import (
+            load_equipment_db,
+            detect_equipment_from_header,
+            lookup_camera,
+            lookup_lens,
+        )
 
         equipment_db_path = Path(args.equipment_db) if args.equipment_db else None
         equipment_db = load_equipment_db(equipment_db_path)
@@ -251,13 +356,17 @@ def main():
         if args.camera:
             camera_info = lookup_camera(equipment_db, args.camera)
             if camera_info:
-                logger.info(f"カメラ (CLI指定): {camera_info.get('display_name', args.camera)}")
+                logger.info(
+                    f"カメラ (CLI指定): {camera_info.get('display_name', args.camera)}"
+                )
         if args.lens:
             lenses = equipment_db.get("lenses", {})
             for name, info in lenses.items():
                 if args.lens.lower() in name.lower():
                     lens_info = info
-                    logger.info(f"レンズ (CLI指定): {info.get('display_name', args.lens)}")
+                    logger.info(
+                        f"レンズ (CLI指定): {info.get('display_name', args.lens)}"
+                    )
                     break
 
         # 検出結果から pixel_pitch を取得
@@ -483,8 +592,8 @@ def main():
                 median_scale = float(np.median(success_scales))
                 scale_std = float(np.std(success_scales))
                 logger.info(
-                    f"1st pass scale stats: median={median_scale:.2f}\"/px, "
-                    f"std={scale_std:.2f}\"/px, range={min(success_scales):.2f}-{max(success_scales):.2f}"
+                    f'1st pass scale stats: median={median_scale:.2f}"/px, '
+                    f'std={scale_std:.2f}"/px, range={min(success_scales):.2f}-{max(success_scales):.2f}'
                 )
             else:
                 median_scale = None
@@ -543,8 +652,8 @@ def main():
                         f"(ref=tile {nearest['region']['index']}, "
                         f"dist={ref_dist:.0f}px), "
                         f"FOV hint={retry_fov:.1f}° ±{retry_margin:.0%}"
-                        if retry_fov else
-                        f"Tile {region['index']}: WCS hint "
+                        if retry_fov
+                        else f"Tile {region['index']}: WCS hint "
                         f"RA={tile_ra:.2f}° DEC={tile_dec:+.2f}° "
                         f"(ref=tile {nearest['region']['index']}, "
                         f"dist={ref_dist:.0f}px), no FOV hint"
@@ -599,7 +708,10 @@ def main():
                                 dec_diff = abs(result["dec_center"] - hint["dec"])
                                 coord_diff = np.sqrt(ra_diff**2 + dec_diff**2)
                                 # search_radius の 1.5 倍を超えたら拒否
-                                if coord_diff > solver_config.get("search_radius", 10.0) * 1.5:
+                                if (
+                                    coord_diff
+                                    > solver_config.get("search_radius", 10.0) * 1.5
+                                ):
                                     is_valid = False
                                     reject_reason = (
                                         f"coord deviation={coord_diff:.1f}° "
@@ -636,7 +748,11 @@ def main():
 
             logger.info(
                 f"2nd pass: {retry_success}/{len(failed_indices)} additional tiles solved"
-                + (f" ({retry_rejected} false positives rejected)" if retry_rejected else "")
+                + (
+                    f" ({retry_rejected} false positives rejected)"
+                    if retry_rejected
+                    else ""
+                )
             )
 
             # 成功数を再計算
