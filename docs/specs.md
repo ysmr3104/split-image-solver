@@ -554,15 +554,19 @@ lenses:
 
 ### 6.2 対応機材一覧
 
-**カメラ（17機種）:**
+**カメラ（27機種）:**
 
-Sony α7 シリーズ全世代を網羅:
+Sony α7 シリーズ全世代:
 - α7 / α7II / α7III / α7IV / α7V（スタンダード）
 - α7R / α7RII / α7RIII / α7RIV / α7RV（高画素）
 - α7S / α7SII / α7SIII（高感度）
 - α7C / α7CII / α7CR（コンパクト）
 
-**レンズ（12本）:**
+Nikon Z シリーズ:
+- Z 5 / Z 5II / Z 6 / Z 6II / Z 6III / Z f（24MPクラス）
+- Z 7 / Z 7II / Z 8 / Z 9（45MPクラス）
+
+**レンズ（19本）:**
 
 | メーカー | モデル | 焦点距離 | 開放F値 |
 |---------|--------|---------|---------|
@@ -578,6 +582,13 @@ Sony α7 シリーズ全世代を網羅:
 | Sigma Contemp. | 24mm f/2 DG DN | 24mm | f/2.0 |
 | Sigma Contemp. | 24mm f/3.5 DG DN | 24mm | f/3.5 |
 | Sigma Contemp. | 35mm f/2 DG DN | 35mm | f/2.0 |
+| NIKKOR Z S | 20mm f/1.8 S | 20mm | f/1.8 |
+| NIKKOR Z S | 24mm f/1.8 S | 24mm | f/1.8 |
+| NIKKOR Z S | 35mm f/1.2 S | 35mm | f/1.2 |
+| NIKKOR Z S | 35mm f/1.8 S | 35mm | f/1.8 |
+| NIKKOR Z | 26mm f/2.8 | 26mm | f/2.8 |
+| NIKKOR Z | 28mm f/2.8 | 28mm | f/2.8 |
+| NIKKOR Z | 35mm f/1.4 | 35mm | f/1.4 |
 
 ### 6.3 CLIからの機材DB参照
 

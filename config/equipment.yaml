@@ -192,6 +192,122 @@ cameras:
     lensfun_maker: Sony
     lensfun_model: ILCE-7CR
 
+  #
+  # ===== Nikon Z (24MP クラス) =====
+  #
+  "NIKON Z 5":
+    maker: Nikon
+    display_name: "Nikon Z 5"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6016, 4016]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 5
+
+  "NIKON Z5_2":
+    maker: Nikon
+    display_name: "Nikon Z 5II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 5II
+
+  "NIKON Z 6":
+    maker: Nikon
+    display_name: "Nikon Z 6"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4024]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6
+
+  "NIKON Z 6_2":
+    maker: Nikon
+    display_name: "Nikon Z 6II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4024]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6II
+
+  "NIKON Z 6_3":
+    maker: Nikon
+    display_name: "Nikon Z 6III"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6III
+
+  "NIKON Z f":
+    maker: Nikon
+    display_name: "Nikon Z f"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z f
+
+  #
+  # ===== Nikon Z (45MP クラス) =====
+  #
+  "NIKON Z 7":
+    maker: Nikon
+    display_name: "Nikon Z 7"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 7
+
+  "NIKON Z 7_2":
+    maker: Nikon
+    display_name: "Nikon Z 7II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 7II
+
+  "NIKON Z 8":
+    maker: Nikon
+    display_name: "Nikon Z 8"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 8
+
+  "NIKON Z 9":
+    maker: Nikon
+    display_name: "Nikon Z 9"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 9
+
 lenses:
   # キー: 任意の識別名。focal_length_mm + camera_makers で自動マッチング
   #
@@ -325,3 +441,79 @@ lenses:
     camera_makers: [Sony]
     lensfun_maker: Sigma
     lensfun_search: "35mm f/2 DG DN"
+
+  #
+  # ===== NIKKOR Z S ライン =====
+  #
+  "NIKKOR Z 20mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 20mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 20mm"
+
+  "NIKKOR Z 24mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 24mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 24mm"
+
+  "NIKKOR Z 35mm f/1.2 S":
+    maker: Nikon
+    display_name: "Z 35mm f/1.2 S"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.2
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.2"
+
+  "NIKKOR Z 35mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 35mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.8"
+
+  #
+  # ===== NIKKOR Z (コンパクト) =====
+  #
+  "NIKKOR Z 26mm f/2.8":
+    maker: Nikon
+    display_name: "Z 26mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 26.0
+    max_aperture: 2.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 26mm"
+
+  "NIKKOR Z 28mm f/2.8":
+    maker: Nikon
+    display_name: "Z 28mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 28.0
+    max_aperture: 2.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 28mm f/2.8"
+
+  "NIKKOR Z 35mm f/1.4":
+    maker: Nikon
+    display_name: "Z 35mm f/1.4"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.4"
