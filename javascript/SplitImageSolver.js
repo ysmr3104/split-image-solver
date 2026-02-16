@@ -639,15 +639,44 @@ function SolverEngine() {
          try {
             var resultJson = File.readTextFile(resultFile).trim();
             console.writeln("Result file: " + resultJson.length + " chars");
-            console.writeln("First 300 chars: " + resultJson.substring(0, 300));
-            // 先頭の非表示文字をチェック
-            var codes = "";
-            for (var ci = 0; ci < Math.min(5, resultJson.length); ci++) {
-               codes += resultJson.charCodeAt(ci) + " ";
+            console.writeln("First 200 chars: " + resultJson.substring(0, 200));
+            console.writeln("Last 200 chars: " + resultJson.substring(Math.max(0, resultJson.length - 200)));
+            // 末尾の文字コードをチェック
+            var endCodes = "";
+            for (var ci = Math.max(0, resultJson.length - 5); ci < resultJson.length; ci++) {
+               endCodes += resultJson.charCodeAt(ci) + " ";
             }
-            console.writeln("First char codes: " + codes);
-            result = JSON.parse(resultJson);
-            console.writeln("Result loaded from result file");
+            console.writeln("Last 5 char codes: " + endCodes);
+            // エラー位置特定: 段階的にパースして失敗箇所を特定
+            try {
+               result = JSON.parse(resultJson);
+               console.writeln("Result loaded from result file");
+            }
+            catch (parseErr) {
+               console.warningln("JSON.parse error: " + parseErr.message);
+               // wcs_keywords部分だけ抽出してテスト
+               var wcsIdx = resultJson.indexOf('"wcs_keywords"');
+               if (wcsIdx > 0) {
+                  // wcs_keywordsの前までをパース
+                  var beforeWcs = resultJson.substring(0, wcsIdx) + '"wcs_keywords": {}}';
+                  try {
+                     result = JSON.parse(beforeWcs);
+                     console.writeln("JSON without wcs_keywords parsed OK - issue is in wcs_keywords");
+                     // wcs_keywords部分を表示
+                     var wcsStr = resultJson.substring(wcsIdx);
+                     console.writeln("wcs_keywords section (first 300): " + wcsStr.substring(0, 300));
+                     console.writeln("wcs_keywords section (last 200): " + wcsStr.substring(Math.max(0, wcsStr.length - 200)));
+                  }
+                  catch (e2) {
+                     console.warningln("JSON without wcs_keywords also fails: " + e2.message);
+                     console.writeln("Truncated JSON: " + beforeWcs.substring(0, 200));
+                  }
+               }
+               // resultがまだnullなら、wcs_keywordsなしで結果を構成
+               if (result && !result.wcs_keywords) {
+                  console.writeln("Using result without wcs_keywords");
+               }
+            }
          }
          catch (e) {
             console.warningln("Failed to parse result file: " + e.message);
