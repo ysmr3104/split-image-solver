@@ -25,6 +25,37 @@
       return "'" + path.replace(/'/g, "'\\''") + "'";
    }
 
+   // RA (度) → "HH MM SS.ss" 形式に変換
+   function raToHMS(raDeg) {
+      var ra = raDeg;
+      while (ra < 0) ra += 360.0;
+      while (ra >= 360) ra -= 360.0;
+      var totalSec = ra / 15.0 * 3600.0;
+      var h = Math.floor(totalSec / 3600.0);
+      totalSec -= h * 3600.0;
+      var m = Math.floor(totalSec / 60.0);
+      var s = totalSec - m * 60.0;
+      var hStr = (h < 10 ? "0" : "") + h;
+      var mStr = (m < 10 ? "0" : "") + m;
+      var sStr = (s < 10 ? "0" : "") + s.toFixed(2);
+      return hStr + " " + mStr + " " + sStr;
+   }
+
+   // DEC (度) → "+DD MM SS.s" 形式に変換
+   function decToDMS(decDeg) {
+      var sign = decDeg >= 0 ? "+" : "-";
+      var dec = Math.abs(decDeg);
+      var totalSec = dec * 3600.0;
+      var d = Math.floor(totalSec / 3600.0);
+      totalSec -= d * 3600.0;
+      var m = Math.floor(totalSec / 60.0);
+      var s = totalSec - m * 60.0;
+      var dStr = (d < 10 ? "0" : "") + d;
+      var mStr = (m < 10 ? "0" : "") + m;
+      var sStr = (s < 10 ? "0" : "") + s.toFixed(1);
+      return sign + dStr + " " + mStr + " " + sStr;
+   }
+
    function byteArrayToString(ba) {
       if (!ba || ba.length === 0) return "";
       try {
@@ -746,6 +777,53 @@ function SolverEngine() {
             }
             catch (e3) {
                // グリッド表示失敗は無視
+            }
+         }
+
+         // 中心・四隅の座標表示 (ImageSolver風)
+         if (result.coordinates) {
+            try {
+               var coords = result.coordinates;
+               console.writeln("");
+               console.writeln("<b>Image coordinates:</b>");
+               if (coords.center) {
+                  console.writeln("  Center ........ RA: " + raToHMS(coords.center.ra_deg)
+                     + "  Dec: " + decToDMS(coords.center.dec_deg));
+               }
+               if (coords.top_left) {
+                  console.writeln("  Top-Left ...... RA: " + raToHMS(coords.top_left.ra_deg)
+                     + "  Dec: " + decToDMS(coords.top_left.dec_deg));
+               }
+               if (coords.top_right) {
+                  console.writeln("  Top-Right ..... RA: " + raToHMS(coords.top_right.ra_deg)
+                     + "  Dec: " + decToDMS(coords.top_right.dec_deg));
+               }
+               if (coords.bottom_left) {
+                  console.writeln("  Bottom-Left ... RA: " + raToHMS(coords.bottom_left.ra_deg)
+                     + "  Dec: " + decToDMS(coords.bottom_left.dec_deg));
+               }
+               if (coords.bottom_right) {
+                  console.writeln("  Bottom-Right .. RA: " + raToHMS(coords.bottom_right.ra_deg)
+                     + "  Dec: " + decToDMS(coords.bottom_right.dec_deg));
+               }
+               // FOV 表示
+               var fovParts = [];
+               if (coords.width_fov_deg) {
+                  fovParts.push(coords.width_fov_deg.toFixed(2) + " x "
+                     + coords.height_fov_deg.toFixed(2));
+               }
+               if (coords.diagonal_fov_deg) {
+                  fovParts.push("diagonal " + coords.diagonal_fov_deg.toFixed(2));
+               }
+               if (fovParts.length > 0) {
+                  console.writeln("  Field of view . " + fovParts.join(", ") + " deg");
+               }
+               if (result.wcs && result.wcs.pixel_scale) {
+                  console.writeln("  Pixel scale ... " + result.wcs.pixel_scale.toFixed(2) + " arcsec/px");
+               }
+            }
+            catch (e4) {
+               // 座標表示失敗は無視
             }
          }
 

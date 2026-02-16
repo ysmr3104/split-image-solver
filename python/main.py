@@ -965,6 +965,56 @@ def main():
             if pixel_pitch:
                 equipment_info["pixel_pitch_um"] = pixel_pitch
 
+            # 中心・四隅の座標を計算
+            coordinates = {}
+            try:
+                w = image_width
+                h = image_height
+                # ピクセル座標 (0-indexed, FITS convention: pixel center)
+                coord_points = {
+                    "center": (w / 2.0, h / 2.0),
+                    "top_left": (0.0, 0.0),
+                    "top_right": (w - 1.0, 0.0),
+                    "bottom_left": (0.0, h - 1.0),
+                    "bottom_right": (w - 1.0, h - 1.0),
+                }
+                for label, (px, py) in coord_points.items():
+                    ra, dec = integrated_wcs.pixel_to_world_values(px, py)
+                    coordinates[label] = {
+                        "ra_deg": float(ra),
+                        "dec_deg": float(dec),
+                    }
+                # FOV 計算（対角）
+                from astropy.coordinates import SkyCoord
+                import astropy.units as u
+
+                tl = coordinates["top_left"]
+                br = coordinates["bottom_right"]
+                tr = coordinates["top_right"]
+                bl = coordinates["bottom_left"]
+                c_tl = SkyCoord(ra=tl["ra_deg"] * u.deg, dec=tl["dec_deg"] * u.deg)
+                c_br = SkyCoord(ra=br["ra_deg"] * u.deg, dec=br["dec_deg"] * u.deg)
+                c_tr = SkyCoord(ra=tr["ra_deg"] * u.deg, dec=tr["dec_deg"] * u.deg)
+                c_bl = SkyCoord(ra=bl["ra_deg"] * u.deg, dec=bl["dec_deg"] * u.deg)
+                diag_fov1 = c_tl.separation(c_br).deg
+                diag_fov2 = c_tr.separation(c_bl).deg
+                coordinates["diagonal_fov_deg"] = float(max(diag_fov1, diag_fov2))
+                # 横・縦 FOV
+                c_center_top = SkyCoord(
+                    ra=((tr["ra_deg"] + tl["ra_deg"]) / 2) * u.deg,
+                    dec=((tr["dec_deg"] + tl["dec_deg"]) / 2) * u.deg,
+                )
+                c_center_bottom = SkyCoord(
+                    ra=((br["ra_deg"] + bl["ra_deg"]) / 2) * u.deg,
+                    dec=((br["dec_deg"] + bl["dec_deg"]) / 2) * u.deg,
+                )
+                coordinates["width_fov_deg"] = float(c_tl.separation(c_tr).deg)
+                coordinates["height_fov_deg"] = float(
+                    c_center_top.separation(c_center_bottom).deg
+                )
+            except Exception as e:
+                logger.warning(f"座標計算エラー: {e}")
+
             json_result = {
                 "success": True,
                 "output_path": str(output_path),
@@ -973,6 +1023,7 @@ def main():
                 "grid": {"rows": grid_rows, "cols": grid_cols},
                 "tile_grid": tile_grid,
                 "equipment": equipment_info,
+                "coordinates": coordinates,
                 "wcs": {
                     "crval1": float(integrated_wcs.wcs.crval[0]),
                     "crval2": float(integrated_wcs.wcs.crval[1]),
