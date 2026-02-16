@@ -4,16 +4,30 @@
 
 cameras:
   # キー: INSTRUME ヘッダー値（完全一致）
-  "Sony ILCE-7RM5":
+  #
+  # ===== Sony α7 (スタンダード) =====
+  #
+  "Sony ILCE-7":
     maker: Sony
-    display_name: "Sony α7RV"
-    sensor_width_mm: 35.9
-    sensor_height_mm: 24.0
-    pixel_pitch_um: 3.76
-    native_resolution: [9504, 6336]
+    display_name: "Sony α7"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6000, 4000]
     crop_factor: 1.0
     lensfun_maker: Sony
-    lensfun_model: ILCE-7RM5
+    lensfun_model: ILCE-7
+
+  "Sony ILCE-7M2":
+    maker: Sony
+    display_name: "Sony α7II"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M2
 
   "Sony ILCE-7M3":
     maker: Sony
@@ -25,6 +39,147 @@ cameras:
     crop_factor: 1.0
     lensfun_maker: Sony
     lensfun_model: ILCE-7M3
+
+  "Sony ILCE-7M4":
+    maker: Sony
+    display_name: "Sony α7IV"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.12
+    native_resolution: [7008, 4672]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M4
+
+  #
+  # ===== Sony α7R (高画素) =====
+  #
+  "Sony ILCE-7R":
+    maker: Sony
+    display_name: "Sony α7R"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.88
+    native_resolution: [7360, 4912]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7R
+
+  "Sony ILCE-7RM2":
+    maker: Sony
+    display_name: "Sony α7RII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.52
+    native_resolution: [7952, 5304]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM2
+
+  "Sony ILCE-7RM3":
+    maker: Sony
+    display_name: "Sony α7RIII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.52
+    native_resolution: [7952, 5304]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM3
+
+  "Sony ILCE-7RM4":
+    maker: Sony
+    display_name: "Sony α7RIV"
+    sensor_width_mm: 35.7
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM4
+
+  "Sony ILCE-7RM5":
+    maker: Sony
+    display_name: "Sony α7RV"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM5
+
+  #
+  # ===== Sony α7S (高感度) =====
+  #
+  "Sony ILCE-7S":
+    maker: Sony
+    display_name: "Sony α7S"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 8.45
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7S
+
+  "Sony ILCE-7SM2":
+    maker: Sony
+    display_name: "Sony α7SII"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 8.40
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7SM2
+
+  "Sony ILCE-7SM3":
+    maker: Sony
+    display_name: "Sony α7SIII"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 8.40
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7SM3
+
+  #
+  # ===== Sony α7C (コンパクト) =====
+  #
+  "Sony ILCE-7C":
+    maker: Sony
+    display_name: "Sony α7C"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 5.94
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7C
+
+  "Sony ILCE-7CM2":
+    maker: Sony
+    display_name: "Sony α7CII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.12
+    native_resolution: [7008, 4672]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7CM2
+
+  "Sony ILCE-7CR":
+    maker: Sony
+    display_name: "Sony α7CR"
+    sensor_width_mm: 35.7
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7CR
 
 lenses:
   # キー: 任意の識別名。focal_length_mm + camera_makers で自動マッチング
