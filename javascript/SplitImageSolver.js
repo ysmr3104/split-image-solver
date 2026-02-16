@@ -633,18 +633,29 @@ function SolverEngine() {
          for (var i = lines.length - 1; i >= 0; i--) {
             var line = lines[i].trim();
             if (line.length > 0 && line.charAt(0) === '{') {
+               var result;
                try {
-                  var result = JSON.parse(line);
-                  console.writeln(format(
-                     "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
-                     result.tiles_solved, result.tiles_total,
-                     result.wcs.crval1, result.wcs.crval2
-                  ));
-                  return result;
+                  result = JSON.parse(line);
                }
                catch (e) {
-                  //JSONパース失敗 → 次の行を試行
+                  continue; // JSONパース失敗 → 次の行を試行
                }
+               // JSONパース成功 → サマリ表示して返す
+               try {
+                  var summary = "<b>Result:</b> "
+                     + result.tiles_solved + "/" + result.tiles_total
+                     + " tiles solved";
+                  if (result.wcs) {
+                     summary += ", CRVAL=("
+                        + result.wcs.crval1.toFixed(4) + ", "
+                        + result.wcs.crval2.toFixed(4) + ")";
+                  }
+                  console.writeln(summary);
+               }
+               catch (e2) {
+                  console.writeln("<b>Result:</b> Solver completed");
+               }
+               return result;
             }
          }
       }
