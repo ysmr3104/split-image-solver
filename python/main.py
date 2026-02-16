@@ -62,7 +62,7 @@ def _handle_list_equipment(args) -> int:
             "type": lens.get("type", "rectilinear"),
         }
 
-    print(json.dumps(output, ensure_ascii=False))
+    print(json.dumps(output))
     return 0
 
 
@@ -108,7 +108,7 @@ def _handle_recommend_grid(args) -> int:
         result["diagonal_fov_deg"] = round(diag_fov, 2)
         result["recommended_grid"] = recommended
 
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(result))
     return 0
 
 

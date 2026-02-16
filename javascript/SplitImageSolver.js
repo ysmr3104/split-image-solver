@@ -1351,10 +1351,10 @@ function main() {
    var equipDB = engine.loadEquipmentDB(params);
    if (equipDB) {
       params.equipmentDB = equipDB;
-      console.writeln(format("Equipment DB loaded: %d cameras, %d lenses",
-         (function() { var n = 0; for (var k in equipDB.cameras) if (equipDB.cameras.hasOwnProperty(k)) n++; return n; })(),
-         (function() { var n = 0; for (var k in equipDB.lenses) if (equipDB.lenses.hasOwnProperty(k)) n++; return n; })()
-      ));
+      var nCams = 0, nLenses = 0;
+      for (var ck in equipDB.cameras) if (equipDB.cameras.hasOwnProperty(ck)) nCams++;
+      for (var lk2 in equipDB.lenses) if (equipDB.lenses.hasOwnProperty(lk2)) nLenses++;
+      console.writeln("Equipment DB loaded: " + nCams + " cameras, " + nLenses + " lenses");
 
       //INSTRUME 自動マッチング → カメラ選択 + pixel_pitch 自動取得
       if (metadata.instrume && metadata.instrume.length > 0) {
@@ -1364,8 +1364,8 @@ function main() {
             var camInfo = equipDB.cameras[metadata.instrume];
             if (camInfo.pixel_pitch_um && (params.pixelPitch === undefined || params.pixelPitch === null)) {
                params.pixelPitch = camInfo.pixel_pitch_um;
-               console.writeln(format("Auto-matched camera: %s (pixel pitch: %.2f \u00B5m)",
-                  camInfo.display_name, camInfo.pixel_pitch_um));
+               console.writeln("Auto-matched camera: " + camInfo.display_name
+                  + " (pixel pitch: " + camInfo.pixel_pitch_um.toFixed(2) + " \u00B5m)");
             }
          }
       }
@@ -1386,8 +1386,7 @@ function main() {
          }
          if (bestLensKey.length > 0) {
             params.lens = bestLensKey;
-            console.writeln(format("Auto-matched lens: %s",
-               equipDB.lenses[bestLensKey].display_name));
+            console.writeln("Auto-matched lens: " + equipDB.lenses[bestLensKey].display_name);
          }
       }
    } else {
