@@ -1,14 +1,15 @@
-//----------------------------------------------------------------------------
-//SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
-//
-//Split Image Solver: 広角星空画像を分割してプレートソルブし、
-//統合したWCS情報を元画像に書き込むPixInsightスクリプト
-//
-//Copyright (c) 2024-2025 Split Image Solver Project
-//----------------------------------------------------------------------------
-
 #feature-id    SplitImageSolver : Utilities > SplitImageSolver
-#feature-info  Split wide-angle astrophotos into tiles, plate-solve each tile via astrometry.net, and integrate WCS solutions into the original image.
+#feature-info  Split wide-angle astrophotos into tiles, plate-solve each tile \
+   via astrometry.net, and integrate WCS solutions into the original image.
+
+//----------------------------------------------------------------------------
+// SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
+//
+// Split Image Solver: Split wide-angle astrophotos into tiles, plate-solve
+// each tile, and integrate WCS solutions into the original image.
+//
+// Copyright (c) 2024-2025 Split Image Solver Project
+//----------------------------------------------------------------------------
 
 #define VERSION "1.0.1"
 
