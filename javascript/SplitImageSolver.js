@@ -665,6 +665,22 @@ function SolverEngine() {
       }
 
       if (result) {
+         // 機材情報表示
+         if (result.equipment) {
+            try {
+               var eq = result.equipment;
+               var eqLines = [];
+               if (eq.camera) eqLines.push("Camera: " + eq.camera);
+               if (eq.lens) eqLines.push("Lens: " + eq.lens);
+               if (eq.focal_length_mm) eqLines.push("FL: " + eq.focal_length_mm + "mm");
+               if (eq.pixel_pitch_um) eqLines.push("Pitch: " + eq.pixel_pitch_um + "um");
+               if (eqLines.length > 0) {
+                  console.writeln("<b>Equipment:</b> " + eqLines.join(" | "));
+               }
+            }
+            catch (e1) {}
+         }
+
          // サマリ表示
          try {
             var summary = "<b>Result:</b> "
@@ -674,6 +690,9 @@ function SolverEngine() {
                summary += ", CRVAL=("
                   + result.wcs.crval1.toFixed(4) + ", "
                   + result.wcs.crval2.toFixed(4) + ")";
+               if (result.wcs.pixel_scale) {
+                  summary += ", " + result.wcs.pixel_scale.toFixed(2) + "\"/px";
+               }
             }
             console.writeln(summary);
          }

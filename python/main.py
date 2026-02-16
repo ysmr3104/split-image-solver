@@ -954,6 +954,17 @@ def main():
                 grid_rows, grid_cols, split_files, solve_results
             )
 
+            # 機材情報
+            equipment_info = {}
+            if camera_info:
+                equipment_info["camera"] = camera_info.get("display_name", "")
+            if lens_info:
+                equipment_info["lens"] = lens_info.get("display_name", "")
+            if focal_length:
+                equipment_info["focal_length_mm"] = focal_length
+            if pixel_pitch:
+                equipment_info["pixel_pitch_um"] = pixel_pitch
+
             json_result = {
                 "success": True,
                 "output_path": str(output_path),
@@ -961,6 +972,7 @@ def main():
                 "tiles_total": len(split_files),
                 "grid": {"rows": grid_rows, "cols": grid_cols},
                 "tile_grid": tile_grid,
+                "equipment": equipment_info,
                 "wcs": {
                     "crval1": float(integrated_wcs.wcs.crval[0]),
                     "crval2": float(integrated_wcs.wcs.crval[1]),
