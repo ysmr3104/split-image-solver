@@ -6,6 +6,7 @@ Split Image Solver - メインスクリプト
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 import shutil
@@ -18,6 +19,26 @@ from solvers.factory import create_solver
 from wcs_integrator import WCSIntegrator
 from fits_handler import FITSHandler
 from utils.logger import setup_logger, get_logger
+
+
+def _json_dumps_no_sci(obj):
+    """json.dumps で科学表記を回避する（PJSR の JSON.parse 互換性のため）
+
+    PJSR の JSON.parse() は 1.23e-06 等の科学表記を解析できないため、
+    すべての浮動小数点数を固定小数点表記に変換する。
+    """
+    json_str = json.dumps(obj)
+
+    def _sci_to_fixed(match):
+        val = float(match.group(0))
+        if val == 0:
+            return "0.0"
+        s = f"{val:.20f}".rstrip("0")
+        if s.endswith("."):
+            s += "0"
+        return s
+
+    return re.sub(r"-?\d+\.?\d*[eE][+-]?\d+", _sci_to_fixed, json_str)
 
 
 def _build_solver_config(config: Dict) -> Dict:
@@ -889,7 +910,7 @@ def main():
                 },
                 "wcs_keywords": wcs_keywords,
             }
-            json_str = json.dumps(json_result)
+            json_str = _json_dumps_no_sci(json_result)
             if args.json_output:
                 print(json_str)
                 sys.stdout.flush()
