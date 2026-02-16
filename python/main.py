@@ -6,6 +6,7 @@ Split Image Solver - メインスクリプト
 
 import argparse
 import json
+import math
 import re
 import sys
 import tempfile
@@ -21,19 +22,44 @@ from fits_handler import FITSHandler
 from utils.logger import setup_logger, get_logger
 
 
-def _json_dumps_no_sci(obj):
-    """json.dumps で科学表記を回避する（PJSR の JSON.parse 互換性のため）
+def _sanitize_floats_for_pjsr(obj):
+    """PJSR の JSON.parse 互換のために浮動小数点精度を制限する
 
-    PJSR の JSON.parse() は 1.23e-06 等の科学表記を解析できないため、
-    すべての浮動小数点数を固定小数点表記に変換する。
+    PJSR は小数点以下18桁以上の数値や科学表記(1.23e-06等)を解析できないため、
+    全浮動小数点数を12有効桁・最大15桁小数に丸める。
     """
-    json_str = json.dumps(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats_for_pjsr(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_sanitize_floats_for_pjsr(v) for v in obj]
+    elif isinstance(obj, float):
+        if obj == 0.0:
+            return 0.0
+        try:
+            magnitude = math.floor(math.log10(abs(obj)))
+        except ValueError:
+            return 0.0
+        # 12有効桁、最大15桁小数
+        decimal_places = max(0, min(15, 12 - int(magnitude) - 1))
+        return round(obj, decimal_places)
+    return obj
 
+
+def _json_dumps_pjsr_safe(obj):
+    """PJSR 互換の JSON 文字列を生成する
+
+    1. 全浮動小数点数を12有効桁に丸める（小数点以下15桁以下に収める）
+    2. 残った科学表記を固定小数点に変換する
+    """
+    safe_obj = _sanitize_floats_for_pjsr(obj)
+    json_str = json.dumps(safe_obj)
+
+    # 科学表記が残っている場合は固定小数点に変換
     def _sci_to_fixed(match):
         val = float(match.group(0))
         if val == 0:
             return "0.0"
-        s = f"{val:.20f}".rstrip("0")
+        s = f"{val:.15f}".rstrip("0")
         if s.endswith("."):
             s += "0"
         return s
@@ -910,7 +936,7 @@ def main():
                 },
                 "wcs_keywords": wcs_keywords,
             }
-            json_str = _json_dumps_no_sci(json_result)
+            json_str = _json_dumps_pjsr_safe(json_result)
             if args.json_output:
                 print(json_str)
                 sys.stdout.flush()
