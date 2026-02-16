@@ -427,7 +427,7 @@ function SolverEngine() {
    };
 
    //コマンド配列を構築
-   this.buildCommand = function (inputPath, outputPath, params) {
+   this.buildCommand = function (inputPath, outputPath, params, resultFile) {
       var scriptPath = params.scriptDir + "/python/main.py";
 
       var args = [
@@ -437,7 +437,8 @@ function SolverEngine() {
          "--output", outputPath,
          "--grid", params.grid,
          "--overlap", params.overlap.toString(),
-         "--json-output"
+         "--json-output",
+         "--result-file", resultFile
       ];
 
       if (params.ra !== undefined && params.ra !== null) {
@@ -470,7 +471,11 @@ function SolverEngine() {
 
    //Python main.pyを実行
    this.execute = function (inputPath, outputPath, params) {
-      var args = this.buildCommand(inputPath, outputPath, params);
+      var resultFile = File.systemTempDirectory + "/split_solver_result.json";
+      if (File.exists(resultFile)) {
+         try { File.remove(resultFile); } catch (e) {}
+      }
+      var args = this.buildCommand(inputPath, outputPath, params, resultFile);
 
       console.writeln("<b>Split Image Solver: Executing...</b>");
       console.writeln("Command: " + args.join(" "));
@@ -626,38 +631,57 @@ function SolverEngine() {
          }
          throw new Error("Solver process exited with code " + P.exitCode);
       }
-      // JSONパース（正常終了時またはエラー詳細取得用）
-      if (stdout.length > 0) {
-         //stdoutの最後の行がJSON（ログ混入対策）
+      // 結果JSONの読み込み: result-file を優先、stdoutをフォールバック
+      var result = null;
+
+      // 方法1: 専用結果ファイルから読み込み（確実）
+      if (File.exists(resultFile)) {
+         try {
+            var resultJson = File.readTextFile(resultFile).trim();
+            result = JSON.parse(resultJson);
+            console.writeln("Result loaded from result file (" + resultJson.length + " chars)");
+         }
+         catch (e) {
+            console.warningln("Failed to parse result file: " + e.message);
+         }
+         try { File.remove(resultFile); } catch (e) {}
+      }
+
+      // 方法2: stdoutから読み込み（フォールバック）
+      if (!result && stdout.length > 0) {
          var lines = stdout.split("\n");
          for (var i = lines.length - 1; i >= 0; i--) {
             var line = lines[i].trim();
             if (line.length > 0 && line.charAt(0) === '{') {
-               var result;
                try {
                   result = JSON.parse(line);
+                  console.writeln("Result loaded from stdout");
+                  break;
                }
                catch (e) {
-                  continue; // JSONパース失敗 → 次の行を試行
+                  continue;
                }
-               // JSONパース成功 → サマリ表示して返す
-               try {
-                  var summary = "<b>Result:</b> "
-                     + result.tiles_solved + "/" + result.tiles_total
-                     + " tiles solved";
-                  if (result.wcs) {
-                     summary += ", CRVAL=("
-                        + result.wcs.crval1.toFixed(4) + ", "
-                        + result.wcs.crval2.toFixed(4) + ")";
-                  }
-                  console.writeln(summary);
-               }
-               catch (e2) {
-                  console.writeln("<b>Result:</b> Solver completed");
-               }
-               return result;
             }
          }
+      }
+
+      if (result) {
+         // サマリ表示
+         try {
+            var summary = "<b>Result:</b> "
+               + result.tiles_solved + "/" + result.tiles_total
+               + " tiles solved";
+            if (result.wcs) {
+               summary += ", CRVAL=("
+                  + result.wcs.crval1.toFixed(4) + ", "
+                  + result.wcs.crval2.toFixed(4) + ")";
+            }
+            console.writeln(summary);
+         }
+         catch (e2) {
+            console.writeln("<b>Result:</b> Solver completed");
+         }
+         return result;
       }
 
       console.writeln("Solver completed successfully (no JSON output found)");

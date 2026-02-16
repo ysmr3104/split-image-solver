@@ -231,6 +231,11 @@ def main():
         action="store_true",
         help="結果をJSON形式で標準出力に出力（PixInsight連携用）",
     )
+    parser.add_argument(
+        "--result-file",
+        type=str,
+        help="結果JSONの出力先ファイルパス（stdout出力の代替、PixInsight連携用）",
+    )
 
     # 設定ファイル
     parser.add_argument(
@@ -866,7 +871,7 @@ def main():
         logger.info("=" * 60)
 
         # JSON出力モード（PixInsight連携用）
-        if args.json_output:
+        if args.json_output or args.result_file:
             # 全WCSキーワードを取得（SIP係数含む）
             from xisf_handler import XISFHandler
 
@@ -884,15 +889,30 @@ def main():
                 },
                 "wcs_keywords": wcs_keywords,
             }
-            print(json.dumps(json_result))
+            json_str = json.dumps(json_result)
+            if args.json_output:
+                print(json_str)
+                sys.stdout.flush()
+            if args.result_file:
+                with open(args.result_file, "w", encoding="utf-8") as rf:
+                    rf.write(json_str)
+                logger.info(f"Result JSON written to: {args.result_file}")
 
         return 0
 
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
+        json_result = {"success": False, "error": str(e)}
+        json_str = json.dumps(json_result)
         if args.json_output:
-            json_result = {"success": False, "error": str(e)}
-            print(json.dumps(json_result))
+            print(json_str)
+            sys.stdout.flush()
+        if args.result_file:
+            try:
+                with open(args.result_file, "w", encoding="utf-8") as rf:
+                    rf.write(json_str)
+            except Exception:
+                pass
         return 1
 
     finally:
