@@ -554,7 +554,7 @@ lenses:
 
 ### 6.2 対応機材一覧
 
-**カメラ（27機種）:**
+**カメラ（37機種）:**
 
 Sony α7 シリーズ全世代:
 - α7 / α7II / α7III / α7IV / α7V（スタンダード）
@@ -566,7 +566,11 @@ Nikon Z シリーズ:
 - Z 5 / Z 5II / Z 6 / Z 6II / Z 6III / Z f（24MPクラス）
 - Z 7 / Z 7II / Z 8 / Z 9（45MPクラス）
 
-**レンズ（19本）:**
+Canon EOS R シリーズ:
+- EOS R / RP / R3 / R6 / R6 II / R6 III / R8（スタンダード〜高速連写）
+- EOS R5 / R5 II / R1（高画素 / フラッグシップ）
+
+**レンズ（27本）:**
 
 | メーカー | モデル | 焦点距離 | 開放F値 |
 |---------|--------|---------|---------|
@@ -589,6 +593,14 @@ Nikon Z シリーズ:
 | NIKKOR Z | 26mm f/2.8 | 26mm | f/2.8 |
 | NIKKOR Z | 28mm f/2.8 | 28mm | f/2.8 |
 | NIKKOR Z | 35mm f/1.4 | 35mm | f/1.4 |
+| Canon RF L | 14mm f/1.4 L VCM | 14mm | f/1.4 |
+| Canon RF L | 20mm f/1.4 L VCM | 20mm | f/1.4 |
+| Canon RF L | 24mm f/1.4 L VCM | 24mm | f/1.4 |
+| Canon RF L | 35mm f/1.4 L VCM | 35mm | f/1.4 |
+| Canon RF | 16mm f/2.8 STM | 16mm | f/2.8 |
+| Canon RF | 24mm f/1.8 Macro STM | 24mm | f/1.8 |
+| Canon RF | 28mm f/2.8 STM | 28mm | f/2.8 |
+| Canon RF | 35mm f/1.8 Macro STM | 35mm | f/1.8 |
 
 ### 6.3 CLIからの機材DB参照
 

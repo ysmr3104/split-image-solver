@@ -308,6 +308,122 @@ cameras:
     lensfun_maker: Nikon
     lensfun_model: Z 9
 
+  #
+  # ===== Canon EOS R (スタンダード) =====
+  #
+  "Canon EOS R":
+    maker: Canon
+    display_name: "Canon EOS R"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.36
+    native_resolution: [6720, 4480]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R
+
+  "Canon EOS RP":
+    maker: Canon
+    display_name: "Canon EOS RP"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.75
+    native_resolution: [6240, 4160]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS RP
+
+  "Canon EOS R3":
+    maker: Canon
+    display_name: "Canon EOS R3"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R3
+
+  "Canon EOS R6":
+    maker: Canon
+    display_name: "Canon EOS R6"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 6.58
+    native_resolution: [5472, 3648]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6
+
+  "Canon EOS R6 Mark II":
+    maker: Canon
+    display_name: "Canon EOS R6 II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6 Mark II
+
+  "Canon EOS R6 Mark III":
+    maker: Canon
+    display_name: "Canon EOS R6 III"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.16
+    native_resolution: [6960, 4640]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6 Mark III
+
+  "Canon EOS R8":
+    maker: Canon
+    display_name: "Canon EOS R8"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R8
+
+  #
+  # ===== Canon EOS R (高画素 / フラッグシップ) =====
+  #
+  "Canon EOS R5":
+    maker: Canon
+    display_name: "Canon EOS R5"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.39
+    native_resolution: [8192, 5464]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R5
+
+  "Canon EOS R5 Mark II":
+    maker: Canon
+    display_name: "Canon EOS R5 II"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.39
+    native_resolution: [8192, 5464]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R5 Mark II
+
+  "Canon EOS R1":
+    maker: Canon
+    display_name: "Canon EOS R1"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 6.00
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R1
+
 lenses:
   # キー: 任意の識別名。focal_length_mm + camera_makers で自動マッチング
   #
@@ -517,3 +633,89 @@ lenses:
     camera_makers: [Nikon]
     lensfun_maker: Nikon
     lensfun_search: "NIKKOR Z 35mm f/1.4"
+
+  #
+  # ===== Canon RF L レンズ =====
+  #
+  "Canon RF 14mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 14mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 14.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 14mm"
+
+  "Canon RF 20mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 20mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 20mm"
+
+  "Canon RF 24mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 24mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 24mm f/1.4"
+
+  "Canon RF 35mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 35mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 35mm f/1.4"
+
+  #
+  # ===== Canon RF (STM) =====
+  #
+  "Canon RF 16mm f/2.8 STM":
+    maker: Canon
+    display_name: "RF 16mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 16.0
+    max_aperture: 2.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 16mm"
+
+  "Canon RF 24mm f/1.8 MACRO IS STM":
+    maker: Canon
+    display_name: "RF 24mm f/1.8 Macro"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 24mm f/1.8"
+
+  "Canon RF 28mm f/2.8 STM":
+    maker: Canon
+    display_name: "RF 28mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 28.0
+    max_aperture: 2.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 28mm"
+
+  "Canon RF 35mm f/1.8 MACRO IS STM":
+    maker: Canon
+    display_name: "RF 35mm f/1.8 Macro"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 35mm f/1.8"
