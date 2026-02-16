@@ -638,8 +638,16 @@ function SolverEngine() {
       if (File.exists(resultFile)) {
          try {
             var resultJson = File.readTextFile(resultFile).trim();
+            console.writeln("Result file: " + resultJson.length + " chars");
+            console.writeln("First 300 chars: " + resultJson.substring(0, 300));
+            // 先頭の非表示文字をチェック
+            var codes = "";
+            for (var ci = 0; ci < Math.min(5, resultJson.length); ci++) {
+               codes += resultJson.charCodeAt(ci) + " ";
+            }
+            console.writeln("First char codes: " + codes);
             result = JSON.parse(resultJson);
-            console.writeln("Result loaded from result file (" + resultJson.length + " chars)");
+            console.writeln("Result loaded from result file");
          }
          catch (e) {
             console.warningln("Failed to parse result file: " + e.message);
