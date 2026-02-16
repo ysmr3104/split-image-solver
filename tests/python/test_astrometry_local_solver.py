@@ -7,6 +7,7 @@ from unittest.mock import patch, MagicMock, PropertyMock
 from pathlib import Path
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "python"))
 
 from solvers.astrometry_local_solver import AstrometryLocalSolver, find_solve_field
@@ -39,9 +40,7 @@ class TestAstrometryLocalSolverInit:
         solve_field.touch()
 
         solver = AstrometryLocalSolver(
-            solve_field_path=str(solve_field),
-            timeout=300,
-            search_radius=5.0
+            solve_field_path=str(solve_field), timeout=300, search_radius=5.0
         )
         assert solver.solve_field_path == solve_field
         assert solver.timeout == 300
@@ -50,8 +49,12 @@ class TestAstrometryLocalSolverInit:
     @patch("solvers.astrometry_local_solver.logger")
     def test_init_without_solve_field_raises(self, mock_logger):
         """solve-field未検出でFileNotFoundErrorが発生すること"""
-        with patch("solvers.astrometry_local_solver.find_solve_field", return_value=None):
-            with pytest.raises(FileNotFoundError, match="solve-field command not found"):
+        with patch(
+            "solvers.astrometry_local_solver.find_solve_field", return_value=None
+        ):
+            with pytest.raises(
+                FileNotFoundError, match="solve-field command not found"
+            ):
                 AstrometryLocalSolver()
 
     @patch("solvers.astrometry_local_solver.logger")
@@ -78,7 +81,9 @@ class TestAstrometryLocalSolverSolveImage:
     @patch("solvers.astrometry_local_solver.logger")
     @patch("solvers.astrometry_local_solver.subprocess")
     @patch("solvers.astrometry_local_solver.fits")
-    def test_solve_image_success(self, mock_fits, mock_subprocess, mock_logger, tmp_path):
+    def test_solve_image_success(
+        self, mock_fits, mock_subprocess, mock_logger, tmp_path
+    ):
         """正常にソルブ成功するケース（モック）"""
         # solve-field実行ファイル
         solve_field = tmp_path / "solve-field"
@@ -104,40 +109,83 @@ class TestAstrometryLocalSolverSolveImage:
         # fits.open のモック（.wcsファイル読み込み）
         mock_wcs_header = MagicMock()
         mock_wcs_header.__contains__ = lambda self, key: key in [
-            "CD1_1", "CD1_2", "CD2_1", "CD2_2", "NAXIS1", "NAXIS2",
-            "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2", "CTYPE1", "CTYPE2"
+            "CD1_1",
+            "CD1_2",
+            "CD2_1",
+            "CD2_2",
+            "NAXIS1",
+            "NAXIS2",
+            "CRVAL1",
+            "CRVAL2",
+            "CRPIX1",
+            "CRPIX2",
+            "CTYPE1",
+            "CTYPE2",
         ]
         mock_wcs_header.__getitem__ = lambda self, key: {
-            "CD1_1": -0.001, "CD1_2": 0.0, "CD2_1": 0.0, "CD2_2": 0.001,
-            "NAXIS1": 1000, "NAXIS2": 1000,
-            "CRVAL1": 180.0, "CRVAL2": 45.0,
-            "CRPIX1": 500.0, "CRPIX2": 500.0,
-            "CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN",
+            "CD1_1": -0.001,
+            "CD1_2": 0.0,
+            "CD2_1": 0.0,
+            "CD2_2": 0.001,
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
+            "CRVAL1": 180.0,
+            "CRVAL2": 45.0,
+            "CRPIX1": 500.0,
+            "CRPIX2": 500.0,
+            "CTYPE1": "RA---TAN",
+            "CTYPE2": "DEC--TAN",
         }[key]
         mock_wcs_header.get = lambda key, default=None: {
-            "CD1_1": -0.001, "CD1_2": 0.0, "CD2_1": 0.0, "CD2_2": 0.001,
-            "NAXIS1": 1000, "NAXIS2": 1000,
+            "CD1_1": -0.001,
+            "CD1_2": 0.0,
+            "CD2_1": 0.0,
+            "CD2_2": 0.001,
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
         }.get(key, default)
 
         mock_hdul_wcs = MagicMock()
         mock_hdul_wcs.__enter__ = MagicMock(return_value=mock_hdul_wcs)
         mock_hdul_wcs.__exit__ = MagicMock(return_value=False)
-        mock_hdul_wcs.__getitem__ = MagicMock(return_value=MagicMock(header=mock_wcs_header))
+        mock_hdul_wcs.__getitem__ = MagicMock(
+            return_value=MagicMock(header=mock_wcs_header)
+        )
 
         mock_orig_header = MagicMock()
-        mock_orig_header.__getitem__ = lambda self, key: {"NAXIS1": 1000, "NAXIS2": 1000}[key]
+        mock_orig_header.__getitem__ = lambda self, key: {
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
+        }[key]
 
         mock_hdul_orig = MagicMock()
         mock_hdul_orig.__enter__ = MagicMock(return_value=mock_hdul_orig)
         mock_hdul_orig.__exit__ = MagicMock(return_value=False)
-        mock_hdul_orig.__getitem__ = MagicMock(return_value=MagicMock(header=mock_orig_header))
+        mock_hdul_orig.__getitem__ = MagicMock(
+            return_value=MagicMock(header=mock_orig_header)
+        )
 
         mock_hdul_update = MagicMock()
         mock_hdul_update.__enter__ = MagicMock(return_value=mock_hdul_update)
         mock_hdul_update.__exit__ = MagicMock(return_value=False)
-        mock_hdul_update.__getitem__ = MagicMock(return_value=MagicMock(header=MagicMock()))
+        mock_hdul_update.__getitem__ = MagicMock(
+            return_value=MagicMock(header=MagicMock())
+        )
 
-        mock_fits.open.side_effect = [mock_hdul_wcs, mock_hdul_orig, mock_hdul_update]
+        # 画像サイズ取得用のモック（自動ダウンサンプル判定で使用）
+        mock_dim_header = MagicMock()
+        mock_dim_header.__getitem__ = lambda self, key: {
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
+        }[key]
+        mock_hdul_dim = MagicMock()
+        mock_hdul_dim.__enter__ = MagicMock(return_value=mock_hdul_dim)
+        mock_hdul_dim.__exit__ = MagicMock(return_value=False)
+        mock_hdul_dim.__getitem__ = MagicMock(
+            return_value=MagicMock(header=mock_dim_header)
+        )
+
+        mock_fits.open.side_effect = [mock_hdul_dim, mock_hdul_wcs, mock_hdul_update]
 
         with patch("solvers.astrometry_local_solver.WCS") as mock_wcs_class:
             mock_wcs = MagicMock()
@@ -153,7 +201,10 @@ class TestAstrometryLocalSolverSolveImage:
 
     @patch("solvers.astrometry_local_solver.logger")
     @patch("solvers.astrometry_local_solver.subprocess")
-    def test_solve_image_failure(self, mock_subprocess, mock_logger, tmp_path):
+    @patch("solvers.astrometry_local_solver.fits")
+    def test_solve_image_failure(
+        self, mock_fits, mock_subprocess, mock_logger, tmp_path
+    ):
         """プレートソルブ失敗ケース"""
         solve_field = tmp_path / "solve-field"
         solve_field.touch()
@@ -162,6 +213,20 @@ class TestAstrometryLocalSolverSolveImage:
         # .wcsファイルは作らない（失敗を示す）
 
         solver = AstrometryLocalSolver(solve_field_path=str(solve_field))
+
+        # 画像サイズ取得用のモック
+        mock_dim_header = MagicMock()
+        mock_dim_header.__getitem__ = lambda self, key: {
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
+        }[key]
+        mock_hdul_dim = MagicMock()
+        mock_hdul_dim.__enter__ = MagicMock(return_value=mock_hdul_dim)
+        mock_hdul_dim.__exit__ = MagicMock(return_value=False)
+        mock_hdul_dim.__getitem__ = MagicMock(
+            return_value=MagicMock(header=mock_dim_header)
+        )
+        mock_fits.open.return_value = mock_hdul_dim
 
         mock_result = MagicMock()
         mock_result.stdout = "No solution found."
@@ -175,7 +240,10 @@ class TestAstrometryLocalSolverSolveImage:
 
     @patch("solvers.astrometry_local_solver.logger")
     @patch("solvers.astrometry_local_solver.subprocess")
-    def test_solve_image_subprocess_timeout(self, mock_subprocess, mock_logger, tmp_path):
+    @patch("solvers.astrometry_local_solver.fits")
+    def test_solve_image_subprocess_timeout(
+        self, mock_fits, mock_subprocess, mock_logger, tmp_path
+    ):
         """subprocessタイムアウトケース"""
         solve_field = tmp_path / "solve-field"
         solve_field.touch()
@@ -184,8 +252,25 @@ class TestAstrometryLocalSolverSolveImage:
 
         solver = AstrometryLocalSolver(solve_field_path=str(solve_field), timeout=10)
 
+        # 画像サイズ取得用のモック
+        mock_dim_header = MagicMock()
+        mock_dim_header.__getitem__ = lambda self, key: {
+            "NAXIS1": 1000,
+            "NAXIS2": 1000,
+        }[key]
+        mock_hdul_dim = MagicMock()
+        mock_hdul_dim.__enter__ = MagicMock(return_value=mock_hdul_dim)
+        mock_hdul_dim.__exit__ = MagicMock(return_value=False)
+        mock_hdul_dim.__getitem__ = MagicMock(
+            return_value=MagicMock(header=mock_dim_header)
+        )
+        mock_fits.open.return_value = mock_hdul_dim
+
         import subprocess
-        mock_subprocess.run.side_effect = subprocess.TimeoutExpired(cmd="solve-field", timeout=10)
+
+        mock_subprocess.run.side_effect = subprocess.TimeoutExpired(
+            cmd="solve-field", timeout=10
+        )
         mock_subprocess.TimeoutExpired = subprocess.TimeoutExpired
 
         result = solver.solve_image(test_file)
@@ -208,8 +293,17 @@ class TestCleanupTempFiles:
         base_path.touch()
 
         # solve-fieldが生成する一時ファイルを作成
-        temp_extensions = ['.wcs', '.solved', '.axy', '.corr', '.match',
-                          '.rdls', '.xyls', '-indx.xyls', '.new']
+        temp_extensions = [
+            ".wcs",
+            ".solved",
+            ".axy",
+            ".corr",
+            ".match",
+            ".rdls",
+            ".xyls",
+            "-indx.xyls",
+            ".new",
+        ]
         created_files = []
         for ext in temp_extensions:
             temp_file = tmp_path / f"test{ext}"

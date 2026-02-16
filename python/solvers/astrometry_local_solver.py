@@ -26,14 +26,14 @@ def find_solve_field() -> Optional[Path]:
         Path: solve-fieldコマンドのパス（見つからない場合はNone）
     """
     # 1. shutil.which で検索（PATHから自動検出）
-    which_result = shutil.which('solve-field')
+    which_result = shutil.which("solve-field")
     if which_result:
         return Path(which_result)
 
     # 2. macOS Homebrew の標準パス
     homebrew_paths = [
-        Path('/opt/homebrew/bin/solve-field'),  # Apple Silicon
-        Path('/usr/local/bin/solve-field')       # Intel Mac
+        Path("/opt/homebrew/bin/solve-field"),  # Apple Silicon
+        Path("/usr/local/bin/solve-field"),  # Intel Mac
     ]
     for path in homebrew_paths:
         if path.exists():
@@ -41,9 +41,9 @@ def find_solve_field() -> Optional[Path]:
 
     # 3. Linux の標準パス
     linux_paths = [
-        Path('/usr/bin/solve-field'),
-        Path('/usr/local/bin/solve-field'),
-        Path('/usr/local/astrometry/bin/solve-field')
+        Path("/usr/bin/solve-field"),
+        Path("/usr/local/bin/solve-field"),
+        Path("/usr/local/astrometry/bin/solve-field"),
     ]
     for path in linux_paths:
         if path.exists():
@@ -64,7 +64,7 @@ class AstrometryLocalSolver(BasePlateSolver):
         self,
         solve_field_path: Optional[str] = None,
         timeout: int = 300,
-        search_radius: float = 10.0
+        search_radius: float = 10.0,
     ):
         """
         Args:
@@ -117,9 +117,9 @@ class AstrometryLocalSolver(BasePlateSolver):
             # RGB画像の場合はルミナンスに変換（solve-fieldは2D画像が最適）
             if len(image_data.shape) == 3 and image_data.shape[2] == 3:
                 image_data = (
-                    0.2126 * image_data[:, :, 0] +
-                    0.7152 * image_data[:, :, 1] +
-                    0.0722 * image_data[:, :, 2]
+                    0.2126 * image_data[:, :, 0]
+                    + 0.7152 * image_data[:, :, 1]
+                    + 0.0722 * image_data[:, :, 2]
                 )
                 logger.debug(f"Converted RGB to luminance: {image_data.shape}")
 
@@ -133,17 +133,21 @@ class AstrometryLocalSolver(BasePlateSolver):
                     image_data = (scaled * 65535).astype(np.uint16)
                 else:
                     image_data = (image_data * 65535).astype(np.uint16)
-                logger.debug(f"Scaled to uint16: min={image_data.min()}, max={image_data.max()}")
+                logger.debug(
+                    f"Scaled to uint16: min={image_data.min()}, max={image_data.max()}"
+                )
 
             # 一時FITSファイルパスを生成
-            temp_fits_path = xisf_path.parent / f"{xisf_path.stem}_temp_for_astrometry.fits"
+            temp_fits_path = (
+                xisf_path.parent / f"{xisf_path.stem}_temp_for_astrometry.fits"
+            )
 
             # FITSファイルとして保存
             hdu = fits.PrimaryHDU(data=image_data)
 
             # メタデータからFITSキーワードをコピー
-            if 'fits_keywords' in metadata:
-                for key, value in metadata['fits_keywords'].items():
+            if "fits_keywords" in metadata:
+                for key, value in metadata["fits_keywords"].items():
                     try:
                         hdu.header[key] = value
                     except Exception as e:
@@ -170,8 +174,15 @@ class AstrometryLocalSolver(BasePlateSolver):
         """
         # solve-fieldが生成する拡張子リスト
         temp_extensions = [
-            '.wcs', '.solved', '.axy', '.corr', '.match',
-            '.rdls', '.xyls', '-indx.xyls', '.new'
+            ".wcs",
+            ".solved",
+            ".axy",
+            ".corr",
+            ".match",
+            ".rdls",
+            ".xyls",
+            "-indx.xyls",
+            ".new",
         ]
 
         for ext in temp_extensions:
@@ -188,7 +199,10 @@ class AstrometryLocalSolver(BasePlateSolver):
         image_path: Path,
         fov_hint: Optional[float] = None,
         ra_hint: Optional[float] = None,
-        dec_hint: Optional[float] = None
+        dec_hint: Optional[float] = None,
+        scale_margin: float = 0.2,
+        timeout_override: Optional[int] = None,
+        tweak_order: int = 4,
     ) -> Dict:
         """
         単一画像をプレートソルブ
@@ -219,66 +233,81 @@ class AstrometryLocalSolver(BasePlateSolver):
 
         if not image_path.exists():
             return {
-                'success': False,
-                'wcs': None,
-                'error_message': f"File not found: {image_path}",
-                'file_path': image_path,
-                'solve_time': 0
+                "success": False,
+                "wcs": None,
+                "error_message": f"File not found: {image_path}",
+                "file_path": image_path,
+                "solve_time": 0,
             }
 
         # XISF形式の場合、一時FITSに変換
-        is_xisf = image_path.suffix.lower() == '.xisf'
+        is_xisf = image_path.suffix.lower() == ".xisf"
         if is_xisf:
             try:
                 work_path = self._convert_xisf_to_fits(image_path)
             except Exception as e:
                 return {
-                    'success': False,
-                    'wcs': None,
-                    'error_message': f"XISF to FITS conversion failed: {str(e)}",
-                    'file_path': image_path,
-                    'solve_time': 0
+                    "success": False,
+                    "wcs": None,
+                    "error_message": f"XISF to FITS conversion failed: {str(e)}",
+                    "file_path": image_path,
+                    "solve_time": 0,
                 }
         else:
             work_path = image_path
+
+        # タイムアウト決定
+        effective_timeout = timeout_override if timeout_override else self.timeout
 
         try:
             # solve-fieldコマンドライン引数を構築
             cmd = [
                 str(self.solve_field_path),
-                '--overwrite',            # 既存出力を上書き
-                '--no-plots',             # プロットファイル不要
-                '--no-remove-lines',       # 直線除去しない
-                '--no-verify-uniformize',  # 高速化
-                str(work_path)
+                "--overwrite",  # 既存出力を上書き
+                "--no-plots",  # プロットファイル不要
+                "--no-remove-lines",  # 直線除去しない
+                "--no-verify-uniformize",  # 高速化
+                "--crpix-center",  # 歪みの基準点を画像中心に固定
+                "--tweak-order", str(tweak_order),  # SIP多項式次数
+                str(work_path),
             ]
+
+            # 画像サイズを取得（FOVヒント・ダウンサンプルの両方で使用）
+            with fits.open(work_path) as hdul:
+                header = hdul[0].header
+                width = header["NAXIS1"]
+                height = header["NAXIS2"]
+                max_dimension = max(width, height)
+
+            # 大サイズタイルの自動ダウンサンプル
+            if max_dimension > 2000:
+                import math
+
+                downsample = max(2, math.ceil(max_dimension / 2000))
+                cmd.extend(["--downsample", str(downsample)])
+                logger.debug(
+                    f"Auto-downsample: {max_dimension}px -> factor {downsample}"
+                )
 
             # FOVヒントがある場合、スケール範囲を指定
             if fov_hint:
-                # 画像サイズを取得
-                with fits.open(work_path) as hdul:
-                    header = hdul[0].header
-                    width = header['NAXIS1']
-                    height = header['NAXIS2']
-                    max_dimension = max(width, height)
-
                 # arcsec/pixel を計算（FOV[deg] * 3600 / dimension[pixels]）
                 scale_center = fov_hint * 3600 / max_dimension
-                scale_low = scale_center * 0.8
-                scale_high = scale_center * 1.2
+                scale_low = scale_center * (1.0 - scale_margin)
+                scale_high = scale_center * (1.0 + scale_margin)
 
-                cmd.extend(['--scale-low', str(scale_low)])
-                cmd.extend(['--scale-high', str(scale_high)])
-                cmd.extend(['--scale-units', 'arcsecperpix'])
+                cmd.extend(["--scale-low", str(scale_low)])
+                cmd.extend(["--scale-high", str(scale_high)])
+                cmd.extend(["--scale-units", "arcsecperpix"])
 
             # RA/DECヒントがある場合
             if ra_hint is not None and dec_hint is not None:
-                cmd.extend(['--ra', str(ra_hint)])
-                cmd.extend(['--dec', str(dec_hint)])
-                cmd.extend(['--radius', str(self.search_radius)])
+                cmd.extend(["--ra", str(ra_hint)])
+                cmd.extend(["--dec", str(dec_hint)])
+                cmd.extend(["--radius", str(self.search_radius)])
 
             # タイムアウト設定（solve-fieldの--cpulimitオプション）
-            cmd.extend(['--cpulimit', str(self.timeout)])
+            cmd.extend(["--cpulimit", str(effective_timeout)])
 
             logger.debug(f"solve-field command: {' '.join(cmd)}")
 
@@ -288,7 +317,8 @@ class AstrometryLocalSolver(BasePlateSolver):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout + 10  # プロセス全体のタイムアウト（cpulimit + 余裕）
+                timeout=effective_timeout
+                + 10,  # プロセス全体のタイムアウト（cpulimit + 余裕）
             )
             solve_time = time.time() - start_time
 
@@ -305,11 +335,9 @@ class AstrometryLocalSolver(BasePlateSolver):
                     with fits.open(wcs_file) as wcs_hdul:
                         wcs_header = wcs_hdul[0].header
 
-                    # 元の画像からNAXIS情報を取得
-                    with fits.open(work_path) as hdul:
-                        orig_header = hdul[0].header
-                        wcs_header['NAXIS1'] = orig_header['NAXIS1']
-                        wcs_header['NAXIS2'] = orig_header['NAXIS2']
+                    # NAXIS情報を設定（画像サイズは上で取得済み）
+                    wcs_header["NAXIS1"] = width
+                    wcs_header["NAXIS2"] = height
 
                     wcs = WCS(wcs_header)
 
@@ -318,18 +346,22 @@ class AstrometryLocalSolver(BasePlateSolver):
                         raise ValueError("WCS has no celestial coordinates")
 
                     # 中心座標を取得
-                    center_pixel = [wcs_header['NAXIS1'] / 2.0, wcs_header['NAXIS2'] / 2.0]
+                    center_pixel = [
+                        wcs_header["NAXIS1"] / 2.0,
+                        wcs_header["NAXIS2"] / 2.0,
+                    ]
                     ra_center, dec_center = wcs.pixel_to_world_values(
                         center_pixel[0], center_pixel[1]
                     )
 
                     # ピクセルスケールを計算（CD行列から）
-                    if 'CD1_1' in wcs_header and 'CD2_2' in wcs_header:
+                    if "CD1_1" in wcs_header and "CD2_2" in wcs_header:
                         import numpy as np
-                        cd1_1 = wcs_header['CD1_1']
-                        cd1_2 = wcs_header.get('CD1_2', 0.0)
-                        cd2_1 = wcs_header.get('CD2_1', 0.0)
-                        cd2_2 = wcs_header['CD2_2']
+
+                        cd1_1 = wcs_header["CD1_1"]
+                        cd1_2 = wcs_header.get("CD1_2", 0.0)
+                        cd2_1 = wcs_header.get("CD2_1", 0.0)
+                        cd2_2 = wcs_header["CD2_2"]
 
                         # ピクセルスケール (degree/pixel)
                         pixel_scale_deg = np.sqrt(abs(cd1_1 * cd2_2 - cd1_2 * cd2_1))
@@ -345,38 +377,61 @@ class AstrometryLocalSolver(BasePlateSolver):
                     if is_xisf:
                         # XISFファイルの場合
                         from xisf_handler import XISFHandler
+
                         image_data, orig_metadata = XISFHandler.load_image(image_path)
 
                         # WCS情報をFITSキーワードに追加
-                        if 'fits_keywords' not in orig_metadata:
-                            orig_metadata['fits_keywords'] = {}
+                        if "fits_keywords" not in orig_metadata:
+                            orig_metadata["fits_keywords"] = {}
 
                         wcs_keywords = [
-                            'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2',
-                            'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2',
-                            'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2',
-                            'RADESYS', 'EQUINOX'
+                            "CRVAL1",
+                            "CRVAL2",
+                            "CRPIX1",
+                            "CRPIX2",
+                            "CD1_1",
+                            "CD1_2",
+                            "CD2_1",
+                            "CD2_2",
+                            "CTYPE1",
+                            "CTYPE2",
+                            "CUNIT1",
+                            "CUNIT2",
+                            "RADESYS",
+                            "EQUINOX",
                         ]
                         for keyword in wcs_keywords:
                             if keyword in wcs_header:
-                                orig_metadata['fits_keywords'][keyword] = wcs_header[keyword]
+                                orig_metadata["fits_keywords"][keyword] = wcs_header[
+                                    keyword
+                                ]
 
                         # WCS情報を含めてXISFファイルを再保存
                         XISFHandler.save_image(
                             file_path=image_path,
                             image_data=image_data,
                             metadata=orig_metadata,
-                            wcs=wcs
+                            wcs=wcs,
                         )
                     else:
                         # FITSファイルの場合
-                        with fits.open(image_path, mode='update') as orig_hdul:
+                        with fits.open(image_path, mode="update") as orig_hdul:
                             # WCS関連のキーワードをコピー
                             wcs_keywords = [
-                                'CRVAL1', 'CRVAL2', 'CRPIX1', 'CRPIX2',
-                                'CD1_1', 'CD1_2', 'CD2_1', 'CD2_2',
-                                'CTYPE1', 'CTYPE2', 'CUNIT1', 'CUNIT2',
-                                'RADESYS', 'EQUINOX'
+                                "CRVAL1",
+                                "CRVAL2",
+                                "CRPIX1",
+                                "CRPIX2",
+                                "CD1_1",
+                                "CD1_2",
+                                "CD2_1",
+                                "CD2_2",
+                                "CTYPE1",
+                                "CTYPE2",
+                                "CUNIT1",
+                                "CUNIT2",
+                                "RADESYS",
+                                "EQUINOX",
                             ]
                             for keyword in wcs_keywords:
                                 if keyword in wcs_header:
@@ -386,30 +441,30 @@ class AstrometryLocalSolver(BasePlateSolver):
                     logger.info(
                         f"Astrometry.net local solve successful: RA={ra_center:.4f}°, "
                         f"Dec={dec_center:.4f}°, "
-                        f"scale={pixel_scale:.2f}\"/pix, "
+                        f'scale={pixel_scale:.2f}"/pix, '
                         f"time={solve_time:.1f}s"
                     )
 
                     return {
-                        'success': True,
-                        'wcs': wcs,
-                        'ra_center': ra_center,
-                        'dec_center': dec_center,
-                        'rotation': rotation,
-                        'pixel_scale': pixel_scale,
-                        'solve_time': solve_time,
-                        'num_stars': None,  # solve-fieldは星数を返さない
-                        'file_path': image_path
+                        "success": True,
+                        "wcs": wcs,
+                        "ra_center": ra_center,
+                        "dec_center": dec_center,
+                        "rotation": rotation,
+                        "pixel_scale": pixel_scale,
+                        "solve_time": solve_time,
+                        "num_stars": None,  # solve-fieldは星数を返さない
+                        "file_path": image_path,
                     }
 
                 except Exception as e:
                     logger.error(f"Failed to read WCS from .wcs file: {e}")
                     return {
-                        'success': False,
-                        'wcs': None,
-                        'error_message': f"WCS read error: {str(e)}",
-                        'file_path': image_path,
-                        'solve_time': solve_time
+                        "success": False,
+                        "wcs": None,
+                        "error_message": f"WCS read error: {str(e)}",
+                        "file_path": image_path,
+                        "solve_time": solve_time,
                     }
             else:
                 # .wcsファイルが存在しない = 失敗
@@ -417,34 +472,36 @@ class AstrometryLocalSolver(BasePlateSolver):
                 if result.stderr:
                     error_msg += f": {result.stderr}"
 
-                logger.warning(f"Astrometry.net local solve failed for {image_path}: {error_msg}")
+                logger.warning(
+                    f"Astrometry.net local solve failed for {image_path}: {error_msg}"
+                )
 
                 return {
-                    'success': False,
-                    'wcs': None,
-                    'error_message': error_msg,
-                    'file_path': image_path,
-                    'solve_time': solve_time
+                    "success": False,
+                    "wcs": None,
+                    "error_message": error_msg,
+                    "file_path": image_path,
+                    "solve_time": solve_time,
                 }
 
         except subprocess.TimeoutExpired:
-            logger.error(f"solve-field timeout after {self.timeout}s for {image_path}")
+            logger.error(f"solve-field timeout after {effective_timeout}s for {image_path}")
             return {
-                'success': False,
-                'wcs': None,
-                'error_message': f"Timeout after {self.timeout} seconds",
-                'file_path': image_path,
-                'solve_time': self.timeout
+                "success": False,
+                "wcs": None,
+                "error_message": f"Timeout after {effective_timeout} seconds",
+                "file_path": image_path,
+                "solve_time": effective_timeout,
             }
 
         except Exception as e:
             logger.error(f"solve-field error for {image_path}: {e}")
             return {
-                'success': False,
-                'wcs': None,
-                'error_message': str(e),
-                'file_path': image_path,
-                'solve_time': 0
+                "success": False,
+                "wcs": None,
+                "error_message": str(e),
+                "file_path": image_path,
+                "solve_time": 0,
             }
 
         finally:
@@ -456,10 +513,7 @@ class AstrometryLocalSolver(BasePlateSolver):
             self._cleanup_temp_files(work_path)
 
     def batch_solve(
-        self,
-        image_paths: List[Path],
-        max_workers: int = 4,
-        **solve_kwargs
+        self, image_paths: List[Path], max_workers: int = 4, **solve_kwargs
     ) -> Dict[str, Dict]:
         """
         複数画像を並列プレートソルブ
@@ -492,7 +546,7 @@ class AstrometryLocalSolver(BasePlateSolver):
                     result = future.result()
                     results[str(path)] = result
 
-                    if result['success']:
+                    if result["success"]:
                         logger.info(f"Completed: {path.name}")
                     else:
                         logger.warning(
@@ -502,15 +556,15 @@ class AstrometryLocalSolver(BasePlateSolver):
                 except Exception as e:
                     logger.error(f"Exception during solve of {path}: {e}")
                     results[str(path)] = {
-                        'success': False,
-                        'wcs': None,
-                        'error_message': f"Exception: {str(e)}",
-                        'file_path': path,
-                        'solve_time': 0
+                        "success": False,
+                        "wcs": None,
+                        "error_message": f"Exception: {str(e)}",
+                        "file_path": path,
+                        "solve_time": 0,
                     }
 
         # 成功数をカウント
-        success_count = sum(1 for r in results.values() if r['success'])
+        success_count = sum(1 for r in results.values() if r["success"])
         logger.info(
             f"Batch solve completed: {success_count}/{len(image_paths)} successful"
         )

@@ -1,0 +1,721 @@
+# 機材データベース
+# FITS/XISF ヘッダーの INSTRUME, FOCALLEN, APTDIA からカメラ・レンズを自動判別し、
+# pixel_pitch や lensfun 検索キーを提供する
+
+cameras:
+  # キー: INSTRUME ヘッダー値（完全一致）
+  #
+  # ===== Sony α7 (スタンダード) =====
+  #
+  "Sony ILCE-7":
+    maker: Sony
+    display_name: "Sony α7"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7
+
+  "Sony ILCE-7M2":
+    maker: Sony
+    display_name: "Sony α7II"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M2
+
+  "Sony ILCE-7M3":
+    maker: Sony
+    display_name: "Sony α7III"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 5.93
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M3
+
+  "Sony ILCE-7M4":
+    maker: Sony
+    display_name: "Sony α7IV"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.12
+    native_resolution: [7008, 4672]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M4
+
+  "Sony ILCE-7M5":
+    maker: Sony
+    display_name: "Sony α7V"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 5.08
+    native_resolution: [7008, 4672]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7M5
+
+  #
+  # ===== Sony α7R (高画素) =====
+  #
+  "Sony ILCE-7R":
+    maker: Sony
+    display_name: "Sony α7R"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.88
+    native_resolution: [7360, 4912]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7R
+
+  "Sony ILCE-7RM2":
+    maker: Sony
+    display_name: "Sony α7RII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.52
+    native_resolution: [7952, 5304]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM2
+
+  "Sony ILCE-7RM3":
+    maker: Sony
+    display_name: "Sony α7RIII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.52
+    native_resolution: [7952, 5304]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM3
+
+  "Sony ILCE-7RM4":
+    maker: Sony
+    display_name: "Sony α7RIV"
+    sensor_width_mm: 35.7
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM4
+
+  "Sony ILCE-7RM5":
+    maker: Sony
+    display_name: "Sony α7RV"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7RM5
+
+  #
+  # ===== Sony α7S (高感度) =====
+  #
+  "Sony ILCE-7S":
+    maker: Sony
+    display_name: "Sony α7S"
+    sensor_width_mm: 35.8
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 8.45
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7S
+
+  "Sony ILCE-7SM2":
+    maker: Sony
+    display_name: "Sony α7SII"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 8.40
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7SM2
+
+  "Sony ILCE-7SM3":
+    maker: Sony
+    display_name: "Sony α7SIII"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 8.40
+    native_resolution: [4240, 2832]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7SM3
+
+  #
+  # ===== Sony α7C (コンパクト) =====
+  #
+  "Sony ILCE-7C":
+    maker: Sony
+    display_name: "Sony α7C"
+    sensor_width_mm: 35.6
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 5.94
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7C
+
+  "Sony ILCE-7CM2":
+    maker: Sony
+    display_name: "Sony α7CII"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.12
+    native_resolution: [7008, 4672]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7CM2
+
+  "Sony ILCE-7CR":
+    maker: Sony
+    display_name: "Sony α7CR"
+    sensor_width_mm: 35.7
+    sensor_height_mm: 23.8
+    pixel_pitch_um: 3.76
+    native_resolution: [9504, 6336]
+    crop_factor: 1.0
+    lensfun_maker: Sony
+    lensfun_model: ILCE-7CR
+
+  #
+  # ===== Nikon Z (24MP クラス) =====
+  #
+  "NIKON Z 5":
+    maker: Nikon
+    display_name: "Nikon Z 5"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.97
+    native_resolution: [6016, 4016]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 5
+
+  "NIKON Z5_2":
+    maker: Nikon
+    display_name: "Nikon Z 5II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 5II
+
+  "NIKON Z 6":
+    maker: Nikon
+    display_name: "Nikon Z 6"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4024]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6
+
+  "NIKON Z 6_2":
+    maker: Nikon
+    display_name: "Nikon Z 6II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4024]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6II
+
+  "NIKON Z 6_3":
+    maker: Nikon
+    display_name: "Nikon Z 6III"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 6III
+
+  "NIKON Z f":
+    maker: Nikon
+    display_name: "Nikon Z f"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.94
+    native_resolution: [6048, 4032]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z f
+
+  #
+  # ===== Nikon Z (45MP クラス) =====
+  #
+  "NIKON Z 7":
+    maker: Nikon
+    display_name: "Nikon Z 7"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 7
+
+  "NIKON Z 7_2":
+    maker: Nikon
+    display_name: "Nikon Z 7II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 7II
+
+  "NIKON Z 8":
+    maker: Nikon
+    display_name: "Nikon Z 8"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 8
+
+  "NIKON Z 9":
+    maker: Nikon
+    display_name: "Nikon Z 9"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 4.35
+    native_resolution: [8256, 5504]
+    crop_factor: 1.0
+    lensfun_maker: Nikon
+    lensfun_model: Z 9
+
+  #
+  # ===== Canon EOS R (スタンダード) =====
+  #
+  "Canon EOS R":
+    maker: Canon
+    display_name: "Canon EOS R"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.36
+    native_resolution: [6720, 4480]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R
+
+  "Canon EOS RP":
+    maker: Canon
+    display_name: "Canon EOS RP"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.75
+    native_resolution: [6240, 4160]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS RP
+
+  "Canon EOS R3":
+    maker: Canon
+    display_name: "Canon EOS R3"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R3
+
+  "Canon EOS R6":
+    maker: Canon
+    display_name: "Canon EOS R6"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 6.58
+    native_resolution: [5472, 3648]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6
+
+  "Canon EOS R6 Mark II":
+    maker: Canon
+    display_name: "Canon EOS R6 II"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6 Mark II
+
+  "Canon EOS R6 Mark III":
+    maker: Canon
+    display_name: "Canon EOS R6 III"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.16
+    native_resolution: [6960, 4640]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R6 Mark III
+
+  "Canon EOS R8":
+    maker: Canon
+    display_name: "Canon EOS R8"
+    sensor_width_mm: 35.9
+    sensor_height_mm: 23.9
+    pixel_pitch_um: 5.98
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R8
+
+  #
+  # ===== Canon EOS R (高画素 / フラッグシップ) =====
+  #
+  "Canon EOS R5":
+    maker: Canon
+    display_name: "Canon EOS R5"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.39
+    native_resolution: [8192, 5464]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R5
+
+  "Canon EOS R5 Mark II":
+    maker: Canon
+    display_name: "Canon EOS R5 II"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 4.39
+    native_resolution: [8192, 5464]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R5 Mark II
+
+  "Canon EOS R1":
+    maker: Canon
+    display_name: "Canon EOS R1"
+    sensor_width_mm: 36.0
+    sensor_height_mm: 24.0
+    pixel_pitch_um: 6.00
+    native_resolution: [6000, 4000]
+    crop_factor: 1.0
+    lensfun_maker: Canon
+    lensfun_model: EOS R1
+
+lenses:
+  # キー: 任意の識別名。focal_length_mm + camera_makers で自動マッチング
+  #
+  # ===== Sony GM (G Master) =====
+  #
+  "Sony FE 14mm f/1.8 GM":
+    maker: Sony
+    display_name: "SEL14F18GM"
+    type: rectilinear
+    focal_length_mm: 14.0
+    max_aperture: 1.8
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 14mm"
+
+  "Sony FE 24mm f/1.4 GM":
+    maker: Sony
+    display_name: "SEL24F14GM"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 24mm f/1.4"
+
+  "Sony FE 35mm f/1.4 GM":
+    maker: Sony
+    display_name: "SEL35F14GM"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 35mm"
+
+  #
+  # ===== Sony G =====
+  #
+  "Sony FE 20mm f/1.8 G":
+    maker: Sony
+    display_name: "SEL20F18G"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.8
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 20mm"
+
+  "Sony FE 24mm f/2.8 G":
+    maker: Sony
+    display_name: "SEL24F28G"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 2.8
+    camera_makers: [Sony]
+    lensfun_maker: Sony
+    lensfun_search: "FE 24mm f/2.8"
+
+  #
+  # ===== Sigma Art DG DN =====
+  #
+  "Sigma 14mm f/1.4 DG DN Art":
+    maker: Sigma
+    display_name: "14mm F1.4 Art"
+    type: rectilinear
+    focal_length_mm: 14.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "14mm f/1.4 DG DN"
+
+  "Sigma 20mm f/1.4 DG DN Art":
+    maker: Sigma
+    display_name: "20mm F1.4 Art"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "20mm f/1.4 DG DN"
+
+  "Sigma 35mm f/1.2 DG DN Art":
+    maker: Sigma
+    display_name: "35mm F1.2 Art"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.2
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "35mm f/1.2 DG DN"
+
+  "Sigma 35mm f/1.4 DG DN Art":
+    maker: Sigma
+    display_name: "35mm F1.4 Art"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "35mm f/1.4 DG DN"
+
+  #
+  # ===== Sigma Contemporary DG DN =====
+  #
+  "Sigma 24mm f/2 DG DN Contemporary":
+    maker: Sigma
+    display_name: "24mm F2 Contemp."
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 2.0
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "24mm f/2 DG DN"
+
+  "Sigma 24mm f/3.5 DG DN Contemporary":
+    maker: Sigma
+    display_name: "24mm F3.5 Contemp."
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 3.5
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "24mm f/3.5 DG DN"
+
+  "Sigma 35mm f/2 DG DN Contemporary":
+    maker: Sigma
+    display_name: "35mm F2 Contemp."
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 2.0
+    camera_makers: [Sony]
+    lensfun_maker: Sigma
+    lensfun_search: "35mm f/2 DG DN"
+
+  #
+  # ===== NIKKOR Z S ライン =====
+  #
+  "NIKKOR Z 20mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 20mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 20mm"
+
+  "NIKKOR Z 24mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 24mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 24mm"
+
+  "NIKKOR Z 35mm f/1.2 S":
+    maker: Nikon
+    display_name: "Z 35mm f/1.2 S"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.2
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.2"
+
+  "NIKKOR Z 35mm f/1.8 S":
+    maker: Nikon
+    display_name: "Z 35mm f/1.8 S"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.8"
+
+  #
+  # ===== NIKKOR Z (コンパクト) =====
+  #
+  "NIKKOR Z 26mm f/2.8":
+    maker: Nikon
+    display_name: "Z 26mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 26.0
+    max_aperture: 2.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 26mm"
+
+  "NIKKOR Z 28mm f/2.8":
+    maker: Nikon
+    display_name: "Z 28mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 28.0
+    max_aperture: 2.8
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 28mm f/2.8"
+
+  "NIKKOR Z 35mm f/1.4":
+    maker: Nikon
+    display_name: "Z 35mm f/1.4"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Nikon]
+    lensfun_maker: Nikon
+    lensfun_search: "NIKKOR Z 35mm f/1.4"
+
+  #
+  # ===== Canon RF L レンズ =====
+  #
+  "Canon RF 14mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 14mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 14.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 14mm"
+
+  "Canon RF 20mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 20mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 20.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 20mm"
+
+  "Canon RF 24mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 24mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 24mm f/1.4"
+
+  "Canon RF 35mm f/1.4 L VCM":
+    maker: Canon
+    display_name: "RF 35mm f/1.4 L"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.4
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 35mm f/1.4"
+
+  #
+  # ===== Canon RF (STM) =====
+  #
+  "Canon RF 16mm f/2.8 STM":
+    maker: Canon
+    display_name: "RF 16mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 16.0
+    max_aperture: 2.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 16mm"
+
+  "Canon RF 24mm f/1.8 MACRO IS STM":
+    maker: Canon
+    display_name: "RF 24mm f/1.8 Macro"
+    type: rectilinear
+    focal_length_mm: 24.0
+    max_aperture: 1.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 24mm f/1.8"
+
+  "Canon RF 28mm f/2.8 STM":
+    maker: Canon
+    display_name: "RF 28mm f/2.8"
+    type: rectilinear
+    focal_length_mm: 28.0
+    max_aperture: 2.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 28mm"
+
+  "Canon RF 35mm f/1.8 MACRO IS STM":
+    maker: Canon
+    display_name: "RF 35mm f/1.8 Macro"
+    type: rectilinear
+    focal_length_mm: 35.0
+    max_aperture: 1.8
+    camera_makers: [Canon]
+    lensfun_maker: Canon
+    lensfun_search: "RF 35mm f/1.8"

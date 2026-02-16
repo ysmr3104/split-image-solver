@@ -1,14 +1,15 @@
-//----------------------------------------------------------------------------
-//SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
-//
-//Split Image Solver: 広角星空画像を分割してプレートソルブし、
-//統合したWCS情報を元画像に書き込むPixInsightスクリプト
-//
-//Copyright (c) 2024-2025 Split Image Solver Project
-//----------------------------------------------------------------------------
+#feature-id    SplitImageSolver : Utilities > SplitImageSolver
+#feature-info  Split wide-angle astrophotos into tiles, plate-solve each tile \
+   via astrometry.net, and integrate WCS solutions into the original image.
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。Pythonバックエンドでastrometry.net照合とWCS統合を行います。
+//----------------------------------------------------------------------------
+// SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
+//
+// Split Image Solver: Split wide-angle astrophotos into tiles, plate-solve
+// each tile, and integrate WCS solutions into the original image.
+//
+// Copyright (c) 2024-2025 Split Image Solver Project
+//----------------------------------------------------------------------------
 
 #define VERSION "1.0.1"
 
@@ -23,6 +24,37 @@
    // パス内のスペースをシェル用にエスケープ
    function quotePath(path) {
       return "'" + path.replace(/'/g, "'\\''") + "'";
+   }
+
+   // RA (度) → "HH MM SS.ss" 形式に変換
+   function raToHMS(raDeg) {
+      var ra = raDeg;
+      while (ra < 0) ra += 360.0;
+      while (ra >= 360) ra -= 360.0;
+      var totalSec = ra / 15.0 * 3600.0;
+      var h = Math.floor(totalSec / 3600.0);
+      totalSec -= h * 3600.0;
+      var m = Math.floor(totalSec / 60.0);
+      var s = totalSec - m * 60.0;
+      var hStr = (h < 10 ? "0" : "") + h;
+      var mStr = (m < 10 ? "0" : "") + m;
+      var sStr = (s < 10 ? "0" : "") + s.toFixed(2);
+      return hStr + " " + mStr + " " + sStr;
+   }
+
+   // DEC (度) → "+DD MM SS.s" 形式に変換
+   function decToDMS(decDeg) {
+      var sign = decDeg >= 0 ? "+" : "-";
+      var dec = Math.abs(decDeg);
+      var totalSec = dec * 3600.0;
+      var d = Math.floor(totalSec / 3600.0);
+      totalSec -= d * 3600.0;
+      var m = Math.floor(totalSec / 60.0);
+      var s = totalSec - m * 60.0;
+      var dStr = (d < 10 ? "0" : "") + d;
+      var mStr = (m < 10 ? "0" : "") + m;
+      var sStr = (s < 10 ? "0" : "") + s.toFixed(1);
+      return sign + dStr + " " + mStr + " " + sStr;
    }
 
    function byteArrayToString(ba) {
@@ -191,6 +223,10 @@
 #define KEY_SCRIPT_DIR     SETTINGS_KEY_PREFIX + "scriptDir"
 #define KEY_GRID           SETTINGS_KEY_PREFIX + "grid"
 #define KEY_OVERLAP        SETTINGS_KEY_PREFIX + "overlap"
+#define KEY_CAMERA         SETTINGS_KEY_PREFIX + "camera"
+#define KEY_LENS           SETTINGS_KEY_PREFIX + "lens"
+#define KEY_FOCAL_LEN      SETTINGS_KEY_PREFIX + "focalLength"
+#define KEY_PIXEL_PITCH    SETTINGS_KEY_PREFIX + "pixelPitch"
 
 //============================================================================
 //SolverParameters - パラメータの保持と永続化
@@ -207,6 +243,9 @@ function SolverParameters() {
    this.dec = undefined;
    this.focalLength = undefined;
    this.pixelPitch = undefined;
+   this.camera = "";
+   this.lens = "";
+   this.equipmentDB = null;
 
    //Settings APIから読み込み
    this.load = function () {
@@ -234,6 +273,30 @@ function SolverParameters() {
          if (val !== null)
             this.overlap = val;
       } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_CAMERA, DataType_String);
+         if (val !== null)
+            this.camera = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_LENS, DataType_String);
+         if (val !== null)
+            this.lens = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_FOCAL_LEN, DataType_Double);
+         if (val !== null)
+            this.focalLength = val;
+      } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_PIXEL_PITCH, DataType_Double);
+         if (val !== null)
+            this.pixelPitch = val;
+      } catch (e) { }
    };
 
    //Settings APIに保存
@@ -242,6 +305,12 @@ function SolverParameters() {
       Settings.write(KEY_SCRIPT_DIR, DataType_String, this.scriptDir);
       Settings.write(KEY_GRID, DataType_String, this.grid);
       Settings.write(KEY_OVERLAP, DataType_Int32, this.overlap);
+      Settings.write(KEY_CAMERA, DataType_String, this.camera || "");
+      Settings.write(KEY_LENS, DataType_String, this.lens || "");
+      if (this.focalLength !== undefined && this.focalLength !== null)
+         Settings.write(KEY_FOCAL_LEN, DataType_Double, this.focalLength);
+      if (this.pixelPitch !== undefined && this.pixelPitch !== null)
+         Settings.write(KEY_PIXEL_PITCH, DataType_Double, this.pixelPitch);
    };
 
    //環境設定が有効かチェック
@@ -261,7 +330,8 @@ function SolverEngine() {
          dec: undefined,
          pixelScale: undefined,
          focalLength: undefined,
-         pixelSize: undefined
+         pixelSize: undefined,
+         instrume: undefined
       };
 
       var keywords = window.keywords;
@@ -288,6 +358,9 @@ function SolverEngine() {
             case "XPIXSZ":
                result.pixelSize = parseFloat(kw.strippedValue);
                break;
+            case "INSTRUME":
+               result.instrume = kw.strippedValue;
+               break;
          }
       }
 
@@ -298,6 +371,62 @@ function SolverEngine() {
       }
 
       return result;
+   };
+
+   //機材データベースをPython経由で取得
+   this.loadEquipmentDB = function (params) {
+      if (!params.isConfigured()) return null;
+
+      var scriptPath = params.scriptDir + "/python/main.py";
+      var stdoutFile = File.systemTempDirectory + "/split_solver_equip_stdout.log";
+      var stderrFile = File.systemTempDirectory + "/split_solver_equip_stderr.log";
+
+      var pythonDir = File.extractDirectory(params.pythonPath);
+      var pathPrefix = "export PATH="
+         + quotePath(pythonDir)
+         + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
+
+      var shellCmd = pathPrefix
+         + quotePath(params.pythonPath) + " "
+         + quotePath(scriptPath) + " --list-equipment"
+         + " > " + quotePath(stdoutFile)
+         + " 2> " + quotePath(stderrFile);
+
+      var P = new ExternalProcess;
+      P.workingDirectory = params.scriptDir;
+      P.start("/bin/sh", ["-c", shellCmd]);
+
+      if (!P.waitForFinished(10000)) {
+         P.kill();
+         console.warningln("Equipment DB load timed out.");
+         return null;
+      }
+
+      if (P.exitCode !== 0) {
+         console.warningln("Equipment DB load failed (exit code " + P.exitCode + ").");
+         try { if (File.exists(stderrFile)) {
+            console.warningln(File.readTextFile(stderrFile));
+         }} catch (e) {}
+         return null;
+      }
+
+      var stdout = "";
+      try {
+         if (File.exists(stdoutFile)) {
+            stdout = File.readTextFile(stdoutFile).trim();
+            File.remove(stdoutFile);
+         }
+      } catch (e) {}
+      try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
+
+      if (stdout.length === 0) return null;
+
+      try {
+         return JSON.parse(stdout);
+      } catch (e) {
+         console.warningln("Equipment DB JSON parse failed: " + e.message);
+         return null;
+      }
    };
 
    //HMS文字列 "HH MM SS.ss" をdegrees に変換
@@ -330,7 +459,7 @@ function SolverEngine() {
    };
 
    //コマンド配列を構築
-   this.buildCommand = function (inputPath, outputPath, params) {
+   this.buildCommand = function (inputPath, outputPath, params, resultFile) {
       var scriptPath = params.scriptDir + "/python/main.py";
 
       var args = [
@@ -340,7 +469,8 @@ function SolverEngine() {
          "--output", outputPath,
          "--grid", params.grid,
          "--overlap", params.overlap.toString(),
-         "--json-output"
+         "--json-output",
+         "--result-file", resultFile
       ];
 
       if (params.ra !== undefined && params.ra !== null) {
@@ -351,11 +481,21 @@ function SolverEngine() {
          args.push("--dec");
          args.push(params.dec.toString());
       }
-      if (params.focalLength !== undefined && params.focalLength !== null
-         && params.pixelPitch !== undefined && params.pixelPitch !== null) {
-         var pixelScale = (206.265 * params.pixelPitch) / params.focalLength;
-         args.push("--pixel-scale");
-         args.push(pixelScale.toFixed(4));
+      if (params.focalLength !== undefined && params.focalLength !== null) {
+         args.push("--focal-length");
+         args.push(params.focalLength.toString());
+      }
+      if (params.pixelPitch !== undefined && params.pixelPitch !== null) {
+         args.push("--pixel-pitch");
+         args.push(params.pixelPitch.toString());
+      }
+      if (params.camera && params.camera.length > 0) {
+         args.push("--camera");
+         args.push(params.camera);
+      }
+      if (params.lens && params.lens.length > 0) {
+         args.push("--lens");
+         args.push(params.lens);
       }
 
       return args;
@@ -363,7 +503,11 @@ function SolverEngine() {
 
    //Python main.pyを実行
    this.execute = function (inputPath, outputPath, params) {
-      var args = this.buildCommand(inputPath, outputPath, params);
+      var resultFile = File.systemTempDirectory + "/split_solver_result.json";
+      if (File.exists(resultFile)) {
+         try { File.remove(resultFile); } catch (e) {}
+      }
+      var args = this.buildCommand(inputPath, outputPath, params, resultFile);
 
       console.writeln("<b>Split Image Solver: Executing...</b>");
       console.writeln("Command: " + args.join(" "));
@@ -519,27 +663,172 @@ function SolverEngine() {
          }
          throw new Error("Solver process exited with code " + P.exitCode);
       }
-      // JSONパース（正常終了時またはエラー詳細取得用）
-      if (stdout.length > 0) {
-         //stdoutの最後の行がJSON（ログ混入対策）
+      // 結果JSONの読み込み: result-file を優先、stdoutをフォールバック
+      var result = null;
+
+      // 方法1: 専用結果ファイルから読み込み（確実）
+      if (File.exists(resultFile)) {
+         try {
+            var resultJson = File.readTextFile(resultFile).trim();
+            result = JSON.parse(resultJson);
+         }
+         catch (e) {
+            console.warningln("Failed to parse result file: " + e.message);
+         }
+         try { File.remove(resultFile); } catch (e) {}
+      }
+
+      // 方法2: stdoutから読み込み（フォールバック）
+      if (!result && stdout.length > 0) {
          var lines = stdout.split("\n");
          for (var i = lines.length - 1; i >= 0; i--) {
             var line = lines[i].trim();
             if (line.length > 0 && line.charAt(0) === '{') {
                try {
-                  var result = JSON.parse(line);
-                  console.writeln(format(
-                     "<b>Result:</b> %d/%d tiles solved, CRVAL=(%.4f, %.4f)",
-                     result.tiles_solved, result.tiles_total,
-                     result.wcs.crval1, result.wcs.crval2
-                  ));
-                  return result;
+                  result = JSON.parse(line);
+                  console.writeln("Result loaded from stdout");
+                  break;
                }
                catch (e) {
-                  //JSONパース失敗 → 次の行を試行
+                  continue;
                }
             }
          }
+      }
+
+      if (result) {
+         // 完了バナー
+         console.writeln("");
+         console.writeln("");
+         console.writeln("    .       *           .       *       .           *");
+         console.writeln("        .       .   *       .       .       *");
+         console.writeln("  +=========================================+");
+         console.writeln("  |                                         |");
+         console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
+         console.writeln("  |                                         |");
+         console.writeln("  +=========================================+");
+         console.writeln("        *       .           *       .       .");
+         console.writeln("    .       .       *   .       *       .       *");
+         console.writeln("");
+
+         // 機材情報表示
+         if (result.equipment) {
+            try {
+               var eq = result.equipment;
+               var eqLines = [];
+               if (eq.camera) eqLines.push("Camera: " + eq.camera);
+               if (eq.lens) eqLines.push("Lens: " + eq.lens);
+               if (eq.focal_length_mm) eqLines.push("FL: " + eq.focal_length_mm + "mm");
+               if (eq.pixel_pitch_um) eqLines.push("Pitch: " + eq.pixel_pitch_um + "um");
+               if (eqLines.length > 0) {
+                  console.writeln("<b>Equipment:</b> " + eqLines.join(" | "));
+               }
+            }
+            catch (e1) {}
+         }
+
+         // サマリ表示
+         try {
+            var summary = "<b>Result:</b> "
+               + result.tiles_solved + "/" + result.tiles_total
+               + " tiles solved";
+            if (result.wcs) {
+               summary += ", CRVAL=("
+                  + result.wcs.crval1.toFixed(4) + ", "
+                  + result.wcs.crval2.toFixed(4) + ")";
+               if (result.wcs.pixel_scale) {
+                  summary += ", " + result.wcs.pixel_scale.toFixed(2) + "\"/px";
+               }
+            }
+            console.writeln(summary);
+         }
+         catch (e2) {
+            console.writeln("<b>Result:</b> Solver completed");
+         }
+
+         // タイル成否グリッド表示
+         if (result.tile_grid && result.grid) {
+            try {
+               var rows = result.grid.rows;
+               var cols = result.grid.cols;
+               var grid = result.tile_grid;
+               // ヘッダー行（列番号）
+               var header = "     ";
+               for (var c = 0; c < cols; c++) {
+                  header += " " + c;
+               }
+               console.writeln("");
+               console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
+               console.writeln(header);
+               // 各行
+               for (var r = 0; r < rows; r++) {
+                  var line = "  " + r + "  ";
+                  if (r < 10) line = "  " + r + "  ";
+                  for (var c = 0; c < cols; c++) {
+                     var cell = grid[r][c];
+                     if (cell === "O") {
+                        line += " O";
+                     } else {
+                        line += " .";
+                     }
+                  }
+                  console.writeln(line);
+               }
+               console.writeln("  (O=solved, .=failed)");
+            }
+            catch (e3) {
+               // グリッド表示失敗は無視
+            }
+         }
+
+         // 中心・四隅の座標表示 (ImageSolver風)
+         if (result.coordinates) {
+            try {
+               var coords = result.coordinates;
+               console.writeln("");
+               console.writeln("<b>Image coordinates:</b>");
+               if (coords.center) {
+                  console.writeln("  Center ........ RA: " + raToHMS(coords.center.ra_deg)
+                     + "  Dec: " + decToDMS(coords.center.dec_deg));
+               }
+               if (coords.top_left) {
+                  console.writeln("  Top-Left ...... RA: " + raToHMS(coords.top_left.ra_deg)
+                     + "  Dec: " + decToDMS(coords.top_left.dec_deg));
+               }
+               if (coords.top_right) {
+                  console.writeln("  Top-Right ..... RA: " + raToHMS(coords.top_right.ra_deg)
+                     + "  Dec: " + decToDMS(coords.top_right.dec_deg));
+               }
+               if (coords.bottom_left) {
+                  console.writeln("  Bottom-Left ... RA: " + raToHMS(coords.bottom_left.ra_deg)
+                     + "  Dec: " + decToDMS(coords.bottom_left.dec_deg));
+               }
+               if (coords.bottom_right) {
+                  console.writeln("  Bottom-Right .. RA: " + raToHMS(coords.bottom_right.ra_deg)
+                     + "  Dec: " + decToDMS(coords.bottom_right.dec_deg));
+               }
+               // FOV 表示
+               var fovParts = [];
+               if (coords.width_fov_deg) {
+                  fovParts.push(coords.width_fov_deg.toFixed(2) + " x "
+                     + coords.height_fov_deg.toFixed(2));
+               }
+               if (coords.diagonal_fov_deg) {
+                  fovParts.push("diagonal " + coords.diagonal_fov_deg.toFixed(2));
+               }
+               if (fovParts.length > 0) {
+                  console.writeln("  Field of view . " + fovParts.join(", ") + " deg");
+               }
+               if (result.wcs && result.wcs.pixel_scale) {
+                  console.writeln("  Pixel scale ... " + result.wcs.pixel_scale.toFixed(2) + " arcsec/px");
+               }
+            }
+            catch (e4) {
+               // 座標表示失敗は無視
+            }
+         }
+
+         return result;
       }
 
       console.writeln("Solver completed successfully (no JSON output found)");
@@ -712,20 +1001,61 @@ function ParameterDialog(params, windowInfo) {
    this.gridCombo.addItem("2x2");
    this.gridCombo.addItem("3x3");
    this.gridCombo.addItem("4x4");
+   this.gridCombo.addItem("5x5");
+   this.gridCombo.addItem("6x6");
+   this.gridCombo.addItem("8x8");
+   this.gridCombo.addItem("Custom...");
+
+   var gridOptions = ["2x2", "3x3", "4x4", "5x5", "6x6", "8x8"];
+   var GRID_CUSTOM_INDEX = gridOptions.length; // "Custom..." のインデックス
+
+   // Custom 入力用 Edit
+   this.gridCustomEdit = new Edit(gridGroup);
+   this.gridCustomEdit.toolTip = "Custom grid pattern (e.g., 7x5, 10x8)";
+   this.gridCustomEdit.setFixedWidth(80);
+   this.gridCustomEdit.visible = false;
 
    //現在の設定に合わせて選択
-   var gridOptions = ["2x2", "3x3", "4x4"];
    var gridIndex = gridOptions.indexOf(params.grid);
-   this.gridCombo.currentItem = gridIndex >= 0 ? gridIndex : 1; //default: 3x3
+   if (gridIndex >= 0) {
+      this.gridCombo.currentItem = gridIndex;
+   } else if (params.grid && params.grid.length > 0) {
+      // カスタム値
+      this.gridCombo.currentItem = GRID_CUSTOM_INDEX;
+      this.gridCustomEdit.text = params.grid;
+      this.gridCustomEdit.visible = true;
+   } else {
+      this.gridCombo.currentItem = 1; //default: 3x3
+   }
 
    this.gridCombo.onItemSelected = function (index) {
-      params.grid = gridOptions[index];
+      if (index === GRID_CUSTOM_INDEX) {
+         dialog.gridCustomEdit.visible = true;
+         if (dialog.gridCustomEdit.text.length > 0)
+            params.grid = dialog.gridCustomEdit.text;
+      } else {
+         dialog.gridCustomEdit.visible = false;
+         params.grid = gridOptions[index];
+      }
    };
+
+   this.gridCustomEdit.onTextUpdated = function () {
+      var text = dialog.gridCustomEdit.text.trim();
+      if (/^\d+x\d+$/.test(text))
+         params.grid = text;
+   };
+
+   // 推奨グリッド表示ラベル
+   this.gridRecommendLabel = new Label(gridGroup);
+   this.gridRecommendLabel.text = "";
 
    var gridSizer = new HorizontalSizer;
    gridSizer.spacing = 4;
    gridSizer.add(gridLabel);
    gridSizer.add(this.gridCombo);
+   gridSizer.add(this.gridCustomEdit);
+   gridSizer.addSpacing(8);
+   gridSizer.add(this.gridRecommendLabel);
    gridSizer.addStretch();
 
    var overlapLabel = new Label(gridGroup);
@@ -758,11 +1088,127 @@ function ParameterDialog(params, windowInfo) {
    gridGroup.sizer.add(gridSizer);
    gridGroup.sizer.add(overlapSizer);
 
+   //--- Equipment ---
+   var equipGroup = new GroupBox(this);
+   equipGroup.title = "Equipment";
+
+   var dialog = this;
+
+   var camLabel = new Label(equipGroup);
+   camLabel.text = "Camera:";
+   camLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   camLabel.setFixedWidth(120);
+
+   this.cameraCombo = new ComboBox(equipGroup);
+   this.cameraCombo.addItem("(none)");
+
+   // 機材DBからカメラリストを動的生成
+   this.cameraKeys = [];  // DBキー配列（インデックス対応）
+   if (params.equipmentDB && params.equipmentDB.cameras) {
+      var cams = params.equipmentDB.cameras;
+      for (var k in cams) {
+         if (cams.hasOwnProperty(k)) {
+            this.cameraKeys.push(k);
+            var displayStr = cams[k].display_name + " (" + k + ")";
+            this.cameraCombo.addItem(displayStr);
+         }
+      }
+   }
+
+   // 現在のカメラ設定に合わせて選択
+   var camIdx = 0;
+   for (var ci = 0; ci < this.cameraKeys.length; ci++) {
+      if (this.cameraKeys[ci] === params.camera) {
+         camIdx = ci + 1; // +1 for "(none)"
+         break;
+      }
+   }
+   this.cameraCombo.currentItem = camIdx;
+
+   this.cameraCombo.onItemSelected = function (index) {
+      if (index === 0) {
+         params.camera = "";
+      } else {
+         var key = dialog.cameraKeys[index - 1];
+         params.camera = key;
+         // pixel_pitch 自動入力
+         if (params.equipmentDB && params.equipmentDB.cameras) {
+            var camInfo = params.equipmentDB.cameras[key];
+            if (camInfo && camInfo.pixel_pitch_um) {
+               dialog.pixelPitchEdit.text = camInfo.pixel_pitch_um.toString();
+               params.pixelPitch = camInfo.pixel_pitch_um;
+            }
+         }
+      }
+   };
+
+   var camSizer = new HorizontalSizer;
+   camSizer.spacing = 4;
+   camSizer.add(camLabel);
+   camSizer.add(this.cameraCombo, 100);
+
+   var lensLabel = new Label(equipGroup);
+   lensLabel.text = "Lens:";
+   lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   lensLabel.setFixedWidth(120);
+
+   this.lensCombo = new ComboBox(equipGroup);
+   this.lensCombo.addItem("(none)");
+
+   // 機材DBからレンズリストを動的生成
+   this.lensKeys = [];
+   if (params.equipmentDB && params.equipmentDB.lenses) {
+      var lenses = params.equipmentDB.lenses;
+      for (var lk in lenses) {
+         if (lenses.hasOwnProperty(lk)) {
+            this.lensKeys.push(lk);
+            var lDisplayStr = lenses[lk].display_name + " (" + lk + ")";
+            this.lensCombo.addItem(lDisplayStr);
+         }
+      }
+   }
+
+   // 現在のレンズ設定に合わせて選択
+   var lensIdx = 0;
+   for (var li = 0; li < this.lensKeys.length; li++) {
+      if (this.lensKeys[li] === params.lens) {
+         lensIdx = li + 1;
+         break;
+      }
+   }
+   this.lensCombo.currentItem = lensIdx;
+
+   this.lensCombo.onItemSelected = function (index) {
+      if (index === 0) {
+         params.lens = "";
+      } else {
+         var key = dialog.lensKeys[index - 1];
+         params.lens = key;
+         // focal_length 自動入力
+         if (params.equipmentDB && params.equipmentDB.lenses) {
+            var lensInfo = params.equipmentDB.lenses[key];
+            if (lensInfo && lensInfo.focal_length_mm) {
+               dialog.focalLengthEdit.text = lensInfo.focal_length_mm.toString();
+               params.focalLength = lensInfo.focal_length_mm;
+            }
+         }
+      }
+   };
+
+   var lensSizer = new HorizontalSizer;
+   lensSizer.spacing = 4;
+   lensSizer.add(lensLabel);
+   lensSizer.add(this.lensCombo, 100);
+
+   equipGroup.sizer = new VerticalSizer;
+   equipGroup.sizer.margin = 6;
+   equipGroup.sizer.spacing = 4;
+   equipGroup.sizer.add(camSizer);
+   equipGroup.sizer.add(lensSizer);
+
    //--- Coordinate hints ---
    var coordGroup = new GroupBox(this);
    coordGroup.title = "Coordinate Hints";
-
-   var dialog = this;
 
    // Object name search
    var objLabel = new Label(coordGroup);
@@ -912,7 +1358,7 @@ function ParameterDialog(params, windowInfo) {
    ppSizer.add(this.scaleInfoLabel);
    ppSizer.addStretch();
 
-   // ピクセルスケール表示とExecuteボタン有効化を更新するヘルパー
+   // ピクセルスケール表示・推奨グリッド・Executeボタン有効化を更新するヘルパー
    var updateScaleAndButton = function () {
       var fl = parseFloat(dialog.focalLengthEdit.text);
       var pp = parseFloat(dialog.pixelPitchEdit.text);
@@ -922,8 +1368,29 @@ function ParameterDialog(params, windowInfo) {
          var ps = (206.265 * pp) / fl;
          dialog.scaleInfoLabel.text = format("(%.2f arcsec/px)", ps);
          dialog.execButton.enabled = true;
+
+         // 推奨グリッドサイズ計算（画像サイズが分かっている場合）
+         var w = windowInfo.width;
+         var h = windowInfo.height;
+         if (w > 0 && h > 0) {
+            var diagPixels = Math.sqrt(w * w + h * h);
+            var diagFov = (ps * diagPixels) / 3600.0;
+            var recommended;
+            if (diagFov > 90)
+               recommended = "8x8";
+            else if (diagFov > 60)
+               recommended = "5x5";
+            else if (diagFov > 30)
+               recommended = "3x3";
+            else
+               recommended = "2x2";
+            dialog.gridRecommendLabel.text = format("Recommended: %s (diag FOV: %.1f\u00B0)", recommended, diagFov);
+         } else {
+            dialog.gridRecommendLabel.text = "";
+         }
       } else {
          dialog.scaleInfoLabel.text = "";
+         dialog.gridRecommendLabel.text = "";
          dialog.execButton.enabled = false;
       }
    };
@@ -986,6 +1453,7 @@ function ParameterDialog(params, windowInfo) {
    this.sizer.margin = 8;
    this.sizer.spacing = 8;
    this.sizer.add(infoGroup);
+   this.sizer.add(equipGroup);
    this.sizer.add(gridGroup);
    this.sizer.add(coordGroup);
    this.sizer.addSpacing(4);
@@ -1058,6 +1526,53 @@ function main() {
    if (metadata.pixelSize !== undefined) {
       console.writeln(format("Auto-detected pixel pitch: %.2f \u00B5m", metadata.pixelSize));
       params.pixelPitch = metadata.pixelSize;
+   }
+
+   //5b. 機材データベース取得
+   console.writeln("Loading equipment database...");
+   var equipDB = engine.loadEquipmentDB(params);
+   if (equipDB) {
+      params.equipmentDB = equipDB;
+      var nCams = 0, nLenses = 0;
+      for (var ck in equipDB.cameras) if (equipDB.cameras.hasOwnProperty(ck)) nCams++;
+      for (var lk2 in equipDB.lenses) if (equipDB.lenses.hasOwnProperty(lk2)) nLenses++;
+      console.writeln("Equipment DB loaded: " + nCams + " cameras, " + nLenses + " lenses");
+
+      //INSTRUME 自動マッチング → カメラ選択 + pixel_pitch 自動取得
+      if (metadata.instrume && metadata.instrume.length > 0) {
+         console.writeln("INSTRUME header: " + metadata.instrume);
+         if (equipDB.cameras && equipDB.cameras.hasOwnProperty(metadata.instrume)) {
+            params.camera = metadata.instrume;
+            var camInfo = equipDB.cameras[metadata.instrume];
+            if (camInfo.pixel_pitch_um && (params.pixelPitch === undefined || params.pixelPitch === null)) {
+               params.pixelPitch = camInfo.pixel_pitch_um;
+               console.writeln("Auto-matched camera: " + camInfo.display_name
+                  + " (pixel pitch: " + camInfo.pixel_pitch_um.toFixed(2) + " \u00B5m)");
+            }
+         }
+      }
+
+      //焦点距離からレンズを自動推定
+      if (metadata.focalLength !== undefined) {
+         var bestLensKey = "";
+         var lenses = equipDB.lenses;
+         for (var lk in lenses) {
+            if (lenses.hasOwnProperty(lk)) {
+               if (lenses[lk].focal_length_mm !== undefined) {
+                  if (Math.abs(lenses[lk].focal_length_mm - metadata.focalLength) < 0.5) {
+                     bestLensKey = lk;
+                     break;
+                  }
+               }
+            }
+         }
+         if (bestLensKey.length > 0) {
+            params.lens = bestLensKey;
+            console.writeln("Auto-matched lens: " + equipDB.lenses[bestLensKey].display_name);
+         }
+      }
+   } else {
+      console.warningln("Equipment DB not available (Python not configured or DB load failed).");
    }
 
    //6. パラメータダイアログ表示
@@ -1145,12 +1660,36 @@ function main() {
             console.warningln("No WCS keywords in result. Falling back to file reload...");
             // フォールバック: 一時出力ファイルからWCSを読み込み
             if (File.exists(tmpOutput)) {
+               // ウィンドウ位置とSTFを保存
+               var savedPosition = new Point(window.position.x, window.position.y);
+               var savedSTF = [];
+               for (var si = 0; si < window.mainView.stf.length; si++) {
+                  savedSTF.push(window.mainView.stf[si]);
+               }
+               var savedZoom = window.zoomFactor;
+
                var id = window.mainView.id;
                window.forceClose();
                var newWindows = ImageWindow.open(tmpOutput);
                if (newWindows.length > 0) {
-                  newWindows[0].show();
-                  console.writeln("Image loaded from solver output.");
+                  var newWin = newWindows[0];
+                  // STFを復元
+                  try {
+                     newWin.mainView.stf = savedSTF;
+                  } catch (e) {
+                     console.warningln("Failed to restore STF: " + e.message);
+                  }
+                  // ウィンドウ位置を復元
+                  try {
+                     newWin.position = savedPosition;
+                     if (savedZoom !== 0) {
+                        newWin.zoomFactor = savedZoom;
+                     }
+                  } catch (e) {
+                     console.warningln("Failed to restore window position: " + e.message);
+                  }
+                  newWin.show();
+                  console.writeln("Image loaded from solver output (view state restored).");
                } else {
                   console.warningln("Failed to open solver output.");
                }
