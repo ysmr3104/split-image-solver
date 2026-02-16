@@ -67,6 +67,30 @@ def _json_dumps_pjsr_safe(obj):
     return re.sub(r"-?\d+\.?\d*[eE][+-]?\d+", _sci_to_fixed, json_str)
 
 
+def _parse_grid(grid_str: str):
+    """グリッドパターン文字列 (例: '8x8') を (rows, cols) に変換"""
+    parts = grid_str.lower().split("x")
+    cols = int(parts[0])
+    rows = int(parts[1]) if len(parts) > 1 else cols
+    return rows, cols
+
+
+def _build_tile_grid(grid_rows, grid_cols, split_files, solve_results):
+    """タイル成否の2Dグリッドを生成
+
+    Returns:
+        List[List[str]]: 各セルが "O"(成功) / "X"(失敗) の2Dリスト
+    """
+    grid = [["X"] * grid_cols for _ in range(grid_rows)]
+    for sf in split_files:
+        row, col = sf["region"]["index"]
+        path = str(sf["file_path"])
+        result = solve_results.get(path)
+        if result and result.get("success"):
+            grid[row][col] = "O"
+    return grid
+
+
 def _build_solver_config(config: Dict) -> Dict:
     """astrometry_local用の設定辞書を構築する"""
     return {
@@ -924,11 +948,19 @@ def main():
 
             wcs_keywords = XISFHandler._wcs_to_fits_keywords(integrated_wcs)
 
+            # タイル成否グリッドを生成
+            grid_rows, grid_cols = _parse_grid(args.grid)
+            tile_grid = _build_tile_grid(
+                grid_rows, grid_cols, split_files, solve_results
+            )
+
             json_result = {
                 "success": True,
                 "output_path": str(output_path),
                 "tiles_solved": success_count,
                 "tiles_total": len(split_files),
+                "grid": {"rows": grid_rows, "cols": grid_cols},
+                "tile_grid": tile_grid,
                 "wcs": {
                     "crval1": float(integrated_wcs.wcs.crval[0]),
                     "crval2": float(integrated_wcs.wcs.crval[1]),

@@ -680,6 +680,42 @@ function SolverEngine() {
          catch (e2) {
             console.writeln("<b>Result:</b> Solver completed");
          }
+
+         // タイル成否グリッド表示
+         if (result.tile_grid && result.grid) {
+            try {
+               var rows = result.grid.rows;
+               var cols = result.grid.cols;
+               var grid = result.tile_grid;
+               // ヘッダー行（列番号）
+               var header = "     ";
+               for (var c = 0; c < cols; c++) {
+                  header += " " + c;
+               }
+               console.writeln("");
+               console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
+               console.writeln(header);
+               // 各行
+               for (var r = 0; r < rows; r++) {
+                  var line = "  " + r + "  ";
+                  if (r < 10) line = "  " + r + "  ";
+                  for (var c = 0; c < cols; c++) {
+                     var cell = grid[r][c];
+                     if (cell === "O") {
+                        line += " O";
+                     } else {
+                        line += " .";
+                     }
+                  }
+                  console.writeln(line);
+               }
+               console.writeln("  (O=solved, .=failed)");
+            }
+            catch (e3) {
+               // グリッド表示失敗は無視
+            }
+         }
+
          return result;
       }
 
