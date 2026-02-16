@@ -7,8 +7,8 @@
 //Copyright (c) 2024-2025 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#feature-id    SplitImageSolver: Utilities > SplitImageSolver
-#feature-info  広角星空画像を分割プレートソルブしWCSを統合します。Pythonバックエンドでastrometry.net照合とWCS統合を行います。
+#feature-id    SplitImageSolver : Utilities > SplitImageSolver
+#feature-info  Split wide-angle astrophotos into tiles, plate-solve each tile via astrometry.net, and integrate WCS solutions into the original image.
 
 #define VERSION "1.0.1"
 
