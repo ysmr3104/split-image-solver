@@ -665,6 +665,20 @@ function SolverEngine() {
       }
 
       if (result) {
+         // 完了バナー
+         console.writeln("");
+         console.writeln("");
+         console.writeln("    .       *           .       *       .           *");
+         console.writeln("        .       .   *       .       .       *");
+         console.writeln("  +=========================================+");
+         console.writeln("  |                                         |");
+         console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
+         console.writeln("  |                                         |");
+         console.writeln("  +=========================================+");
+         console.writeln("        *       .           *       .       .");
+         console.writeln("    .       .       *   .       *       .       *");
+         console.writeln("");
+
          // 機材情報表示
          if (result.equipment) {
             try {
