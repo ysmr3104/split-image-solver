@@ -268,7 +268,8 @@ class AstrometryLocalSolver(BasePlateSolver):
                 "--no-remove-lines",  # 直線除去しない
                 "--no-verify-uniformize",  # 高速化
                 "--crpix-center",  # 歪みの基準点を画像中心に固定
-                "--tweak-order", str(tweak_order),  # SIP多項式次数
+                "--tweak-order",
+                str(tweak_order),  # SIP多項式次数
                 str(work_path),
             ]
 
@@ -472,9 +473,21 @@ class AstrometryLocalSolver(BasePlateSolver):
                 if result.stderr:
                     error_msg += f": {result.stderr}"
 
+                # 失敗時は診断情報をINFOレベルで出力
                 logger.warning(
-                    f"Astrometry.net local solve failed for {image_path}: {error_msg}"
+                    f"Astrometry.net local solve failed for {image_path.name} "
+                    f"(time={solve_time:.1f}s)"
                 )
+                # stdoutの最後の5行を抽出して失敗原因を表示
+                stdout_lines = (
+                    result.stdout.strip().split("\n") if result.stdout else []
+                )
+                if stdout_lines:
+                    tail = stdout_lines[-5:] if len(stdout_lines) > 5 else stdout_lines
+                    logger.info(
+                        f"  solve-field output (last {len(tail)} lines):\n"
+                        + "\n".join(f"    {line}" for line in tail)
+                    )
 
                 return {
                     "success": False,
@@ -485,7 +498,9 @@ class AstrometryLocalSolver(BasePlateSolver):
                 }
 
         except subprocess.TimeoutExpired:
-            logger.error(f"solve-field timeout after {effective_timeout}s for {image_path}")
+            logger.error(
+                f"solve-field timeout after {effective_timeout}s for {image_path}"
+            )
             return {
                 "success": False,
                 "wcs": None,

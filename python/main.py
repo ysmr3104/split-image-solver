@@ -139,10 +139,16 @@ def _handle_list_equipment(args) -> int:
 
 def _handle_recommend_grid(args) -> int:
     """--recommend-grid: 推奨グリッドサイズをJSON出力"""
+    from utils.coordinate_transform import (
+        LENS_TYPE_TO_PROJECTION,
+        _pixel_radius_to_angle,
+    )
+
     focal_length = args.focal_length
     pixel_pitch = args.pixel_pitch
     image_width = args.image_width
     image_height = args.image_height
+    lens_type = args.lens_type
 
     if not focal_length or not pixel_pitch:
         print(
@@ -156,16 +162,31 @@ def _handle_recommend_grid(args) -> int:
 
     # ピクセルスケール (arcsec/pixel)
     pixel_scale = (206.265 * pixel_pitch) / focal_length
+    projection = LENS_TYPE_TO_PROJECTION.get(lens_type, "gnomonic")
 
-    result = {"pixel_scale_arcsec": round(pixel_scale, 4)}
+    result = {
+        "pixel_scale_arcsec": round(pixel_scale, 4),
+        "lens_type": lens_type,
+        "projection": projection,
+    }
 
     if image_width and image_height:
-        # 対角ピクセル数と対角FOV
+        # 対角ピクセル数
         diag_pixels = (image_width**2 + image_height**2) ** 0.5
-        diag_fov = (pixel_scale * diag_pixels) / 3600.0  # degrees
+        scale_rad = np.radians(pixel_scale / 3600.0)
+
+        # 投影型に応じた正確な対角FOV計算
+        diag_angle_rad = _pixel_radius_to_angle(
+            diag_pixels / 2.0, scale_rad, projection
+        )
+        diag_fov = np.degrees(diag_angle_rad) * 2.0
 
         # 推奨グリッドサイズ（対角FOV基準）
-        if diag_fov > 90:
+        if diag_fov > 150:
+            recommended = "12x8"
+        elif diag_fov > 120:
+            recommended = "10x10"
+        elif diag_fov > 90:
             recommended = "8x8"
         elif diag_fov > 60:
             recommended = "5x5"
@@ -294,6 +315,14 @@ def main():
         "--equipment-db",
         type=str,
         help="機材データベースYAMLパス [デフォルト: config/equipment.yaml]",
+    )
+
+    # レンズ投影型
+    parser.add_argument(
+        "--lens-type",
+        type=str,
+        default="rectilinear",
+        help="レンズ投影型 (rectilinear, fisheye_equisolid, fisheye_equidistant, fisheye_stereographic)",
     )
 
     # 出力形式
@@ -445,11 +474,17 @@ def main():
                     )
                     break
 
-        # 検出結果から pixel_pitch を取得
-        if not pixel_pitch and camera_info:
-            pixel_pitch = camera_info.get("pixel_pitch_um")
-            if pixel_pitch:
-                logger.info(f"Pixel pitch from equipment DB: {pixel_pitch:.2f} μm")
+        # 検出結果から pixel_pitch を取得（equipment DB を優先）
+        if camera_info and camera_info.get("pixel_pitch_um"):
+            db_pixel_pitch = camera_info["pixel_pitch_um"]
+            if pixel_pitch and abs(pixel_pitch - db_pixel_pitch) / db_pixel_pitch > 0.1:
+                logger.warning(
+                    f"Pixel pitch mismatch: header/CLI={pixel_pitch:.2f}μm "
+                    f"vs equipment DB={db_pixel_pitch:.2f}μm. Using DB value."
+                )
+            if not pixel_pitch:
+                logger.info(f"Pixel pitch from equipment DB: {db_pixel_pitch:.2f} μm")
+            pixel_pitch = db_pixel_pitch
 
         # 検出結果から焦点距離を取得
         if not focal_length and header_params.get("focal_length_mm"):
@@ -459,6 +494,23 @@ def main():
         # F値の表示
         if header_params.get("f_number"):
             logger.info(f"F-number from header: f/{header_params['f_number']:.1f}")
+
+        # 投影型の検出
+        from utils.coordinate_transform import LENS_TYPE_TO_PROJECTION
+
+        lens_type = lens_info.get("type", "rectilinear") if lens_info else "rectilinear"
+        if args.lens_type != "rectilinear":
+            lens_type = args.lens_type
+        projection = LENS_TYPE_TO_PROJECTION.get(lens_type, "gnomonic")
+        logger.info(f"Lens type: {lens_type} (projection: {projection})")
+
+        if lens_type != "rectilinear":
+            grid_rows_check, grid_cols_check = _parse_grid(args.grid)
+            if grid_rows_check < 8 or grid_cols_check < 8:
+                logger.warning(
+                    f"魚眼レンズ検出: グリッド {args.grid} は小さい可能性があります。"
+                    f"8x8 以上を推奨します。"
+                )
 
         # Step 2: 画像を分割
         logger.info("\n[Step 2/6] Splitting image...")
@@ -534,7 +586,12 @@ def main():
             if pixel_scale:
                 # タイル位置での実効ピクセルスケール
                 effective_scale = calculate_tile_pixel_scale(
-                    pixel_scale, tile_cx, tile_cy, image_center_x, image_center_y
+                    pixel_scale,
+                    tile_cx,
+                    tile_cy,
+                    image_center_x,
+                    image_center_y,
+                    projection=projection,
                 )
                 tile_fov = (effective_scale * tile_longer) / 3600.0  # degrees
                 tile_fov_hints.append(tile_fov)
@@ -568,7 +625,7 @@ def main():
                 f"Using RA/DEC hint for image center: RA={ra_hint:.2f}°, DEC={dec_hint:+.2f}°"
             )
             logger.info(
-                "Calculating per-tile RA/DEC hints using gnomonic projection..."
+                f"Calculating per-tile RA/DEC hints using {projection} projection..."
             )
 
             for sf in split_files:
@@ -576,7 +633,12 @@ def main():
                     sf["region"], image_width, image_height
                 )
                 tile_ra, tile_dec = pixel_offset_to_radec(
-                    ra_hint, dec_hint, pixel_scale, offset_x, offset_y
+                    ra_hint,
+                    dec_hint,
+                    pixel_scale,
+                    offset_x,
+                    offset_y,
+                    projection=projection,
                 )
                 tile_ra_hints.append(tile_ra)
                 tile_dec_hints.append(tile_dec)
@@ -837,6 +899,17 @@ def main():
 
         if success_count == 0:
             logger.error("All tile solves failed")
+            logger.error(
+                f"Diagnostic info: projection={projection}, "
+                f"pixel_scale={pixel_scale}, "
+                f"ra_hint={ra_hint}, dec_hint={dec_hint}, "
+                f"lens_type={lens_type}, grid={args.grid}"
+            )
+            # 最初のタイルの失敗理由を表示
+            for sf in split_files[:3]:
+                r = solve_results.get(str(sf["file_path"]), {})
+                err = r.get("error_message", "unknown")
+                logger.error(f"  Tile {sf['region']['index']}: {err[:200]}")
             if args.json_output:
                 print(json.dumps({"success": False, "error": "All tile solves failed"}))
             return 1
@@ -964,6 +1037,9 @@ def main():
                 equipment_info["focal_length_mm"] = focal_length
             if pixel_pitch:
                 equipment_info["pixel_pitch_um"] = pixel_pitch
+            if lens_type != "rectilinear":
+                equipment_info["lens_type"] = lens_type
+                equipment_info["projection"] = projection
 
             # 中心・四隅の座標を計算
             coordinates = {}

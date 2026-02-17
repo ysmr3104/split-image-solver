@@ -71,6 +71,15 @@ class TestListEquipment:
         assert "Sony FE 14mm f/1.8 GM" in data["lenses"]
         assert data["lenses"]["Sony FE 14mm f/1.8 GM"]["focal_length_mm"] == 14.0
 
+    def test_list_equipment_fisheye_lens(self):
+        """equipment.yaml に Sigma 15mm Fisheye が含まれる"""
+        stdout, _, _ = run_main("--list-equipment")
+        data = json.loads(stdout)
+        assert "Sigma 15mm f/2.8 EX DG Diagonal Fisheye" in data["lenses"]
+        lens = data["lenses"]["Sigma 15mm f/2.8 EX DG Diagonal Fisheye"]
+        assert lens["focal_length_mm"] == 15.0
+        assert lens["type"] == "fisheye_equisolid"
+
 
 class TestRecommendGrid:
     """--recommend-grid のテスト"""
@@ -146,6 +155,62 @@ class TestRecommendGrid:
         data = json.loads(stdout)
         assert data["recommended_grid"] == "2x2"
         assert data["diagonal_fov_deg"] <= 30
+
+    def test_recommend_grid_fisheye_equisolid(self):
+        """Sigma 15mm fisheye + α7RIV → 12x8 推奨 (対角FOV ~183°)"""
+        stdout, _, rc = run_main(
+            "--recommend-grid",
+            "--focal-length",
+            "15",
+            "--pixel-pitch",
+            "3.76",
+            "--image-width",
+            "9533",
+            "--image-height",
+            "6344",
+            "--lens-type",
+            "fisheye_equisolid",
+        )
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["lens_type"] == "fisheye_equisolid"
+        assert data["projection"] == "equisolid"
+        assert data["diagonal_fov_deg"] > 150
+        assert data["recommended_grid"] == "12x8"
+
+    def test_recommend_grid_fisheye_has_projection_info(self):
+        """--recommend-grid の出力に投影型情報が含まれる"""
+        stdout, _, rc = run_main(
+            "--recommend-grid",
+            "--focal-length",
+            "15",
+            "--pixel-pitch",
+            "3.76",
+            "--lens-type",
+            "fisheye_equisolid",
+        )
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["lens_type"] == "fisheye_equisolid"
+        assert data["projection"] == "equisolid"
+
+    def test_recommend_grid_rectilinear_unchanged(self):
+        """rectilinearレンズの推奨は従来と同じ"""
+        stdout, _, rc = run_main(
+            "--recommend-grid",
+            "--focal-length",
+            "14",
+            "--pixel-pitch",
+            "3.76",
+            "--image-width",
+            "9728",
+            "--image-height",
+            "6656",
+        )
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommended_grid"] == "8x8"
+        assert data["lens_type"] == "rectilinear"
 
 
 class TestInputOutputValidation:

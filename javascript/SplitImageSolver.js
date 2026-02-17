@@ -227,6 +227,7 @@
 #define KEY_LENS           SETTINGS_KEY_PREFIX + "lens"
 #define KEY_FOCAL_LEN      SETTINGS_KEY_PREFIX + "focalLength"
 #define KEY_PIXEL_PITCH    SETTINGS_KEY_PREFIX + "pixelPitch"
+#define KEY_FISHEYE        SETTINGS_KEY_PREFIX + "fisheye"
 
 //============================================================================
 //SolverParameters - パラメータの保持と永続化
@@ -245,6 +246,8 @@ function SolverParameters() {
    this.pixelPitch = undefined;
    this.camera = "";
    this.lens = "";
+   this.lensType = "rectilinear";  // rectilinear, fisheye_equisolid, etc.
+   this.fisheye = false;           // 魚眼レンズチェックボックスの状態
    this.equipmentDB = null;
 
    //Settings APIから読み込み
@@ -297,6 +300,12 @@ function SolverParameters() {
          if (val !== null)
             this.pixelPitch = val;
       } catch (e) { }
+
+      try {
+         val = Settings.read(KEY_FISHEYE, DataType_Boolean);
+         if (val !== null)
+            this.fisheye = val;
+      } catch (e) { }
    };
 
    //Settings APIに保存
@@ -311,6 +320,7 @@ function SolverParameters() {
          Settings.write(KEY_FOCAL_LEN, DataType_Double, this.focalLength);
       if (this.pixelPitch !== undefined && this.pixelPitch !== null)
          Settings.write(KEY_PIXEL_PITCH, DataType_Double, this.pixelPitch);
+      Settings.write(KEY_FISHEYE, DataType_Boolean, this.fisheye);
    };
 
    //環境設定が有効かチェック
@@ -496,6 +506,10 @@ function SolverEngine() {
       if (params.lens && params.lens.length > 0) {
          args.push("--lens");
          args.push(params.lens);
+      }
+      if (params.lensType && params.lensType !== "rectilinear") {
+         args.push("--lens-type");
+         args.push(params.lensType);
       }
 
       return args;
@@ -1004,9 +1018,11 @@ function ParameterDialog(params, windowInfo) {
    this.gridCombo.addItem("5x5");
    this.gridCombo.addItem("6x6");
    this.gridCombo.addItem("8x8");
+   this.gridCombo.addItem("10x10");
+   this.gridCombo.addItem("12x8");
    this.gridCombo.addItem("Custom...");
 
-   var gridOptions = ["2x2", "3x3", "4x4", "5x5", "6x6", "8x8"];
+   var gridOptions = ["2x2", "3x3", "4x4", "5x5", "6x6", "8x8", "10x10", "12x8"];
    var GRID_CUSTOM_INDEX = gridOptions.length; // "Custom..." のインデックス
 
    // Custom 入力用 Edit
@@ -1323,11 +1339,31 @@ function ParameterDialog(params, windowInfo) {
    var flUnitLabel = new Label(coordGroup);
    flUnitLabel.text = "mm";
 
+   // Fisheye lens checkbox
+   this.fisheyeCheckBox = new CheckBox(coordGroup);
+   this.fisheyeCheckBox.text = "Fisheye lens";
+   this.fisheyeCheckBox.toolTip = "Check if using a fisheye lens (equisolid-angle projection).\n"
+      + "This affects FOV calculation and grid recommendation.\n"
+      + "Auto-checked when a fisheye lens is detected from equipment DB.";
+   this.fisheyeCheckBox.checked = params.fisheye || (params.lensType.indexOf("fisheye") === 0);
+   this.fisheyeCheckBox.onCheck = function (checked) {
+      params.fisheye = checked;
+      if (checked) {
+         params.lensType = "fisheye_equisolid";
+      } else {
+         // DB自動検出が魚眼でなければrectilinearに戻す
+         params.lensType = "rectilinear";
+      }
+      updateScaleAndButton();
+   };
+
    var flSizer = new HorizontalSizer;
    flSizer.spacing = 4;
    flSizer.add(flLabel);
    flSizer.add(this.focalLengthEdit);
    flSizer.add(flUnitLabel);
+   flSizer.addSpacing(16);
+   flSizer.add(this.fisheyeCheckBox);
    flSizer.addStretch();
 
    // Pixel pitch
@@ -1374,9 +1410,31 @@ function ParameterDialog(params, windowInfo) {
          var h = windowInfo.height;
          if (w > 0 && h > 0) {
             var diagPixels = Math.sqrt(w * w + h * h);
-            var diagFov = (ps * diagPixels) / 3600.0;
+            var diagFov;
+            var lt = params.lensType || "rectilinear";
+
+            // 投影型に応じた対角FOV計算
+            if (lt === "fisheye_equisolid") {
+               var sRad = (ps / 3600.0) * Math.PI / 180.0;
+               var arg = Math.min(diagPixels * sRad / 2.0, 1.0);
+               diagFov = 2.0 * 2.0 * Math.asin(arg) * 180.0 / Math.PI;
+            } else if (lt === "fisheye_equidistant") {
+               var sRad = (ps / 3600.0) * Math.PI / 180.0;
+               diagFov = 2.0 * diagPixels * sRad * 180.0 / Math.PI;
+            } else if (lt === "fisheye_stereographic") {
+               var sRad = (ps / 3600.0) * Math.PI / 180.0;
+               diagFov = 2.0 * 2.0 * Math.atan(diagPixels * sRad / 2.0) * 180.0 / Math.PI;
+            } else {
+               // rectilinear（gnomonic）: 線形近似で十分
+               diagFov = (ps * diagPixels) / 3600.0;
+            }
+
             var recommended;
-            if (diagFov > 90)
+            if (diagFov > 150)
+               recommended = "12x8";
+            else if (diagFov > 120)
+               recommended = "10x10";
+            else if (diagFov > 90)
                recommended = "8x8";
             else if (diagFov > 60)
                recommended = "5x5";
@@ -1384,7 +1442,9 @@ function ParameterDialog(params, windowInfo) {
                recommended = "3x3";
             else
                recommended = "2x2";
-            dialog.gridRecommendLabel.text = format("Recommended: %s (diag FOV: %.1f\u00B0)", recommended, diagFov);
+
+            var projLabel = (lt !== "rectilinear") ? format(" [%s]", lt) : "";
+            dialog.gridRecommendLabel.text = format("Recommended: %s (diag FOV: %.1f\u00B0%s)", recommended, diagFov, projLabel);
          } else {
             dialog.gridRecommendLabel.text = "";
          }
@@ -1544,7 +1604,13 @@ function main() {
          if (equipDB.cameras && equipDB.cameras.hasOwnProperty(metadata.instrume)) {
             params.camera = metadata.instrume;
             var camInfo = equipDB.cameras[metadata.instrume];
-            if (camInfo.pixel_pitch_um && (params.pixelPitch === undefined || params.pixelPitch === null)) {
+            if (camInfo.pixel_pitch_um) {
+               // XPIXSZ ヘッダーよりequipment DB値を優先（XPIXSZ は不正確な場合がある）
+               if (params.pixelPitch !== undefined && params.pixelPitch !== null
+                   && Math.abs(params.pixelPitch - camInfo.pixel_pitch_um) > 0.1) {
+                  console.warningln(format("XPIXSZ header (%.2f \u00B5m) differs from equipment DB (%.2f \u00B5m). Using DB value.",
+                     params.pixelPitch, camInfo.pixel_pitch_um));
+               }
                params.pixelPitch = camInfo.pixel_pitch_um;
                console.writeln("Auto-matched camera: " + camInfo.display_name
                   + " (pixel pitch: " + camInfo.pixel_pitch_um.toFixed(2) + " \u00B5m)");
@@ -1568,7 +1634,16 @@ function main() {
          }
          if (bestLensKey.length > 0) {
             params.lens = bestLensKey;
-            console.writeln("Auto-matched lens: " + equipDB.lenses[bestLensKey].display_name);
+            var matchedLens = equipDB.lenses[bestLensKey];
+            console.writeln("Auto-matched lens: " + matchedLens.display_name);
+            // レンズの投影型を取得（魚眼レンズ対応）
+            if (matchedLens.type) {
+               params.lensType = matchedLens.type;
+               if (matchedLens.type !== "rectilinear") {
+                  params.fisheye = true;
+                  console.writeln("Lens type: " + matchedLens.type + " (non-rectilinear projection)");
+               }
+            }
          }
       }
    } else {
