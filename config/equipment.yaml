@@ -483,6 +483,19 @@ lenses:
     lensfun_search: "FE 24mm f/2.8"
 
   #
+  # ===== Sigma Fisheye =====
+  #
+  "Sigma 15mm f/2.8 EX DG Diagonal Fisheye":
+    maker: Sigma
+    display_name: "Sigma 15mm F2.8 EX DG Fisheye"
+    type: fisheye_equisolid
+    focal_length_mm: 15.0
+    max_aperture: 2.8
+    camera_makers: [Canon, Nikon, Sony, Pentax]
+    lensfun_maker: Sigma
+    lensfun_search: "15mm f/2.8 EX DG"
+
+  #
   # ===== Sigma Art DG DN =====
   #
   "Sigma 14mm f/1.4 DG DN Art":
