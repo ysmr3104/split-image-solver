@@ -75,7 +75,9 @@ pixel_scale [arcsec/px] = 206.265 × pixel_pitch [μm] / focal_length [mm]
 
 | 対角FOV | 推奨グリッド | 対象レンズ例 |
 |---------|-------------|-------------|
-| > 90° | 8x8 | 14mm |
+| > 150° | 12x8 | 15mm 魚眼 |
+| 120°–150° | 10x10 | 8mm 魚眼 |
+| 90°–120° | 8x8 | 14mm |
 | 60°–90° | 5x5 | 20–24mm |
 | 30°–60° | 3x3 | 35–50mm |
 | ≤ 30° | 2x2 | 85mm以上 |
@@ -114,13 +116,13 @@ solve-field --overwrite --no-plots --no-remove-lines --no-verify-uniformize \
 
 #### タイルごとのパラメータ最適化
 
-**実効ピクセルスケール**（後述の「gnomonic投影補正」で詳述）:
+**実効ピクセルスケール**（後述の「投影型対応とスケール補正」で詳述）:
 
-各タイルの中心位置に基づき、画像中心からの角度に応じたスケール倍率を算出します。
+各タイルの中心位置と投影型に基づき、画像中心からの角度に応じたスケール倍率を算出します。
 
 ```python
-effective_scale = center_scale / cos²(θ)
-# θ = arctan(r_pixels × center_scale_rad)
+θ = _pixel_radius_to_angle(r_pixels, center_scale_rad, projection)
+effective_scale = center_scale × _effective_pixel_scale_factor(θ, projection)
 ```
 
 **動的マージン計算**:
@@ -134,7 +136,7 @@ scale_margin = 0.2 + 0.3 × r_ratio  # 中心: ±20%, コーナー: ±50%
 
 **RA/DECヒント**:
 
-画像中心のRA/DECが既知の場合、gnomonic逆投影によりタイルごとの中心座標を算出してヒントとして渡します（詳細は後述）。
+画像中心のRA/DECが既知の場合、投影型に応じた逆投影によりタイルごとの中心座標を算出してヒントとして渡します（詳細は後述）。
 
 #### 自動ダウンサンプリング
 
@@ -273,40 +275,76 @@ else:
 
 ---
 
-## 3. gnomonic（正距）投影補正
+## 3. 投影型対応とスケール補正
 
-広角画像のプレートソルブにおいて最も重要な技術的課題は、TAN（gnomonic）投影の非線形性への対処です。
+広角画像のプレートソルブにおいて最も重要な技術的課題は、レンズ投影型の非線形性への対処です。本ツールは4つの投影型をサポートしています。
 
-### 3.1 問題: 非一様なピクセルスケール
+### 3.1 サポートする投影型
 
-gnomonic投影では、光軸（画像中心）から離れるほどピクセルあたりの天球上の角度が大きくなります。
+| 投影型 | レンズ種別 | r(θ) の式 | スケール倍率 dθ/dr | CLIでの指定値 |
+|--------|-----------|-----------|-------------------|-------------|
+| gnomonic | rectilinear（通常レンズ） | r = tan(θ)/s | 1/cos²(θ) | `rectilinear` |
+| equisolid | 対角魚眼（大半の魚眼レンズ） | r = 2·sin(θ/2)/s | 1/cos(θ/2) | `fisheye_equisolid` |
+| equidistant | 円周魚眼 | r = θ/s | 1（一定） | `fisheye_equidistant` |
+| stereographic | 一部の魚眼 | r = 2·tan(θ/2)/s | 1/cos²(θ/2) | `fisheye_stereographic` |
+
+ここで r はピクセル距離、θ は光軸からの角距離、s は中心ピクセルスケール (rad/pixel) です。
+
+**投影型の指定方法:**
+
+- `--lens-type` CLI引数で明示指定
+- `--lens` で機材DBに登録済みレンズを指定すると `type` フィールドから自動検出
+- PixInsightでは **Fisheye lens** チェックボックス、または機材DB自動マッチングで検出
+- デフォルトは `rectilinear`（gnomonic）で後方互換性を維持
+
+### 3.2 問題: 非一様なピクセルスケール
+
+全ての投影型で、光軸（画像中心）から離れるほどピクセルあたりの天球上の角度が変化します。変化の大きさは投影型によって異なります。
 
 ```
-14mm + α7RV の場合:
+14mm rectilinear + α7RV の場合:
   中心:        54.4 arcsec/pixel
   エッジ:      87–95 arcsec/pixel（1.6–1.7倍）
   コーナー:    ~113 arcsec/pixel（2.1倍）
+
+15mm fisheye (equisolid) + α7RIV の場合:
+  中心:        51.7 arcsec/pixel
+  エッジ:      62–66 arcsec/pixel（1.2–1.3倍）
+  コーナー:    ~66 arcsec/pixel（1.3倍）
 ```
+
+gnomonic投影は端でスケールが急激に増大しますが、equisolid投影はより緩やかです。equidistant投影ではスケール倍率が常に1.0（一定）です。
 
 この非線形性を無視して一律のピクセルスケールヒントを solve-field に渡すと、端タイルのスケール範囲が実際の値と合わず、ソルブに失敗します。
 
-### 3.2 タイルごとの実効ピクセルスケール計算
+### 3.3 タイルごとの実効ピクセルスケール計算
 
-`python/utils/coordinate_transform.py` の `calculate_tile_pixel_scale()` で、各タイル位置での実効スケールを計算します。
+`python/utils/coordinate_transform.py` の `calculate_tile_pixel_scale()` で、投影型に応じた実効スケールを計算します。
 
-**数式:**
+**計算フロー:**
 
 ```
 r = √((tile_x - center_x)² + (tile_y - center_y)²)   [pixels]
-θ = arctan(r × scale_center_rad)                        [radians]
-scale_effective = scale_center / cos²(θ)                 [arcsec/pixel]
+
+# Step 1: 投影型に応じた角距離θを計算 (_pixel_radius_to_angle)
+gnomonic:       θ = arctan(r × s)
+equisolid:      θ = 2 × arcsin(r × s / 2)    ※ arcsin引数をclamp(-1, 1)
+equidistant:    θ = r × s
+stereographic:  θ = 2 × arctan(r × s / 2)
+
+# Step 2: 投影型に応じたスケール倍率を計算 (_effective_pixel_scale_factor)
+gnomonic:       factor = 1 / cos²(θ)
+equisolid:      factor = 1 / cos(θ/2)
+equidistant:    factor = 1
+stereographic:  factor = 1 / cos²(θ/2)
+
+# Step 3: 実効スケール
+scale_effective = scale_center × factor   [arcsec/pixel]
 ```
 
-`cos²(θ)` による除算は、gnomonic投影の固有の非線形性（接平面への投影による面積拡大）を正確に表現します。
+### 3.4 投影型対応のRA/DECヒント計算
 
-### 3.3 gnomonic逆投影によるRA/DECヒント計算
-
-画像中心の天球座標(α₀, δ₀)が既知の場合、任意のタイル中心のRA/DECを球面三角法で算出します。
+画像中心の天球座標(α₀, δ₀)が既知の場合、投影型に応じた逆投影で任意のタイル中心のRA/DECを算出します。
 
 `python/utils/coordinate_transform.py` の `pixel_offset_to_radec()`:
 
@@ -314,19 +352,21 @@ scale_effective = scale_center / cos²(θ)                 [arcsec/pixel]
 入力: (α₀, δ₀) = 画像中心の天球座標
       (Δx, Δy) = 画像中心からのピクセルオフセット
       s = 中心ピクセルスケール [arcsec/pixel]
+      projection = 投影型
 
-Step 1: 接平面座標（標準座標）に変換
-  ξ = Δx × s_rad    （東が正）
-  η = Δy × s_rad    （北が正）
+Step 1: 方位角φと画像面上の距離rを計算
+  r = √(Δx² + Δy²)
+  φ = arctan2(Δx, Δy)
 
-Step 2: 中心からの角距離
-  ρ = √(ξ² + η²)
-  c = arctan(ρ)
+Step 2: 投影型に応じた角距離cを計算
+  c = _pixel_radius_to_angle(r, s_rad, projection)
 
-Step 3: 球面三角法で新しい天球座標を計算
-  δ = arcsin(cos(c)·sin(δ₀) + η·sin(c)·cos(δ₀)/ρ)
-  α = α₀ + arctan2(ξ·sin(c), ρ·cos(δ₀)·cos(c) - η·sin(δ₀)·sin(c))
+Step 3: 球面三角法で天球座標を計算（投影型非依存）
+  δ = arcsin(cos(c)·sin(δ₀) + sin(c)·cos(δ₀)·cos(φ))
+  α = α₀ + arctan2(sin(c)·sin(φ), cos(c)·cos(δ₀) - sin(c)·sin(δ₀)·cos(φ))
 ```
+
+Step 3 の球面三角法は投影型に依存しません。投影型の違いは Step 2 の角距離計算のみに影響します。これにより、新しい投影型の追加は `_pixel_radius_to_angle()` と `_effective_pixel_scale_factor()` に1ケース追加するだけで済みます。
 
 **オフセット符号の注意:**
 
@@ -337,9 +377,9 @@ offset_x = image_center_x - tile_center_x   # 東方向が正
 offset_y = image_center_y - tile_center_y   # 北方向が正
 ```
 
-### 3.4 線形近似との精度比較
+### 3.5 線形近似との精度比較
 
-14mm（FOV ~147°）でのコーナータイル:
+14mm rectilinear（FOV ~147°）でのコーナータイル:
 
 | 手法 | RA誤差 | DEC誤差 |
 |------|--------|---------|
@@ -347,6 +387,24 @@ offset_y = image_center_y - tile_center_y   # 北方向が正
 | gnomonic逆投影 | < 0.1° | < 0.1° |
 
 広角画像では線形近似は全く使えず、完全な球面三角法が必須です。
+
+### 3.6 魚眼レンズの対角FOV計算
+
+`--recommend-grid` や PixInsight の推奨グリッド表示では、投影型に応じた正確な対角FOVを計算します。
+
+```
+対角ピクセル距離: r_diag = √(W² + H²) / 2
+
+gnomonic:       FOV = 2 × arctan(r_diag × s)
+equisolid:      FOV = 2 × 2 × arcsin(r_diag × s / 2)
+equidistant:    FOV = 2 × r_diag × s
+stereographic:  FOV = 2 × 2 × arctan(r_diag × s / 2)
+```
+
+例: Sigma 15mm f/2.8 Fisheye + Sony A7R IV (9533×6344, 3.76µm)
+- 中心ピクセルスケール: 51.7"/px
+- equisolid 対角FOV: **183.4°**
+- 推奨グリッド: **12x8**
 
 ---
 
@@ -851,7 +909,7 @@ split-image-solver/
 │   │   ├── astrometry_local_solver.py   # solve-field ラッパー
 │   │   └── factory.py                   # ソルバーファクトリー
 │   └── utils/
-│       ├── coordinate_transform.py      # gnomonic投影、タイルスケール計算
+│       ├── coordinate_transform.py      # 投影型対応の座標変換、タイルスケール計算
 │       ├── equipment.py                 # 機材DB操作
 │       └── logger.py                    # ロガー設定
 ├── javascript/
@@ -862,7 +920,7 @@ split-image-solver/
 │   └── settings.example.json            # 設定テンプレート
 ├── tests/
 │   └── python/
-│       ├── test_coordinate_transform.py # gnomonic投影テスト
+│       ├── test_coordinate_transform.py # 投影型対応テスト（38件）
 │       ├── test_image_splitter.py       # グリッド分割テスト
 │       ├── test_wcs_integrator.py       # WCS統合テスト
 │       ├── test_list_equipment.py       # 機材DB・推奨グリッドテスト
@@ -919,6 +977,5 @@ brew install astrometry-net netpbm
 ### 将来の改善候補
 
 1. **lensfunpy統合**: ソルブ前にレンズ歪曲収差を除去 → 精度向上
-2. **魚眼レンズ対応**: 等距離射影/等立体角射影 → gnomonic変換
-3. **自己キャリブレーション**: 成功タイルのSIPから画像全体の歪みモデルを推定
-4. **大スケール用インデックスの自動取得**: 不足インデックスの検出と推奨
+2. **自己キャリブレーション**: 成功タイルのSIPから画像全体の歪みモデルを推定
+3. **大スケール用インデックスの自動取得**: 不足インデックスの検出と推奨

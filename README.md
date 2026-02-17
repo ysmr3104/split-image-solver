@@ -13,6 +13,7 @@ PixInsightの ImageSolver では対応できない超広角な範囲の星空画
 - **ビュー状態の保持**: PixInsightで編集中（ストレッチ、ABE等適用後）の画像に対してソルブしても、ピクセルデータと処理履歴を維持したままWCSを適用
 - **XISF/FITS対応**: PixInsightネイティブのXISF形式とFITS形式の両方に完全対応
 - **自動形式判定**: 入力ファイルの形式を自動判定し、同じ形式で出力
+- **魚眼レンズ対応**: equisolid/equidistant/stereographic投影に対応し、対角180°超のFOVでもソルブ可能
 
 ## 必要な環境
 
@@ -162,6 +163,7 @@ done
 
 | レンズ焦点距離 | FOV (フルサイズ) | 必要なインデックス |
 |--------------|-----------------|------------------|
+| 15mm (魚眼) | ~183° | 4107, 4110 ~ 4119, 4208 ~ 4219 |
 | 24mm | ~74° | 4110 ~ 4119 |
 | 35mm | ~54° | 4110 ~ 4119 |
 | 50mm | ~40° | 4112 ~ 4118 |
@@ -199,8 +201,9 @@ PixInsight を再起動し、**Script > Utilities > SplitImageSolver** から実
 3. Settings で Python パスを設定: `.venv/bin/python` のフルパス
 4. Script Directory にリポジトリのルートパスを設定
 5. **Focal Length**（焦点距離 mm）と **Pixel Pitch**（ピクセルピッチ μm）を入力
-6. Grid を **3x3**（広角レンズ推奨）に設定
-7. 「Execute」をクリック
+6. 魚眼レンズの場合は **Fisheye lens** チェックボックスをON（機材DBに登録済みの魚眼レンズは自動でONになります）
+7. Grid を推奨サイズに設定（ダイアログに表示される推奨値を参考に。魚眼レンズでは12x8や10x10が推奨されます）
+8. 「Execute」をクリック
 
 詳細なパラメータ説明は [PixInsight スクリプト README](javascript/README.md) を参照してください。
 
@@ -230,9 +233,11 @@ python3 python/main.py \
 
 **FOV/座標ヒント:**
 - `--focal-length MM`: 焦点距離 (mm) - FOV計算に使用
+- `--pixel-pitch UM`: ピクセルピッチ (μm) - 機材DBにないカメラの場合に指定
 - `--pixel-scale ARCSEC`: ピクセルスケール (arcsec/pixel) - 直接指定する場合
 - `--ra DEG`: 視野中心の赤経 (degrees)
 - `--dec DEG`: 視野中心の赤緯 (degrees)
+- `--lens-type TYPE`: レンズ投影型 (rectilinear, fisheye_equisolid, fisheye_equidistant, fisheye_stereographic) [デフォルト: rectilinear]
 
 **WCS統合設定:**
 - `--wcs-method METHOD`: 統合方法 (weighted_least_squares | central_tile) [デフォルト: weighted_least_squares]
@@ -269,7 +274,23 @@ python3 python/main.py \
   --ra 98.0 --dec 5.0
 ```
 
-**例3: 詳細ログ出力**
+**例3: 魚眼レンズ（Sigma 15mm Fisheye + Sony A7R IV）**
+
+```bash
+python3 python/main.py \
+  --input fisheye_image.xisf \
+  --output solved_fisheye.xisf \
+  --grid 12x8 \
+  --overlap 150 \
+  --focal-length 15 \
+  --pixel-pitch 3.76 \
+  --ra 276.0 --dec -24.0 \
+  --lens-type fisheye_equisolid
+```
+
+魚眼レンズでは `--lens-type fisheye_equisolid` を指定することで、equisolid（等立体角）投影に基づく正確なFOV計算・スケールヒントが使われます。機材DBに登録済みのレンズは `--lens` 指定で自動検出されます。
+
+**例4: 詳細ログ出力**
 
 ```bash
 python3 python/main.py \
@@ -380,6 +401,16 @@ Overlap validation failed: max error = 10.5" (tolerance = 5.0")
 
 - 超広角レンズの歪みが大きい場合、WCS精度が低下する可能性がある
 - 大きな画像（8000x6000以上）では大量のメモリを使用
+
+### 低解像度・超広角カメラ（ATOM Cam 2 等）について
+
+ATOM Cam 2 のような監視カメラ系デバイス（1920×1080, 対角120° FOV, ピクセルスケール~191"/px）は、魚眼投影対応後もプレートソルブが困難です。
+
+**インデックスファイルの問題**: この解像度では astrometry.net の 4200-4207 シリーズ（超広角用）が必要ですが、これらは healpix 分割で配布されており全天カバーに数十GBのダウンロードが必要です。また、より小スケールの 4100-4106 シリーズは公式サーバー（`data.astrometry.net/4100/`）に存在しません。
+
+**解像度の問題**: ~191"/px では1ピクセルが約3角分に相当し、solve-field が星のパターンマッチングに使える星の数が極めて限られます。タイル分割するとさらに1タイルあたりの星数が減少し、信頼性の高いソルブが困難になります。
+
+対象天域の healpix タイルのみをダウンロードすれば原理的には可能ですが、実用的なワークフローとしては現時点で未検証です。
 
 ## ライセンス
 
