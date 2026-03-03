@@ -416,6 +416,15 @@ ATOM Cam 2 のような監視カメラ系デバイス（1920×1080, 対角120° 
 
 MIT License
 
+## 配布方法について
+
+本ツールは PixInsight の[アップデートリポジトリ](https://pixinsight.com/doc/docs/PIRepositoryReference/PIRepositoryReference.html)による配布を検討しましたが、以下の理由により GitHub での配布としています。
+
+- **外部依存の問題**: 本ツールは Python 実行環境と astrometry.net（solve-field）に依存しています。PixInsight のアップデートリポジトリは PJSR スクリプトやネイティブモジュールの配布を想定しており、Python 環境や外部バイナリを内包する仕組みがありません。
+- **ネイティブモジュール化の断念**: C++/PCL によるネイティブモジュールとして実装すればリポジトリ配布は可能ですが、macOS / Linux / Windows の 3 プラットフォーム分のビルド環境が必要となるため、現時点では対応が困難です。
+
+そのため、本リポジトリを clone し、README の手順に従って Python 環境と astrometry.net をセットアップしていただく形での利用をお願いしています。
+
 ## 参考資料
 
 - [Astrometry.net](https://astrometry.net/) - プレートソルバー
