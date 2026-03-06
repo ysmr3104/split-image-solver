@@ -1,0 +1,303 @@
+{
+  "cameras": [
+    {
+      "name": "ZWO ASI2600MC Pro",
+      "instrume": "ZWO ASI2600MC Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 6248,
+      "sensor_height": 4176
+    },
+    {
+      "name": "ZWO ASI2600MM Pro",
+      "instrume": "ZWO ASI2600MM Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 6248,
+      "sensor_height": 4176
+    },
+    {
+      "name": "ZWO ASI294MC Pro",
+      "instrume": "ZWO ASI294MC Pro",
+      "pixel_pitch": 4.63,
+      "sensor_width": 4144,
+      "sensor_height": 2822
+    },
+    {
+      "name": "ZWO ASI294MM Pro",
+      "instrume": "ZWO ASI294MM Pro",
+      "pixel_pitch": 4.63,
+      "sensor_width": 4144,
+      "sensor_height": 2822
+    },
+    {
+      "name": "ZWO ASI533MC Pro",
+      "instrume": "ZWO ASI533MC Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 3008,
+      "sensor_height": 3008
+    },
+    {
+      "name": "ZWO ASI071MC Pro",
+      "instrume": "ZWO ASI071MC Pro",
+      "pixel_pitch": 4.78,
+      "sensor_width": 4944,
+      "sensor_height": 3284
+    },
+    {
+      "name": "ZWO ASI183MC Pro",
+      "instrume": "ZWO ASI183MC Pro",
+      "pixel_pitch": 2.40,
+      "sensor_width": 5496,
+      "sensor_height": 3672
+    },
+    {
+      "name": "ZWO ASI585MC",
+      "instrume": "ZWO ASI585MC",
+      "pixel_pitch": 2.90,
+      "sensor_width": 3840,
+      "sensor_height": 2160
+    },
+    {
+      "name": "ZWO ASI678MC",
+      "instrume": "ZWO ASI678MC",
+      "pixel_pitch": 2.00,
+      "sensor_width": 3840,
+      "sensor_height": 2160
+    },
+    {
+      "name": "ZWO ASI6200MM Pro",
+      "instrume": "ZWO ASI6200MM Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 9576,
+      "sensor_height": 6388
+    },
+    {
+      "name": "ZWO ASI6200MC Pro",
+      "instrume": "ZWO ASI6200MC Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 9576,
+      "sensor_height": 6388
+    },
+    {
+      "name": "QHY268M",
+      "instrume": "QHY268M",
+      "pixel_pitch": 3.76,
+      "sensor_width": 6252,
+      "sensor_height": 4176
+    },
+    {
+      "name": "QHY268C",
+      "instrume": "QHY268C",
+      "pixel_pitch": 3.76,
+      "sensor_width": 6252,
+      "sensor_height": 4176
+    },
+    {
+      "name": "QHY600M",
+      "instrume": "QHY600M",
+      "pixel_pitch": 3.76,
+      "sensor_width": 9576,
+      "sensor_height": 6388
+    },
+    {
+      "name": "QHY533M",
+      "instrume": "QHY533M",
+      "pixel_pitch": 3.76,
+      "sensor_width": 3008,
+      "sensor_height": 3008
+    },
+    {
+      "name": "QHY294M Pro",
+      "instrume": "QHY294M-Pro",
+      "pixel_pitch": 4.63,
+      "sensor_width": 4144,
+      "sensor_height": 2822
+    },
+    {
+      "name": "QHY183M",
+      "instrume": "QHY183M",
+      "pixel_pitch": 2.40,
+      "sensor_width": 5496,
+      "sensor_height": 3672
+    },
+    {
+      "name": "Canon EOS R",
+      "instrume": "Canon EOS R",
+      "pixel_pitch": 5.36,
+      "sensor_width": 6720,
+      "sensor_height": 4480
+    },
+    {
+      "name": "Canon EOS Ra",
+      "instrume": "Canon EOS Ra",
+      "pixel_pitch": 5.36,
+      "sensor_width": 6720,
+      "sensor_height": 4480
+    },
+    {
+      "name": "Canon EOS R5",
+      "instrume": "Canon EOS R5",
+      "pixel_pitch": 4.39,
+      "sensor_width": 8192,
+      "sensor_height": 5464
+    },
+    {
+      "name": "Canon EOS R6",
+      "instrume": "Canon EOS R6",
+      "pixel_pitch": 7.39,
+      "sensor_width": 5472,
+      "sensor_height": 3648
+    },
+    {
+      "name": "Canon EOS 6D",
+      "instrume": "Canon EOS 6D",
+      "pixel_pitch": 6.55,
+      "sensor_width": 5472,
+      "sensor_height": 3648
+    },
+    {
+      "name": "Canon EOS 6D Mark II",
+      "instrume": "Canon EOS 6D Mark II",
+      "pixel_pitch": 5.73,
+      "sensor_width": 6240,
+      "sensor_height": 4160
+    },
+    {
+      "name": "Canon EOS 5D Mark IV",
+      "instrume": "Canon EOS 5D Mark IV",
+      "pixel_pitch": 5.36,
+      "sensor_width": 6720,
+      "sensor_height": 4480
+    },
+    {
+      "name": "Canon EOS 60Da",
+      "instrume": "Canon EOS 60Da",
+      "pixel_pitch": 4.30,
+      "sensor_width": 5184,
+      "sensor_height": 3456
+    },
+    {
+      "name": "Canon EOS 80D",
+      "instrume": "Canon EOS 80D",
+      "pixel_pitch": 3.71,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
+    {
+      "name": "Nikon D810A",
+      "instrume": "NIKON D810A",
+      "pixel_pitch": 4.88,
+      "sensor_width": 7360,
+      "sensor_height": 4912
+    },
+    {
+      "name": "Nikon D850",
+      "instrume": "NIKON D850",
+      "pixel_pitch": 4.34,
+      "sensor_width": 8256,
+      "sensor_height": 5504
+    },
+    {
+      "name": "Nikon Z6",
+      "instrume": "NIKON Z 6",
+      "pixel_pitch": 5.94,
+      "sensor_width": 6048,
+      "sensor_height": 4024
+    },
+    {
+      "name": "Nikon Z6 II",
+      "instrume": "NIKON Z 6_2",
+      "pixel_pitch": 5.94,
+      "sensor_width": 6048,
+      "sensor_height": 4024
+    },
+    {
+      "name": "Nikon D750",
+      "instrume": "NIKON D750",
+      "pixel_pitch": 5.94,
+      "sensor_width": 6016,
+      "sensor_height": 4016
+    },
+    {
+      "name": "Nikon D5600",
+      "instrume": "NIKON D5600",
+      "pixel_pitch": 3.89,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
+    {
+      "name": "Sony A7III",
+      "instrume": "ILCE-7M3",
+      "pixel_pitch": 5.93,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
+    {
+      "name": "Sony A7S III",
+      "instrume": "ILCE-7SM3",
+      "pixel_pitch": 8.40,
+      "sensor_width": 4240,
+      "sensor_height": 2832
+    },
+    {
+      "name": "Sony A7R IV",
+      "instrume": "ILCE-7RM4",
+      "pixel_pitch": 3.73,
+      "sensor_width": 9504,
+      "sensor_height": 6336
+    },
+    {
+      "name": "Sony A7C",
+      "instrume": "ILCE-7C",
+      "pixel_pitch": 5.93,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
+    {
+      "name": "Player One Poseidon-C Pro",
+      "instrume": "Player One Poseidon-C Pro",
+      "pixel_pitch": 3.76,
+      "sensor_width": 6248,
+      "sensor_height": 4176
+    },
+    {
+      "name": "Player One Artemis-C Pro",
+      "instrume": "Player One Artemis-C Pro",
+      "pixel_pitch": 4.63,
+      "sensor_width": 4144,
+      "sensor_height": 2822
+    },
+    {
+      "name": "Custom",
+      "instrume": "",
+      "pixel_pitch": 0,
+      "sensor_width": 0,
+      "sensor_height": 0
+    }
+  ],
+  "lenses": [
+    {"name": "8mm Fisheye", "focal_length": 8, "projection": "equisolid"},
+    {"name": "10mm Fisheye", "focal_length": 10, "projection": "equisolid"},
+    {"name": "14mm", "focal_length": 14, "projection": "rectilinear"},
+    {"name": "20mm", "focal_length": 20, "projection": "rectilinear"},
+    {"name": "24mm", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "35mm", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "50mm", "focal_length": 50, "projection": "rectilinear"},
+    {"name": "85mm", "focal_length": 85, "projection": "rectilinear"},
+    {"name": "100mm", "focal_length": 100, "projection": "rectilinear"},
+    {"name": "135mm", "focal_length": 135, "projection": "rectilinear"},
+    {"name": "200mm", "focal_length": 200, "projection": "rectilinear"},
+    {"name": "250mm (RedCat 51)", "focal_length": 250, "projection": "rectilinear"},
+    {"name": "300mm", "focal_length": 300, "projection": "rectilinear"},
+    {"name": "400mm", "focal_length": 400, "projection": "rectilinear"},
+    {"name": "500mm", "focal_length": 500, "projection": "rectilinear"},
+    {"name": "600mm", "focal_length": 600, "projection": "rectilinear"},
+    {"name": "714mm (RASA 8)", "focal_length": 714, "projection": "rectilinear"},
+    {"name": "800mm", "focal_length": 800, "projection": "rectilinear"},
+    {"name": "1000mm", "focal_length": 1000, "projection": "rectilinear"},
+    {"name": "1200mm", "focal_length": 1200, "projection": "rectilinear"},
+    {"name": "1600mm", "focal_length": 1600, "projection": "rectilinear"},
+    {"name": "2000mm", "focal_length": 2000, "projection": "rectilinear"},
+    {"name": "2350mm (C9.25)", "focal_length": 2350, "projection": "rectilinear"},
+    {"name": "Custom", "focal_length": 0, "projection": "rectilinear"}
+  ]
+}

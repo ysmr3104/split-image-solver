@@ -89,3 +89,9 @@ share/python-wheels/
 *.egg
 MANIFEST
 HANDOVER.md
+
+# Build
+.build-tmp-split/
+
+# WCS JSON output
+*.wcs.json

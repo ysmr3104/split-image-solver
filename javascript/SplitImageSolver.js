@@ -1,1808 +1,2199 @@
 #feature-id    SplitImageSolver : Utilities > SplitImageSolver
-#feature-info  Split wide-angle astrophotos into tiles, plate-solve each tile \
-   via astrometry.net, and integrate WCS solutions into the original image.
+#feature-info  Automatic plate solver using astrometry.net API: single-image or \
+   split-tile solve with WCS application for PixInsight.
 
 //----------------------------------------------------------------------------
 // SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
 //
-// Split Image Solver: Split wide-angle astrophotos into tiles, plate-solve
-// each tile, and integrate WCS solutions into the original image.
+// Automatic plate solver using astrometry.net API.
+// Single-image solve with WCS application.
 //
-// Copyright (c) 2024-2025 Split Image Solver Project
+// Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.0.1"
+#define VERSION "0.2.0"
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdIcon.jsh>
 #include <pjsr/StdButton.jsh>
 #include <pjsr/TextAlign.jsh>
 #include <pjsr/Sizer.jsh>
-#include <pjsr/FrameStyle.jsh>
+#include <pjsr/UndoFlag.jsh>
 #include <pjsr/NumericControl.jsh>
+#include <pjsr/Color.jsh>
+#include <pjsr/PropertyType.jsh>
+#include <pjsr/PropertyAttribute.jsh>
 
-   // パス内のスペースをシェル用にエスケープ
-   function quotePath(path) {
-      return "'" + path.replace(/'/g, "'\\''") + "'";
-   }
+#include "wcs_math.js"
+#include "wcs_keywords.js"
+#include "astrometry_api.js"
 
-   // RA (度) → "HH MM SS.ss" 形式に変換
-   function raToHMS(raDeg) {
-      var ra = raDeg;
-      while (ra < 0) ra += 360.0;
-      while (ra >= 360) ra -= 360.0;
-      var totalSec = ra / 15.0 * 3600.0;
-      var h = Math.floor(totalSec / 3600.0);
-      totalSec -= h * 3600.0;
-      var m = Math.floor(totalSec / 60.0);
-      var s = totalSec - m * 60.0;
-      var hStr = (h < 10 ? "0" : "") + h;
-      var mStr = (m < 10 ? "0" : "") + m;
-      var sStr = (s < 10 ? "0" : "") + s.toFixed(2);
-      return hStr + " " + mStr + " " + sStr;
-   }
-
-   // DEC (度) → "+DD MM SS.s" 形式に変換
-   function decToDMS(decDeg) {
-      var sign = decDeg >= 0 ? "+" : "-";
-      var dec = Math.abs(decDeg);
-      var totalSec = dec * 3600.0;
-      var d = Math.floor(totalSec / 3600.0);
-      totalSec -= d * 3600.0;
-      var m = Math.floor(totalSec / 60.0);
-      var s = totalSec - m * 60.0;
-      var dStr = (d < 10 ? "0" : "") + d;
-      var mStr = (m < 10 ? "0" : "") + m;
-      var sStr = (s < 10 ? "0" : "") + s.toFixed(1);
-      return sign + dStr + " " + mStr + " " + sStr;
-   }
-
-   function byteArrayToString(ba) {
-      if (!ba || ba.length === 0) return "";
-      try {
-         var s = "";
-         for (var i = 0; i < ba.length; ++i) {
-            var c = ba.at(i);
-            if (c > 0) s += String.fromCharCode(c);
-         }
-         return s;
-      } catch (e) {
-         console.warningln("byteArrayToString failed: " + e.message);
-         return "";
-      }
-   }
-
-   // RA入力をパース（HMS "HH MM SS.ss" / "HH:MM:SS.ss" または度数）
-   function parseRAInput(text) {
-      text = text.trim();
-      if (text.length === 0) return undefined;
-      var parts = text.split(/[\s:]+/);
-      if (parts.length >= 3) {
-         var h = parseFloat(parts[0]);
-         var m = parseFloat(parts[1]);
-         var s = parseFloat(parts[2]);
-         if (!isNaN(h) && !isNaN(m) && !isNaN(s))
-            return (h + m / 60.0 + s / 3600.0) * 15.0;
-      }
-      var v = parseFloat(text);
-      return isNaN(v) ? undefined : v;
-   }
-
-   // DEC入力をパース（DMS "±DD MM SS.ss" / "±DD:MM:SS.ss" または度数）
-   function parseDECInput(text) {
-      text = text.trim();
-      if (text.length === 0) return undefined;
-      var sign = 1;
-      if (text.charAt(0) === '-') { sign = -1; text = text.substring(1); }
-      else if (text.charAt(0) === '+') { text = text.substring(1); }
-      var parts = text.split(/[\s:]+/);
-      if (parts.length >= 3) {
-         var d = parseFloat(parts[0]);
-         var m = parseFloat(parts[1]);
-         var s = parseFloat(parts[2]);
-         if (!isNaN(d) && !isNaN(m) && !isNaN(s))
-            return sign * (d + m / 60.0 + s / 3600.0);
-      }
-      var v = parseFloat(text);
-      return isNaN(v) ? undefined : sign * v;
-   }
-
-   // 度数をHMS文字列に変換
-   function degreesToHMS(deg) {
-      if (deg < 0) deg += 360;
-      var h = deg / 15.0;
-      var hours = Math.floor(h);
-      var rem = (h - hours) * 60;
-      var minutes = Math.floor(rem);
-      var seconds = (rem - minutes) * 60;
-      return format("%02d %02d %05.2f", hours, minutes, seconds);
-   }
-
-   // 度数をDMS文字列に変換
-   function degreesToDMS(deg) {
-      var sign = deg >= 0 ? "+" : "-";
-      var d = Math.abs(deg);
-      var degrees = Math.floor(d);
-      var rem = (d - degrees) * 60;
-      var minutes = Math.floor(rem);
-      var seconds = (rem - minutes) * 60;
-      return format("%s%02d %02d %05.2f", sign, degrees, minutes, seconds);
-   }
-
-   // WCS関連のFITSキーワードかどうかを判定
-   function isWCSKeyword(name) {
-      var wcsNames = [
-         "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2",
-         "CD1_1", "CD1_2", "CD2_1", "CD2_2",
-         "CDELT1", "CDELT2", "CROTA1", "CROTA2",
-         "CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2",
-         "RADESYS", "EQUINOX",
-         "A_ORDER", "B_ORDER", "AP_ORDER", "BP_ORDER",
-         "PLTSOLVD"
-      ];
-      for (var i = 0; i < wcsNames.length; i++) {
-         if (name === wcsNames[i]) return true;
-      }
-      // SIP係数: A_i_j, B_i_j, AP_i_j, BP_i_j
-      if (/^[AB]P?_\d+_\d+$/.test(name)) return true;
-      return false;
-   }
-
-   // FITSKeywordの型を値から判定して適切なFITSKeywordオブジェクトを生成
-   function makeFITSKeyword(name, value) {
-      var strVal = value.toString();
-      // 論理値
-      if (strVal === "T" || strVal === "true") {
-         return new FITSKeyword(name, "T", "");
-      }
-      if (strVal === "F" || strVal === "false") {
-         return new FITSKeyword(name, "F", "");
-      }
-      // 文字列型のCTYPE, CUNIT, RADESYS等
-      var stringKeys = ["CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2", "RADESYS", "PLTSOLVD"];
-      for (var i = 0; i < stringKeys.length; i++) {
-         if (name === stringKeys[i]) {
-            return new FITSKeyword(name, "'" + strVal + "'", "");
-         }
-      }
-      // 数値（整数または浮動小数点）
-      return new FITSKeyword(name, strVal, "");
-   }
-
-   // 天体名からRA/DECを検索（CDS Sesame name resolver）
-   function searchObjectCoordinates(objectName) {
-      var encoded = objectName.replace(/ /g, "+");
-      var url = "http://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?" + encoded;
-      var tmpFile = File.systemTempDirectory + "/sesame_query.txt";
-
-      var P = new ExternalProcess;
-      P.start("/usr/bin/curl", ["-s", "-o", tmpFile, "-m", "10", url]);
-      if (!P.waitForFinished(15000)) {
-         P.kill();
-         return null;
-      }
-      if (P.exitCode !== 0) return null;
-
-      if (!File.exists(tmpFile)) return null;
-      var content = "";
-      try {
-         content = File.readTextFile(tmpFile);
-         File.remove(tmpFile);
-      } catch (e) {
-         return null;
-      }
-
-      // %J 行から座標を取得: "%J 83.82208 -5.39111 = 05:35:17.30 -05:23:28.0"
-      var lines = content.split("\n");
-      for (var i = 0; i < lines.length; i++) {
-         var line = lines[i].trim();
-         if (line.indexOf("%J") === 0) {
-            var coords = line.substring(2).trim();
-            var eqIdx = coords.indexOf("=");
-            if (eqIdx > 0) coords = coords.substring(0, eqIdx).trim();
-            var parts = coords.split(/\s+/);
-            if (parts.length >= 2) {
-               var ra = parseFloat(parts[0]);
-               var dec = parseFloat(parts[1]);
-               if (!isNaN(ra) && !isNaN(dec))
-                  return { ra: ra, dec: dec };
-            }
-         }
-      }
-      return null;
-   }
-
-
-#define TITLE   "Split Image Solver"
+#define TITLE "Split Image Solver"
 
 //============================================================================
-//Settings keys for persistence
+// Ported utility functions from ManualImageSolver.js
 //============================================================================
-#define SETTINGS_KEY_PREFIX "SplitImageSolver/"
-#define KEY_PYTHON_PATH    SETTINGS_KEY_PREFIX + "pythonPath"
-#define KEY_SCRIPT_DIR     SETTINGS_KEY_PREFIX + "scriptDir"
-#define KEY_GRID           SETTINGS_KEY_PREFIX + "grid"
-#define KEY_OVERLAP        SETTINGS_KEY_PREFIX + "overlap"
-#define KEY_CAMERA         SETTINGS_KEY_PREFIX + "camera"
-#define KEY_LENS           SETTINGS_KEY_PREFIX + "lens"
-#define KEY_FOCAL_LEN      SETTINGS_KEY_PREFIX + "focalLength"
-#define KEY_PIXEL_PITCH    SETTINGS_KEY_PREFIX + "pixelPitch"
-#define KEY_FISHEYE        SETTINGS_KEY_PREFIX + "fisheye"
 
-//============================================================================
-//SolverParameters - パラメータの保持と永続化
-//============================================================================
-function SolverParameters() {
-   //環境設定（Settings APIで永続化）
-   this.pythonPath = "";
-   this.scriptDir = "";
-
-   //実行パラメータ
-   this.grid = "3x3";
-   this.overlap = 100;
-   this.ra = undefined;
-   this.dec = undefined;
-   this.focalLength = undefined;
-   this.pixelPitch = undefined;
-   this.camera = "";
-   this.lens = "";
-   this.lensType = "rectilinear";  // rectilinear, fisheye_equisolid, etc.
-   this.fisheye = false;           // 魚眼レンズチェックボックスの状態
-   this.equipmentDB = null;
-
-   //Settings APIから読み込み
-   this.load = function () {
-      var val;
-      try {
-         val = Settings.read(KEY_PYTHON_PATH, DataType_String);
-         if (val !== null)
-            this.pythonPath = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_SCRIPT_DIR, DataType_String);
-         if (val !== null)
-            this.scriptDir = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_GRID, DataType_String);
-         if (val !== null)
-            this.grid = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_OVERLAP, DataType_Int32);
-         if (val !== null)
-            this.overlap = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_CAMERA, DataType_String);
-         if (val !== null)
-            this.camera = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_LENS, DataType_String);
-         if (val !== null)
-            this.lens = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_FOCAL_LEN, DataType_Double);
-         if (val !== null)
-            this.focalLength = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_PIXEL_PITCH, DataType_Double);
-         if (val !== null)
-            this.pixelPitch = val;
-      } catch (e) { }
-
-      try {
-         val = Settings.read(KEY_FISHEYE, DataType_Boolean);
-         if (val !== null)
-            this.fisheye = val;
-      } catch (e) { }
-   };
-
-   //Settings APIに保存
-   this.save = function () {
-      Settings.write(KEY_PYTHON_PATH, DataType_String, this.pythonPath);
-      Settings.write(KEY_SCRIPT_DIR, DataType_String, this.scriptDir);
-      Settings.write(KEY_GRID, DataType_String, this.grid);
-      Settings.write(KEY_OVERLAP, DataType_Int32, this.overlap);
-      Settings.write(KEY_CAMERA, DataType_String, this.camera || "");
-      Settings.write(KEY_LENS, DataType_String, this.lens || "");
-      if (this.focalLength !== undefined && this.focalLength !== null)
-         Settings.write(KEY_FOCAL_LEN, DataType_Double, this.focalLength);
-      if (this.pixelPitch !== undefined && this.pixelPitch !== null)
-         Settings.write(KEY_PIXEL_PITCH, DataType_Double, this.pixelPitch);
-      Settings.write(KEY_FISHEYE, DataType_Boolean, this.fisheye);
-   };
-
-   //環境設定が有効かチェック
-   this.isConfigured = function () {
-      return this.pythonPath.length > 0 && this.scriptDir.length > 0;
-   };
+// Convert RA (degrees) to "HH MM SS.ss" format
+function raToHMS(raDeg) {
+   var ra = raDeg;
+   while (ra < 0) ra += 360.0;
+   while (ra >= 360) ra -= 360.0;
+   var totalSec = ra / 15.0 * 3600.0;
+   var h = Math.floor(totalSec / 3600.0);
+   totalSec -= h * 3600.0;
+   var m = Math.floor(totalSec / 60.0);
+   var s = totalSec - m * 60.0;
+   var hStr = (h < 10 ? "0" : "") + h;
+   var mStr = (m < 10 ? "0" : "") + m;
+   var sStr = (s < 10 ? "0" : "") + s.toFixed(2);
+   return hStr + " " + mStr + " " + sStr;
 }
 
-//============================================================================
-//SolverEngine - Pythonバックエンド呼び出し
-//============================================================================
-function SolverEngine() {
-   //FITSキーワードからメタデータを自動取得
-   this.extractMetadataFromWindow = function (window) {
-      var result = {
-         ra: undefined,
-         dec: undefined,
-         pixelScale: undefined,
-         focalLength: undefined,
-         pixelSize: undefined,
-         instrume: undefined
-      };
+// Convert DEC (degrees) to "+DD MM SS.s" format
+function decToDMS(decDeg) {
+   var sign = decDeg >= 0 ? "+" : "-";
+   var dec = Math.abs(decDeg);
+   var totalSec = dec * 3600.0;
+   var d = Math.floor(totalSec / 3600.0);
+   totalSec -= d * 3600.0;
+   var m = Math.floor(totalSec / 60.0);
+   var s = totalSec - m * 60.0;
+   var dStr = (d < 10 ? "0" : "") + d;
+   var mStr = (m < 10 ? "0" : "") + m;
+   var sStr = (s < 10 ? "0" : "") + s.toFixed(1);
+   return sign + dStr + " " + mStr + " " + sStr;
+}
 
-      var keywords = window.keywords;
-      for (var i = 0; i < keywords.length; i++) {
-         var kw = keywords[i];
-         switch (kw.name) {
-            case "RA":
-               result.ra = parseFloat(kw.strippedValue);
-               break;
-            case "OBJCTRA":
-               //HMS形式の場合: "HH MM SS.ss" → degrees
-               result.ra = this.hmsToDegreesRA(kw.strippedValue);
-               break;
-            case "DEC":
-               result.dec = parseFloat(kw.strippedValue);
-               break;
-            case "OBJCTDEC":
-               //DMS形式の場合: "+DD MM SS.ss" → degrees
-               result.dec = this.dmsToDegreesDec(kw.strippedValue);
-               break;
-            case "FOCALLEN":
-               result.focalLength = parseFloat(kw.strippedValue);
-               break;
-            case "XPIXSZ":
-               result.pixelSize = parseFloat(kw.strippedValue);
-               break;
-            case "INSTRUME":
-               result.instrume = kw.strippedValue;
-               break;
-         }
-      }
+// Parse RA input (HMS "HH MM SS.ss" / "HH:MM:SS.ss" or degrees)
+// On success: degrees (0-360), on failure: null
+function parseRAInput(text) {
+   if (typeof text !== "string") return null;
+   text = text.trim();
+   if (text.length === 0) return null;
 
-      //RA: degrees形式を優先（OBJCTRAはRA未取得時のフォールバック）
-      //ピクセルスケールを計算: 206.265 * pixelSize(μm) /focalLength(mm)
-      if (result.focalLength && result.pixelSize) {
-         result.pixelScale = (206.265 * result.pixelSize) / result.focalLength;
-      }
-
-      return result;
-   };
-
-   //機材データベースをPython経由で取得
-   this.loadEquipmentDB = function (params) {
-      if (!params.isConfigured()) return null;
-
-      var scriptPath = params.scriptDir + "/python/main.py";
-      var stdoutFile = File.systemTempDirectory + "/split_solver_equip_stdout.log";
-      var stderrFile = File.systemTempDirectory + "/split_solver_equip_stderr.log";
-
-      var pythonDir = File.extractDirectory(params.pythonPath);
-      var pathPrefix = "export PATH="
-         + quotePath(pythonDir)
-         + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
-
-      var shellCmd = pathPrefix
-         + quotePath(params.pythonPath) + " "
-         + quotePath(scriptPath) + " --list-equipment"
-         + " > " + quotePath(stdoutFile)
-         + " 2> " + quotePath(stderrFile);
-
-      var P = new ExternalProcess;
-      P.workingDirectory = params.scriptDir;
-      P.start("/bin/sh", ["-c", shellCmd]);
-
-      if (!P.waitForFinished(10000)) {
-         P.kill();
-         console.warningln("Equipment DB load timed out.");
-         return null;
-      }
-
-      if (P.exitCode !== 0) {
-         console.warningln("Equipment DB load failed (exit code " + P.exitCode + ").");
-         try { if (File.exists(stderrFile)) {
-            console.warningln(File.readTextFile(stderrFile));
-         }} catch (e) {}
-         return null;
-      }
-
-      var stdout = "";
-      try {
-         if (File.exists(stdoutFile)) {
-            stdout = File.readTextFile(stdoutFile).trim();
-            File.remove(stdoutFile);
-         }
-      } catch (e) {}
-      try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
-
-      if (stdout.length === 0) return null;
-
-      try {
-         return JSON.parse(stdout);
-      } catch (e) {
-         console.warningln("Equipment DB JSON parse failed: " + e.message);
-         return null;
-      }
-   };
-
-   //HMS文字列 "HH MM SS.ss" をdegrees に変換
-   this.hmsToDegreesRA = function (hmsStr) {
-      var parts = hmsStr.trim().split(/[\s:]+/);
-      if (parts.length < 3) return undefined;
+   var parts = text.split(/[\s:]+/);
+   if (parts.length >= 3) {
       var h = parseFloat(parts[0]);
       var m = parseFloat(parts[1]);
       var s = parseFloat(parts[2]);
-      return (h + m / 60.0 + s / 3600.0) * 15.0;  //hours → degrees
-   };
+      if (!isNaN(h) && !isNaN(m) && !isNaN(s)) {
+         return (h + m / 60.0 + s / 3600.0) * 15.0;
+      }
+   }
 
-   //DMS文字列 "+DD MM SS.ss" をdegrees に変換
-   this.dmsToDegreesDec = function (dmsStr) {
-      var str = dmsStr.trim();
-      var sign = 1;
-      if (str.charAt(0) === '-') {
-         sign = -1;
-         str = str.substring(1);
-      }
-      else if (str.charAt(0) === '+') {
-         str = str.substring(1);
-      }
-      var parts = str.split(/[\s:]+/);
-      if (parts.length < 3) return undefined;
+   var val = parseFloat(text);
+   if (!isNaN(val)) return val;
+   return null;
+}
+
+// Parse DEC input (DMS "+/-DD MM SS.ss" / "+/-DD:MM:SS.ss" or degrees)
+// On success: degrees (-90 to +90), on failure: null
+function parseDECInput(text) {
+   if (typeof text !== "string") return null;
+   text = text.trim();
+   if (text.length === 0) return null;
+
+   var sign = 1;
+   if (text.charAt(0) === "-") {
+      sign = -1;
+      text = text.substring(1);
+   } else if (text.charAt(0) === "+") {
+      text = text.substring(1);
+   }
+
+   var parts = text.split(/[\s:]+/);
+   if (parts.length >= 3) {
       var d = parseFloat(parts[0]);
       var m = parseFloat(parts[1]);
       var s = parseFloat(parts[2]);
-      return sign * (d + m / 60.0 + s / 3600.0);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(s)) {
+         return sign * (d + m / 60.0 + s / 3600.0);
+      }
+   }
+
+   var val = parseFloat(text);
+   if (!isNaN(val)) return sign * val;
+   return null;
+}
+
+// Convert pixel coordinates to celestial coordinates (using WCS parameters)
+function pixelToRaDec(wcs, px, py, imageHeight) {
+   var u = (px + 1.0) - wcs.crpix1;
+   var v = (imageHeight - py) - wcs.crpix2;
+   var up = u, vp = v;
+   if (wcs.sip) {
+      up = u + evalSipPolynomial(wcs.sip.a, u, v);
+      vp = v + evalSipPolynomial(wcs.sip.b, u, v);
+   }
+   var xi  = wcs.cd1_1 * up + wcs.cd1_2 * vp;
+   var eta = wcs.cd2_1 * up + wcs.cd2_2 * vp;
+   return tanDeproject([wcs.crval1, wcs.crval2], [xi, eta]);
+}
+
+// Display coordinates of image corners and center to the console
+function displayImageCoordinates(wcs, imageWidth, imageHeight) {
+   var center = pixelToRaDec(wcs, imageWidth / 2.0, imageHeight / 2.0, imageHeight);
+   var tl = pixelToRaDec(wcs, 0, 0, imageHeight);
+   var tr = pixelToRaDec(wcs, imageWidth - 1, 0, imageHeight);
+   var bl = pixelToRaDec(wcs, 0, imageHeight - 1, imageHeight);
+   var br = pixelToRaDec(wcs, imageWidth - 1, imageHeight - 1, imageHeight);
+
+   console.writeln("");
+   console.writeln("<b>Image coordinates:</b>");
+   console.writeln("  Center ........ RA: " + raToHMS(center[0]) + "  Dec: " + decToDMS(center[1]));
+   console.writeln("  Top-Left ...... RA: " + raToHMS(tl[0]) + "  Dec: " + decToDMS(tl[1]));
+   console.writeln("  Top-Right ..... RA: " + raToHMS(tr[0]) + "  Dec: " + decToDMS(tr[1]));
+   console.writeln("  Bottom-Left ... RA: " + raToHMS(bl[0]) + "  Dec: " + decToDMS(bl[1]));
+   console.writeln("  Bottom-Right .. RA: " + raToHMS(br[0]) + "  Dec: " + decToDMS(br[1]));
+
+   var widthFov = angularSeparation(tl, tr);
+   var heightFov = angularSeparation(tl, bl);
+   console.writeln("  Field of view . " + widthFov.toFixed(2) + " x " + heightFov.toFixed(2) + " deg");
+
+   var rotationDeg = Math.atan2(-wcs.cd1_2, wcs.cd2_2) * 180.0 / Math.PI;
+   console.writeln("  Rotation ...... " + rotationDeg.toFixed(2) + " deg");
+}
+
+// Sesame object name search (ExternalProcess + curl)
+function searchObjectCoordinates(objectName) {
+   var encoded = objectName.replace(/ /g, "+");
+   var url = "http://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?" + encoded;
+   var tmpFile = File.systemTempDirectory + "/sesame_query.txt";
+
+   var P = new ExternalProcess;
+   P.start("curl", ["-s", "-o", tmpFile, "-m", "10", url]);
+   if (!P.waitForFinished(15000)) {
+      P.kill();
+      return null;
+   }
+   if (P.exitCode !== 0) return null;
+   if (!File.exists(tmpFile)) return null;
+
+   var content = "";
+   try {
+      content = File.readTextFile(tmpFile);
+      File.remove(tmpFile);
+   } catch (e) {
+      return null;
+   }
+
+   var lines = content.split("\n");
+   for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (line.indexOf("%J") === 0) {
+         var coords = line.substring(2).trim();
+         var eqIdx = coords.indexOf("=");
+         if (eqIdx > 0) coords = coords.substring(0, eqIdx).trim();
+         var parts = coords.split(/\s+/);
+         if (parts.length >= 2) {
+            var ra = parseFloat(parts[0]);
+            var dec = parseFloat(parts[1]);
+            if (!isNaN(ra) && !isNaN(dec)) return { ra: ra, dec: dec };
+         }
+      }
+   }
+   return null;
+}
+
+//============================================================================
+// WCS application function
+//============================================================================
+
+function applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight) {
+   var existingKw = targetWindow.keywords;
+   var cleanedKw = [];
+   for (var i = 0; i < existingKw.length; i++) {
+      if (!isWCSKeyword(existingKw[i].name))
+         cleanedKw.push(existingKw[i]);
+   }
+
+   var hasSip = wcsResult.sip && wcsResult.sip.order > 0;
+   cleanedKw.push(makeFITSKeyword("CTYPE1", hasSip ? "RA---TAN-SIP" : "RA---TAN"));
+   cleanedKw.push(makeFITSKeyword("CTYPE2", hasSip ? "DEC--TAN-SIP" : "DEC--TAN"));
+   cleanedKw.push(makeFITSKeyword("CRVAL1", wcsResult.crval1));
+   cleanedKw.push(makeFITSKeyword("CRVAL2", wcsResult.crval2));
+   cleanedKw.push(makeFITSKeyword("CRPIX1", wcsResult.crpix1));
+   cleanedKw.push(makeFITSKeyword("CRPIX2", wcsResult.crpix2));
+   cleanedKw.push(makeFITSKeyword("CD1_1", wcsResult.cd[0][0]));
+   cleanedKw.push(makeFITSKeyword("CD1_2", wcsResult.cd[0][1]));
+   cleanedKw.push(makeFITSKeyword("CD2_1", wcsResult.cd[1][0]));
+   cleanedKw.push(makeFITSKeyword("CD2_2", wcsResult.cd[1][1]));
+   cleanedKw.push(makeFITSKeyword("CUNIT1", "deg"));
+   cleanedKw.push(makeFITSKeyword("CUNIT2", "deg"));
+   cleanedKw.push(makeFITSKeyword("RADESYS", "ICRS"));
+   cleanedKw.push(makeFITSKeyword("EQUINOX", 2000.0));
+   cleanedKw.push(makeFITSKeyword("PLTSOLVD", "T"));
+
+   if (hasSip) {
+      var sip = wcsResult.sip;
+      cleanedKw.push(makeFITSKeyword("A_ORDER", sip.order));
+      cleanedKw.push(makeFITSKeyword("B_ORDER", sip.order));
+      for (var i = 0; i < sip.a.length; i++) {
+         cleanedKw.push(makeFITSKeyword("A_" + sip.a[i][0] + "_" + sip.a[i][1], sip.a[i][2]));
+      }
+      for (var i = 0; i < sip.b.length; i++) {
+         cleanedKw.push(makeFITSKeyword("B_" + sip.b[i][0] + "_" + sip.b[i][1], sip.b[i][2]));
+      }
+      if (sip.ap && sip.bp) {
+         var apOrder = sip.invOrder || sip.order;
+         cleanedKw.push(makeFITSKeyword("AP_ORDER", apOrder));
+         cleanedKw.push(makeFITSKeyword("BP_ORDER", apOrder));
+         for (var i = 0; i < sip.ap.length; i++) {
+            cleanedKw.push(makeFITSKeyword("AP_" + sip.ap[i][0] + "_" + sip.ap[i][1], sip.ap[i][2]));
+         }
+         for (var i = 0; i < sip.bp.length; i++) {
+            cleanedKw.push(makeFITSKeyword("BP_" + sip.bp[i][0] + "_" + sip.bp[i][1], sip.bp[i][2]));
+         }
+      }
+   }
+
+   // Write image center RA/DEC as OBJCTRA/OBJCTDEC
+   var wcsObj = {
+      crval1: wcsResult.crval1, crval2: wcsResult.crval2,
+      crpix1: wcsResult.crpix1, crpix2: wcsResult.crpix2,
+      cd1_1: wcsResult.cd[0][0], cd1_2: wcsResult.cd[0][1],
+      cd2_1: wcsResult.cd[1][0], cd2_2: wcsResult.cd[1][1],
+      sip: wcsResult.sip
    };
+   var imgCenter = pixelToRaDec(wcsObj, imageWidth / 2.0, imageHeight / 2.0, imageHeight);
+   cleanedKw.push(makeFITSKeyword("OBJCTRA", raToHMS(imgCenter[0])));
+   cleanedKw.push(makeFITSKeyword("OBJCTDEC", decToDMS(imgCenter[1])));
 
-   //コマンド配列を構築
-   this.buildCommand = function (inputPath, outputPath, params, resultFile) {
-      var scriptPath = params.scriptDir + "/python/main.py";
+   targetWindow.keywords = cleanedKw;
+   targetWindow.regenerateAstrometricSolution();
+}
 
-      var args = [
-         params.pythonPath,
-         scriptPath,
-         "--input", inputPath,
-         "--output", outputPath,
-         "--grid", params.grid,
-         "--overlap", params.overlap.toString(),
-         "--json-output",
-         "--result-file", resultFile
-      ];
+//----------------------------------------------------------------------------
+// Control point setup (all modes)
+//----------------------------------------------------------------------------
+function setCustomControlPoints(window, wcsResult, starPairs, imageWidth, imageHeight, gridMode) {
+   if (!gridMode) gridMode = "off";
 
-      if (params.ra !== undefined && params.ra !== null) {
-         args.push("--ra");
-         args.push(params.ra.toString());
+   var view = window.mainView;
+   var crval = [wcsResult.crval1, wcsResult.crval2];
+   var cd = wcsResult.cd;
+   var crpix1 = wcsResult.crpix1;
+   var crpix2 = wcsResult.crpix2;
+   var DEG2RAD = Math.PI / 180.0;
+
+   var isInterp = wcsResult.sipMode === "interp";
+   var hasSipCoeffs = wcsResult.sip && wcsResult.sip.a && wcsResult.sip.b;
+
+   // Pre-compute star 3D residuals for "smooth" mode (IDW interpolation)
+   var starResiduals = null;
+   if (gridMode === "smooth" && starPairs.length >= 3) {
+      starResiduals = [];
+      for (var i = 0; i < starPairs.length; i++) {
+         var u = (starPairs[i].px + 1) - crpix1;
+         var v = (imageHeight - starPairs[i].py) - crpix2;
+         var xiLin = cd[0][0] * u + cd[0][1] * v;
+         var etaLin = cd[1][0] * u + cd[1][1] * v;
+         var approx = tanDeproject(crval, [xiLin, etaLin]);
+         if (!approx) continue;
+         var raA = approx[0] * DEG2RAD, decA = approx[1] * DEG2RAD;
+         var xLin = Math.cos(decA) * Math.cos(raA);
+         var yLin = Math.cos(decA) * Math.sin(raA);
+         var zLin = Math.sin(decA);
+         var raE = starPairs[i].ra * DEG2RAD, decE = starPairs[i].dec * DEG2RAD;
+         var xEx = Math.cos(decE) * Math.cos(raE);
+         var yEx = Math.cos(decE) * Math.sin(raE);
+         var zEx = Math.sin(decE);
+         starResiduals.push({
+            u: u, v: v,
+            dx: xEx - xLin, dy: yEx - yLin, dz: zEx - zLin
+         });
       }
-      if (params.dec !== undefined && params.dec !== null) {
-         args.push("--dec");
-         args.push(params.dec.toString());
-      }
-      if (params.focalLength !== undefined && params.focalLength !== null) {
-         args.push("--focal-length");
-         args.push(params.focalLength.toString());
-      }
-      if (params.pixelPitch !== undefined && params.pixelPitch !== null) {
-         args.push("--pixel-pitch");
-         args.push(params.pixelPitch.toString());
-      }
-      if (params.camera && params.camera.length > 0) {
-         args.push("--camera");
-         args.push(params.camera);
-      }
-      if (params.lens && params.lens.length > 0) {
-         args.push("--lens");
-         args.push(params.lens);
-      }
-      if (params.lensType && params.lensType !== "rectilinear") {
-         args.push("--lens-type");
-         args.push(params.lensType);
-      }
+      if (starResiduals.length < 3) starResiduals = null;
+   }
 
-      return args;
-   };
-
-   //Python main.pyを実行
-   this.execute = function (inputPath, outputPath, params) {
-      var resultFile = File.systemTempDirectory + "/split_solver_result.json";
-      if (File.exists(resultFile)) {
-         try { File.remove(resultFile); } catch (e) {}
-      }
-      var args = this.buildCommand(inputPath, outputPath, params, resultFile);
-
-      console.writeln("<b>Split Image Solver: Executing...</b>");
-      console.writeln("Command: " + args.join(" "));
-      console.flush();
-
-      var P = new ExternalProcess;
-
-      //作業ディレクトリをスクリプトディレクトリに設定
-      P.workingDirectory = params.scriptDir;
-
-      // ExternalProcess.start() はパス内のスペースを正しく扱えないため
-      // /bin/sh -c 経由でクォート付きコマンドを実行する
-      var cmdParts = [];
-      for (var i = 0; i < args.length; i++) {
-         cmdParts.push(quotePath(args[i]));
-      }
-
-      // macOS GUIアプリはHomebrew等のPATHを持たないため、
-      // Python実行ファイルのディレクトリとHomebrewパスをPATHに追加
-      var pythonDir = File.extractDirectory(params.pythonPath);
-      var pathPrefix = "export PATH="
-         + quotePath(pythonDir)
-         + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
-
-      // ExternalProcess が /bin/sh 子プロセスの出力をキャプチャできない場合に備え
-      // stdout/stderr をテンポラリファイルにリダイレクトして読み戻す
-      var stdoutFile = File.systemTempDirectory + "/split_solver_stdout.log";
-      var stderrFile = File.systemTempDirectory + "/split_solver_stderr.log";
-      var shellCmd = pathPrefix + cmdParts.join(" ")
-         + " > " + quotePath(stdoutFile)
-         + " 2> " + quotePath(stderrFile);
-      console.writeln("Shell command: " + shellCmd);
-
-      P.start("/bin/sh", ["-c", shellCmd]);
-
-      // Process Console の Abort ボタンを有効化
-      console.abortEnabled = true;
-      console.writeln("Press <b>Abort</b> button in Process Console to cancel.");
-      console.flush();
-
-      // ポーリングループで完了を待機（Abort 対応）
-      var timeoutMs = 30 * 60 * 1000;
-      var pollIntervalMs = 500;
-      var elapsed = 0;
-      var aborted = false;
-      var lastStderrSize = 0;
-
-      while (elapsed < timeoutMs) {
-         if (P.waitForFinished(pollIntervalMs)) {
-            break; // プロセス完了
+   // IDW sigma: average nearest-neighbor distance among stars
+   var sigma2 = 0;
+   if (starResiduals) {
+      var totalNN = 0;
+      for (var i = 0; i < starResiduals.length; i++) {
+         var minD2 = Infinity;
+         for (var j = 0; j < starResiduals.length; j++) {
+            if (i === j) continue;
+            var du = starResiduals[i].u - starResiduals[j].u;
+            var dv = starResiduals[i].v - starResiduals[j].v;
+            var d2 = du * du + dv * dv;
+            if (d2 < minD2) minD2 = d2;
          }
-
-         processEvents();
-
-         if (console.abortRequested) {
-            console.writeln("");
-            console.warningln("<b>Abort requested by user. Killing process...</b>");
-            P.kill();
-            aborted = true;
-            break;
-         }
-
-         // stderr をリアルタイム表示（進捗確認用）
-         try {
-            if (File.exists(stderrFile)) {
-               var currentStderr = File.readTextFile(stderrFile);
-               if (currentStderr.length > lastStderrSize) {
-                  var newOutput = currentStderr.substring(lastStderrSize).trim();
-                  if (newOutput.length > 0) {
-                     var newLines = newOutput.split("\n");
-                     for (var li = 0; li < newLines.length; li++) {
-                        console.writeln("[PYTHON] " + newLines[li]);
-                     }
-                     console.flush();
-                  }
-                  lastStderrSize = currentStderr.length;
-               }
-            }
-         } catch (e) {
-            // ファイル読み込み失敗は無視（書き込み中の競合等）
-         }
-
-         elapsed += pollIntervalMs;
+         totalNN += Math.sqrt(minD2);
       }
+      var avgNN = totalNN / starResiduals.length;
+      sigma2 = avgNN * avgNN;
+   }
 
-      console.abortEnabled = false;
-
-      if (aborted) {
-         try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
-         try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
-         throw new Error("Process aborted by user");
+   // Compute gnomonic coords for a pixel using IDW-corrected 3D vectors + tanProject
+   function smoothGnomonic(u, v) {
+      var xiLin = cd[0][0] * u + cd[0][1] * v;
+      var etaLin = cd[1][0] * u + cd[1][1] * v;
+      var approx = tanDeproject(crval, [xiLin, etaLin]);
+      if (!approx) return { xi: xiLin, eta: etaLin };
+      var raA = approx[0] * DEG2RAD, decA = approx[1] * DEG2RAD;
+      var xBase = Math.cos(decA) * Math.cos(raA);
+      var yBase = Math.cos(decA) * Math.sin(raA);
+      var zBase = Math.sin(decA);
+      var wSum = 0, wdx = 0, wdy = 0, wdz = 0;
+      for (var i = 0; i < starResiduals.length; i++) {
+         var du = u - starResiduals[i].u;
+         var dv = v - starResiduals[i].v;
+         var w = Math.exp(-(du * du + dv * dv) / (2 * sigma2));
+         wSum += w;
+         wdx += w * starResiduals[i].dx;
+         wdy += w * starResiduals[i].dy;
+         wdz += w * starResiduals[i].dz;
       }
-
-      if (elapsed >= timeoutMs && !P.waitForFinished(0)) {
-         P.kill();
-         try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
-         try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
-         throw new Error("Process timed out after 30 minutes");
+      if (wSum > 1e-15) {
+         xBase += wdx / wSum;
+         yBase += wdy / wSum;
+         zBase += wdz / wSum;
       }
+      var r = Math.sqrt(xBase * xBase + yBase * yBase + zBase * zBase);
+      if (r < 1e-15) return { xi: xiLin, eta: etaLin };
+      xBase /= r; yBase /= r; zBase /= r;
+      var dec = Math.asin(Math.max(-1, Math.min(1, zBase)));
+      var ra = Math.atan2(yBase, xBase);
+      if (ra < 0) ra += 2 * Math.PI;
+      var proj = tanProject(crval, [ra / DEG2RAD, dec / DEG2RAD]);
+      return proj ? { xi: proj[0], eta: proj[1] } : { xi: xiLin, eta: etaLin };
+   }
 
-      //テンポラリファイルから出力を読み戻す
-      var stdout = "";
-      var stderr = "";
-      try {
-         if (File.exists(stdoutFile)) {
-            stdout = File.readTextFile(stdoutFile).trim();
-            File.remove(stdoutFile);
-         }
-      } catch (e) {
-         console.warningln("Failed to read stdout log: " + e.message);
+   // 1. Grid control points
+   var STAR_EXCLUSION_RADIUS = 100;
+   function cdToGnomonic(u, v) {
+      var uCorr = u, vCorr = v;
+      if (!isInterp && hasSipCoeffs) {
+         uCorr = u + evalSipPolynomial(wcsResult.sip.a, u, v);
+         vCorr = v + evalSipPolynomial(wcsResult.sip.b, u, v);
       }
-      try {
-         if (File.exists(stderrFile)) {
-            stderr = File.readTextFile(stderrFile).trim();
-            File.remove(stderrFile);
-         }
-      } catch (e) {
-         console.warningln("Failed to read stderr log: " + e.message);
-      }
+      return {
+         xi: cd[0][0] * uCorr + cd[0][1] * vCorr,
+         eta: cd[1][0] * uCorr + cd[1][1] * vCorr
+      };
+   }
 
-      console.writeln("Stdout length: " + stdout.length + " chars");
-      console.writeln("Stderr length: " + stderr.length + " chars");
-
-      // ポーリング中にリアルタイム表示されなかった残りの stderr を表示
-      if (stderr.length > lastStderrSize) {
-         var remainingStderr = stderr.substring(lastStderrSize).trim();
-         if (remainingStderr.length > 0) {
-            var stderrLines = remainingStderr.split("\n");
-            for (var i = 0; i < stderrLines.length; i++)
-               console.writeln("[PYTHON] " + stderrLines[i]);
-         }
-      }
-
-      if (P.exitCode !== 0) {
-         console.warningln("Process exited with code: " + P.exitCode);
-         if (stdout.length > 0) {
-            console.writeln("--- stdout START ---");
-            var stdoutLines = stdout.split("\n");
-            for (var i = 0; i < Math.min(stdoutLines.length, 100); i++)
-               console.writeln(stdoutLines[i]);
-            if (stdoutLines.length > 100)
-               console.writeln("... (truncated)");
-            console.writeln("--- stdout END ---");
-         }
-
-         if (stdout.length > 0) {
-            try {
-               var result = JSON.parse(stdout);
-               if (result.error) throw new Error("Solver failed: " + result.error);
-            } catch (e) {
-               if (e.message.indexOf("Solver failed") === 0) throw e;
-            }
-         }
-         throw new Error("Solver process exited with code " + P.exitCode);
-      }
-      // 結果JSONの読み込み: result-file を優先、stdoutをフォールバック
-      var result = null;
-
-      // 方法1: 専用結果ファイルから読み込み（確実）
-      if (File.exists(resultFile)) {
-         try {
-            var resultJson = File.readTextFile(resultFile).trim();
-            result = JSON.parse(resultJson);
-         }
-         catch (e) {
-            console.warningln("Failed to parse result file: " + e.message);
-         }
-         try { File.remove(resultFile); } catch (e) {}
-      }
-
-      // 方法2: stdoutから読み込み（フォールバック）
-      if (!result && stdout.length > 0) {
-         var lines = stdout.split("\n");
-         for (var i = lines.length - 1; i >= 0; i--) {
-            var line = lines[i].trim();
-            if (line.length > 0 && line.charAt(0) === '{') {
-               try {
-                  result = JSON.parse(line);
-                  console.writeln("Result loaded from stdout");
+   var effectiveMode = isInterp ? gridMode : "off";
+   var nGridX = (effectiveMode === "linear") ? 4 : 20;
+   var nGridY = (effectiveMode === "linear") ? 4 : 30;
+   var gridPoints = [];
+   for (var gy = 0; gy <= nGridY; gy++) {
+      for (var gx = 0; gx <= nGridX; gx++) {
+         var px = gx * (imageWidth - 1) / nGridX;
+         var py = gy * (imageHeight - 1) / nGridY;
+         var u = (px + 1) - crpix1;
+         var v = (imageHeight - py) - crpix2;
+         if (effectiveMode === "off") {
+            var tooClose = false;
+            for (var s = 0; s < starPairs.length; s++) {
+               var dx = px - starPairs[s].px;
+               var dy = py - starPairs[s].py;
+               if (dx * dx + dy * dy < STAR_EXCLUSION_RADIUS * STAR_EXCLUSION_RADIUS) {
+                  tooClose = true;
                   break;
                }
-               catch (e) {
-                  continue;
-               }
             }
+            if (tooClose) continue;
+         }
+         if (effectiveMode === "smooth" && starResiduals) {
+            var g = smoothGnomonic(u, v);
+            gridPoints.push({ px: px, py: py, xi: g.xi, eta: g.eta });
+         } else {
+            var g = cdToGnomonic(u, v);
+            gridPoints.push({ px: px, py: py, xi: g.xi, eta: g.eta });
+         }
+      }
+   }
+
+   // 2. Star control points
+   var starPoints = [];
+   for (var i = 0; i < starPairs.length; i++) {
+      var u = (starPairs[i].px + 1) - crpix1;
+      var v = (imageHeight - starPairs[i].py) - crpix2;
+      if (effectiveMode === "smooth" && starResiduals) {
+         var g = smoothGnomonic(u, v);
+         starPoints.push({ px: starPairs[i].px, py: starPairs[i].py, xi: g.xi, eta: g.eta });
+      } else if (effectiveMode === "linear") {
+         var g = cdToGnomonic(u, v);
+         starPoints.push({ px: starPairs[i].px, py: starPairs[i].py, xi: g.xi, eta: g.eta });
+      } else {
+         var proj = tanProject(crval, [starPairs[i].ra, starPairs[i].dec]);
+         if (proj) {
+            starPoints.push({
+               px: starPairs[i].px, py: starPairs[i].py,
+               xi: proj[0], eta: proj[1]
+            });
+         }
+      }
+   }
+
+   // 3. Convert to Vectors (cI: Image coords, cW: World coords)
+   var nTotal = gridPoints.length + starPoints.length;
+   var cI = new Vector(nTotal * 2);
+   var cW = new Vector(nTotal * 2);
+
+   for (var i = 0; i < gridPoints.length; i++) {
+      cI.at(i * 2,     gridPoints[i].px);
+      cI.at(i * 2 + 1, gridPoints[i].py);
+      cW.at(i * 2,     gridPoints[i].xi);
+      cW.at(i * 2 + 1, gridPoints[i].eta);
+   }
+
+   var off = gridPoints.length;
+   for (var i = 0; i < starPoints.length; i++) {
+      cI.at((off + i) * 2,     starPoints[i].px);
+      cI.at((off + i) * 2 + 1, starPoints[i].py);
+      cW.at((off + i) * 2,     starPoints[i].xi);
+      cW.at((off + i) * 2 + 1, starPoints[i].eta);
+   }
+
+   // 4. Write to image properties (full spline config overwrite)
+   var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+   var prefix = "PCL:AstrometricSolution:SplineWorldTransformation:";
+   view.setPropertyValue(prefix + "RBFType", "ThinPlateSpline", PropertyType_String8, attrs);
+   view.setPropertyValue(prefix + "SplineOrder", 2, PropertyType_Int32, attrs);
+   view.setPropertyValue(prefix + "SplineSmoothness", 0, PropertyType_Float32, attrs);
+   view.setPropertyValue(prefix + "MaxSplinePoints", nTotal, PropertyType_Int32, attrs);
+   view.setPropertyValue(prefix + "UseSimplifiers", false, PropertyType_Boolean, attrs);
+   view.setPropertyValue(prefix + "SimplifierRejectFraction", 0.10, PropertyType_Float32, attrs);
+   view.setPropertyValue(prefix + "ControlPoints:Image", cI, PropertyType_F64Vector, attrs);
+   view.setPropertyValue(prefix + "ControlPoints:World", cW, PropertyType_F64Vector, attrs);
+
+   var modeLabel = gridMode === "smooth" ? " (smooth)" : gridMode === "linear" ? " (linear)" : "";
+   console.writeln("  Control points overwritten: grid " + gridPoints.length + " + stars " + starPoints.length + " = " + nTotal + " points" + modeLabel);
+}
+
+//============================================================================
+// WCS FITS header parsing
+//============================================================================
+
+// Read WCS parameters from a FITS file
+function readWcsFromFits(fitsPath) {
+   var windows = ImageWindow.open(fitsPath);
+   if (!windows || windows.length === 0) return null;
+   var w = windows[0];
+   var keywords = w.keywords;
+
+   var wcs = {};
+   for (var i = 0; i < keywords.length; i++) {
+      var kw = keywords[i];
+      var name = kw.name;
+      var val = kw.value.trim().replace(/^'|'$/g, "").trim();
+
+      switch (name) {
+         case "CRVAL1": wcs.crval1 = parseFloat(val); break;
+         case "CRVAL2": wcs.crval2 = parseFloat(val); break;
+         case "CRPIX1": wcs.crpix1 = parseFloat(val); break;
+         case "CRPIX2": wcs.crpix2 = parseFloat(val); break;
+         case "CD1_1": wcs.cd1_1 = parseFloat(val); break;
+         case "CD1_2": wcs.cd1_2 = parseFloat(val); break;
+         case "CD2_1": wcs.cd2_1 = parseFloat(val); break;
+         case "CD2_2": wcs.cd2_2 = parseFloat(val); break;
+         case "A_ORDER": wcs.aOrder = parseInt(val); break;
+         case "B_ORDER": wcs.bOrder = parseInt(val); break;
+         case "AP_ORDER": wcs.apOrder = parseInt(val); break;
+         case "BP_ORDER": wcs.bpOrder = parseInt(val); break;
+      }
+      // SIP coefficients: A_i_j, B_i_j, AP_i_j, BP_i_j
+      var sipMatch = name.match(/^(A|B|AP|BP)_(\d+)_(\d+)$/);
+      if (sipMatch) {
+         var sipPrefix = sipMatch[1].toLowerCase();
+         if (!wcs.sipCoeffs) wcs.sipCoeffs = {};
+         if (!wcs.sipCoeffs[sipPrefix]) wcs.sipCoeffs[sipPrefix] = [];
+         wcs.sipCoeffs[sipPrefix].push([parseInt(sipMatch[2]), parseInt(sipMatch[3]), parseFloat(val)]);
+      }
+   }
+
+   w.forceClose();
+   return wcs;
+}
+
+// Convert readWcsFromFits result to WCSFitter-compatible wcsResult format
+function convertToWcsResult(wcs, imageWidth, imageHeight) {
+   var result = {
+      crval1: wcs.crval1,
+      crval2: wcs.crval2,
+      crpix1: wcs.crpix1,
+      crpix2: wcs.crpix2,
+      cd: [[wcs.cd1_1 || 0, wcs.cd1_2 || 0], [wcs.cd2_1 || 0, wcs.cd2_2 || 0]],
+      sip: null,
+      sipMode: null
+   };
+
+   // SIP coefficients conversion
+   if (wcs.sipCoeffs && wcs.aOrder) {
+      result.sip = {
+         order: wcs.aOrder,
+         a: wcs.sipCoeffs.a || [],
+         b: wcs.sipCoeffs.b || [],
+         ap: wcs.sipCoeffs.ap || null,
+         bp: wcs.sipCoeffs.bp || null,
+         invOrder: wcs.apOrder || wcs.aOrder
+      };
+      result.sipMode = "approx";
+   }
+
+   return result;
+}
+
+//============================================================================
+// Phase 2: Tile splitting, multi-tile solve, and WCS merging
+//============================================================================
+
+//----------------------------------------------------------------------------
+// splitImageToTiles
+//
+// Split an image into a grid of overlapping tiles and save as temporary FITS.
+//
+// targetWindow: ImageWindow to split
+// gridX, gridY: number of columns and rows
+// overlap: overlap in pixels
+//
+// Returns array of tile objects:
+//   { filePath, col, row, offsetX, offsetY, tileWidth, tileHeight,
+//     scaleFactor, origOffsetX, origOffsetY, origTileWidth, origTileHeight }
+//----------------------------------------------------------------------------
+function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
+   var image = targetWindow.mainView.image;
+   var imgW = image.width;
+   var imgH = image.height;
+
+   // Compute tile sizes (before overlap)
+   var baseTileW = Math.floor(imgW / gridX);
+   var baseTileH = Math.floor(imgH / gridY);
+
+   var tiles = [];
+   var tmpDir = File.systemTempDirectory;
+
+   for (var row = 0; row < gridY; row++) {
+      for (var col = 0; col < gridX; col++) {
+         // Tile region with overlap
+         var x0 = col * baseTileW - overlap;
+         var y0 = row * baseTileH - overlap;
+         var x1 = (col + 1 === gridX) ? imgW : (col + 1) * baseTileW + overlap;
+         var y1 = (row + 1 === gridY) ? imgH : (row + 1) * baseTileH + overlap;
+
+         // Clamp to image boundaries
+         if (x0 < 0) x0 = 0;
+         if (y0 < 0) y0 = 0;
+         if (x1 > imgW) x1 = imgW;
+         if (y1 > imgH) y1 = imgH;
+
+         var tileW = x1 - x0;
+         var tileH = y1 - y0;
+         if (tileW < 10 || tileH < 10) continue;
+
+         // Create a new ImageWindow for the tile
+         var tileWin = new ImageWindow(tileW, tileH,
+            image.numberOfChannels, image.bitsPerSample,
+            image.sampleType === SampleType_Real, image.isColor,
+            "tile_" + col + "_" + row);
+
+         // Copy pixel data from source
+         tileWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         tileWin.mainView.image.apply(image, ImageOp_Mov, new Rect(x0, y0, x1, y1));
+         tileWin.mainView.endProcess();
+
+         // Downsample if tile is too large (long edge > 2000px)
+         var scaleFactor = 1.0;
+         var maxEdge = Math.max(tileW, tileH);
+         if (maxEdge > 2000) {
+            scaleFactor = 2000.0 / maxEdge;
+            var newW = Math.round(tileW * scaleFactor);
+            var newH = Math.round(tileH * scaleFactor);
+
+            var resample = new Resample;
+            resample.mode = Resample.prototype.AbsolutePixels;
+            resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
+            resample.xSize = newW;
+            resample.ySize = newH;
+            resample.interpolation = Resample.prototype.Auto;
+            resample.executeOn(tileWin.mainView);
+         }
+
+         // Save to FITS
+         var fitsPath = tmpDir + "/split_tile_" + col + "_" + row + ".fits";
+         var format = new FileFormat("FITS");
+         var writer = new FileFormatInstance(format);
+         if (writer.create(fitsPath)) {
+            var imgDesc = new ImageDescription;
+            imgDesc.bitsPerSample = 32;
+            imgDesc.ieeefpSampleFormat = true;
+            writer.setOptions([imgDesc]);
+            writer.writeImage(tileWin.mainView.image);
+            writer.close();
+         }
+
+         tileWin.forceClose();
+
+         tiles.push({
+            filePath: fitsPath,
+            col: col,
+            row: row,
+            offsetX: x0,
+            offsetY: y0,
+            tileWidth: tileW,
+            tileHeight: tileH,
+            scaleFactor: scaleFactor,
+            // For CRPIX reverse transform
+            origOffsetX: x0,
+            origOffsetY: y0,
+            origTileWidth: tileW,
+            origTileHeight: tileH,
+            // Solve result (filled later)
+            wcs: null,
+            status: "pending"  // pending, solving, success, failed
+         });
+      }
+   }
+
+   console.writeln("Split image into " + tiles.length + " tiles (" + gridX + "x" + gridY + ")");
+   return tiles;
+}
+
+//----------------------------------------------------------------------------
+// formatElapsed - format milliseconds as M:SS
+//----------------------------------------------------------------------------
+function formatElapsed(ms) {
+   var totalSec = Math.floor(ms / 1000);
+   var min = Math.floor(totalSec / 60);
+   var sec = totalSec % 60;
+   return min + ":" + (sec < 10 ? "0" : "") + sec;
+}
+
+//----------------------------------------------------------------------------
+// solveMultipleTiles
+//
+// Solve multiple tiles using astrometry.net API sequentially.
+//
+// client: AstrometryClient (already logged in)
+// tiles: array from splitImageToTiles
+// hints: base hints object
+// imageWidth, imageHeight: original image dimensions
+// progressCallback: function(message, tileIdx)
+//
+// Returns number of successfully solved tiles.
+//----------------------------------------------------------------------------
+function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progressCallback) {
+   var notify = progressCallback || function() {};
+   var successCount = 0;
+   var failedCount = 0;
+   var startTime = (new Date()).getTime();
+
+   for (var i = 0; i < tiles.length; i++) {
+      var tile = tiles[i];
+      tile.status = "solving";
+      var elapsed = (new Date()).getTime() - startTime;
+      var prefix = "[" + (i + 1) + "/" + tiles.length + "] Tile [" + tile.col + "," + tile.row + "]";
+      var timeSuffix = " | " + formatElapsed(elapsed) + " elapsed";
+      var completedCount = successCount + failedCount;
+      if (completedCount > 0) {
+         timeSuffix += " | " + successCount + "/" + completedCount + " solved";
+         var avgTime = elapsed / completedCount;
+         var remaining = avgTime * (tiles.length - i);
+         timeSuffix += " | ~" + formatElapsed(remaining) + " remaining";
+      }
+      notify(prefix + " uploading..." + timeSuffix, i);
+
+      // Per-tile hints: adjust scale for downsampled tiles
+      var tileHints = {};
+      for (var key in hints) {
+         if (hints.hasOwnProperty(key)) tileHints[key] = hints[key];
+      }
+
+      // If downsampled, adjust scale hint
+      if (tile.scaleFactor < 1.0 && tileHints.scale_est) {
+         tileHints.scale_est = tileHints.scale_est / tile.scaleFactor;
+      }
+
+      // Projection-based scale correction for non-rectilinear lenses
+      if (tileHints.scale_est && tileHints._projection && tileHints._projection !== "rectilinear") {
+         var tileCX = tile.offsetX + tile.tileWidth / 2.0;
+         var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+         var imgCX = imageWidth / 2.0;
+         var imgCY = imageHeight / 2.0;
+         var baseScaleArcsec = hints.scale_est || tileHints.scale_est;
+         var angleDeg = tileAngleFromCenter(tileCX, tileCY, imgCX, imgCY, baseScaleArcsec);
+         tileHints.scale_est = projectionScale(tileHints._projection, tileHints.scale_est, angleDeg);
+      }
+
+      // Remove internal hint keys before sending to API
+      delete tileHints._projection;
+
+      // Upload
+      var subId = client.upload(tile.filePath, tileHints);
+      if (subId === null) {
+         tile.status = "failed";
+         failedCount++;
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] upload failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         // Rate limit pause
+         msleep(2000);
+         continue;
+      }
+
+      // Poll submission
+      elapsed = (new Date()).getTime() - startTime;
+      notify(prefix + " waiting for job... | " + formatElapsed(elapsed) + " elapsed", i);
+      var jobId = client.pollSubmission(subId);
+      if (jobId === null) {
+         tile.status = "failed";
+         failedCount++;
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] submission timed out (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         continue;
+      }
+
+      // Poll job
+      elapsed = (new Date()).getTime() - startTime;
+      notify(prefix + " solving... | " + formatElapsed(elapsed) + " elapsed", i);
+      var status = client.pollJob(jobId);
+      if (status !== "success") {
+         tile.status = "failed";
+         failedCount++;
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] solve failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         msleep(2000);
+         continue;
+      }
+
+      // Get calibration + WCS
+      var calibration = client.getCalibration(jobId);
+      var wcsPath = File.systemTempDirectory + "/split_wcs_" + tile.col + "_" + tile.row + ".fits";
+      var wcsOk = client.getWcsFile(jobId, wcsPath);
+
+      if (!calibration || !wcsOk) {
+         tile.status = "failed";
+         failedCount++;
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] result retrieval failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         continue;
+      }
+
+      // Parse WCS
+      var wcsData = readWcsFromFits(wcsPath);
+      if (!wcsData || wcsData.crval1 === undefined) {
+         tile.status = "failed";
+         failedCount++;
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] WCS parse failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         continue;
+      }
+
+      // CRPIX reverse transform: undo downsampling
+      if (tile.scaleFactor < 1.0) {
+         wcsData.crpix1 = wcsData.crpix1 / tile.scaleFactor;
+         wcsData.crpix2 = wcsData.crpix2 / tile.scaleFactor;
+         // CD matrix scales inversely with pixel size
+         if (wcsData.cd1_1 !== undefined) {
+            wcsData.cd1_1 *= tile.scaleFactor;
+            wcsData.cd1_2 *= tile.scaleFactor;
+            wcsData.cd2_1 *= tile.scaleFactor;
+            wcsData.cd2_2 *= tile.scaleFactor;
          }
       }
 
-      if (result) {
-         // 完了バナー
-         console.writeln("");
-         console.writeln("");
-         console.writeln("    .       *           .       *       .           *");
-         console.writeln("        .       .   *       .       .       *");
-         console.writeln("  +=========================================+");
-         console.writeln("  |                                         |");
-         console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
-         console.writeln("  |                                         |");
-         console.writeln("  +=========================================+");
-         console.writeln("        *       .           *       .       .");
-         console.writeln("    .       .       *   .       *       .       *");
-         console.writeln("");
+      // Apply tile offset: convert tile-local CRPIX to full image CRPIX
+      wcsData.crpix1 += tile.offsetX;
+      wcsData.crpix2 += tile.offsetY;
 
-         // 機材情報表示
-         if (result.equipment) {
-            try {
-               var eq = result.equipment;
-               var eqLines = [];
-               if (eq.camera) eqLines.push("Camera: " + eq.camera);
-               if (eq.lens) eqLines.push("Lens: " + eq.lens);
-               if (eq.focal_length_mm) eqLines.push("FL: " + eq.focal_length_mm + "mm");
-               if (eq.pixel_pitch_um) eqLines.push("Pitch: " + eq.pixel_pitch_um + "um");
-               if (eqLines.length > 0) {
-                  console.writeln("<b>Equipment:</b> " + eqLines.join(" | "));
+      tile.wcs = wcsData;
+      tile.calibration = calibration;
+      tile.status = "success";
+      successCount++;
+
+      console.writeln("  Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
+         calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
+         " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+
+      // Clean up WCS temp file
+      try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+
+      // Rate limit between submissions
+      if (i < tiles.length - 1) msleep(2000);
+   }
+
+   var totalElapsed = (new Date()).getTime() - startTime;
+   notify("Solved " + successCount + "/" + tiles.length + " tiles | " + formatElapsed(totalElapsed) + " total", -1);
+   console.writeln("Tile solving complete: " + successCount + "/" + tiles.length + " succeeded (" + formatElapsed(totalElapsed) + ")");
+   return successCount;
+}
+
+//----------------------------------------------------------------------------
+// mergeWcsSolutions
+//
+// Generate a unified WCS from multiple tile solutions.
+//
+// tiles: array of tile objects (with .wcs populated for successful tiles)
+// imageWidth, imageHeight: original full image dimensions
+//
+// Returns wcsResult compatible with applyWCSToImage/setCustomControlPoints,
+// or null on failure.
+//----------------------------------------------------------------------------
+function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
+   // 1. Collect control points from all successful tiles
+   var controlPoints = [];  // [{px, py, ra, dec}]
+   var GRID_STEP = 5;  // 5x5 grid per tile
+
+   for (var t = 0; t < tiles.length; t++) {
+      if (tiles[t].status !== "success" || !tiles[t].wcs) continue;
+
+      var tw = tiles[t].wcs;
+      var tileW = tiles[t].tileWidth;
+      var tileH = tiles[t].tileHeight;
+      var offX = tiles[t].offsetX;
+      var offY = tiles[t].offsetY;
+
+      // Build WCS object for pixelToRaDec conversion
+      // Note: tile.wcs has CRPIX already adjusted to full-image coords
+      var wcsObj = {
+         crval1: tw.crval1, crval2: tw.crval2,
+         crpix1: tw.crpix1, crpix2: tw.crpix2,
+         cd1_1: tw.cd1_1 || 0, cd1_2: tw.cd1_2 || 0,
+         cd2_1: tw.cd2_1 || 0, cd2_2: tw.cd2_2 || 0,
+         sip: null
+      };
+
+      // Convert SIP coefficients if present
+      if (tw.sipCoeffs && tw.aOrder) {
+         wcsObj.sip = {
+            a: tw.sipCoeffs.a || [],
+            b: tw.sipCoeffs.b || []
+         };
+      }
+
+      // Generate grid points within tile boundaries
+      for (var gy = 0; gy <= GRID_STEP; gy++) {
+         for (var gx = 0; gx <= GRID_STEP; gx++) {
+            // Local tile pixel coordinates
+            var localPx = gx * (tileW - 1) / GRID_STEP;
+            var localPy = gy * (tileH - 1) / GRID_STEP;
+
+            // Full image pixel coordinates
+            var fullPx = localPx + offX;
+            var fullPy = localPy + offY;
+
+            // Convert to RA/DEC using tile WCS
+            var raDec = pixelToRaDec(wcsObj, fullPx, fullPy, imageHeight);
+            if (raDec) {
+               controlPoints.push({
+                  px: fullPx,
+                  py: fullPy,
+                  ra: raDec[0],
+                  dec: raDec[1]
+               });
+            }
+         }
+      }
+   }
+
+   console.writeln("Collected " + controlPoints.length + " control points from tiles");
+
+   if (controlPoints.length < 4) {
+      console.writeln("ERROR: Not enough control points for WCS fitting");
+      return null;
+   }
+
+   // 2. Fit unified WCS using WCSFitter
+   var fitter = new WCSFitter(controlPoints, imageWidth, imageHeight);
+   var result = fitter.solve();
+
+   if (!result || !result.success) {
+      console.writeln("ERROR: WCS fitting failed: " + (result ? result.message : "unknown error"));
+      return null;
+   }
+
+   console.writeln("Unified WCS fitted: CRVAL=(" + result.crval1.toFixed(6) + ", " +
+      result.crval2.toFixed(6) + ") RMS=" + result.rmsArcsec.toFixed(2) + " arcsec");
+
+   return result;
+}
+
+//============================================================================
+// Phase 4: Reliability and advanced features
+//============================================================================
+
+//----------------------------------------------------------------------------
+// Projection-based effective scale correction
+//
+// For non-rectilinear projections, the effective pixel scale varies with
+// angular distance from the optical axis.
+//
+// projection: "rectilinear", "equisolid", "equidistant", "stereographic"
+// baseScale: pixel scale at optical center (arcsec/px)
+// thetaDeg: angular distance from optical center (degrees)
+//
+// Returns effective scale at the given angle (arcsec/px)
+//----------------------------------------------------------------------------
+function projectionScale(projection, baseScale, thetaDeg) {
+   var theta = thetaDeg * Math.PI / 180.0;
+   if (theta < 0.001) return baseScale; // At center, all projections have same scale
+
+   switch (projection) {
+      case "rectilinear":
+         // gnomonic: scale * 1/cos^2(theta)
+         var cosT = Math.cos(theta);
+         if (Math.abs(cosT) < 1e-6) return baseScale * 1000; // near singularity
+         return baseScale / (cosT * cosT);
+      case "equisolid":
+         // equisolid: scale * 1/cos(theta/2)
+         return baseScale / Math.cos(theta / 2.0);
+      case "equidistant":
+         // equidistant: scale is constant
+         return baseScale;
+      case "stereographic":
+         // stereographic: scale * 1/cos^2(theta/2)
+         var cosHalf = Math.cos(theta / 2.0);
+         return baseScale / (cosHalf * cosHalf);
+      default:
+         return baseScale;
+   }
+}
+
+//----------------------------------------------------------------------------
+// Compute angular distance of tile center from image center
+//
+// tileCenterX, tileCenterY: tile center in pixels
+// imageCenterX, imageCenterY: image center in pixels
+// pixelScaleArcsec: pixel scale at center (arcsec/px)
+//
+// Returns angle in degrees
+//----------------------------------------------------------------------------
+function tileAngleFromCenter(tileCenterX, tileCenterY, imageCenterX, imageCenterY, pixelScaleArcsec) {
+   var dx = tileCenterX - imageCenterX;
+   var dy = tileCenterY - imageCenterY;
+   var distPx = Math.sqrt(dx * dx + dy * dy);
+   return distPx * pixelScaleArcsec / 3600.0;
+}
+
+//----------------------------------------------------------------------------
+// retryFailedTiles
+//
+// 2nd pass: retry failed tiles using hints from successful neighbors.
+//
+// client: AstrometryClient (already logged in)
+// tiles: array of tile objects (some with status "success", others "failed")
+// baseHints: original hints
+// imageWidth, imageHeight: full image dimensions
+// progressCallback: function(message, tileIdx)
+//
+// Returns number of additionally solved tiles.
+//----------------------------------------------------------------------------
+function retryFailedTiles(client, tiles, baseHints, imageWidth, imageHeight, progressCallback) {
+   var notify = progressCallback || function() {};
+   var additionalSolved = 0;
+
+   // Collect failed tiles
+   var failedTiles = [];
+   for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].status === "failed") failedTiles.push(tiles[i]);
+   }
+   if (failedTiles.length === 0) return 0;
+
+   // Collect successful tiles for hint computation
+   var successTiles = [];
+   for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].status === "success" && tiles[i].wcs) successTiles.push(tiles[i]);
+   }
+   if (successTiles.length === 0) return 0;
+
+   console.writeln("");
+   console.writeln("<b>Pass 2: Retrying " + failedTiles.length + " failed tiles with refined hints...</b>");
+
+   // Median pixel scale from successful tiles (for false positive filter)
+   var scales = [];
+   for (var i = 0; i < successTiles.length; i++) {
+      if (successTiles[i].calibration && successTiles[i].calibration.pixscale) {
+         scales.push(successTiles[i].calibration.pixscale);
+      }
+   }
+   scales.sort(function(a, b) { return a - b; });
+   var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
+
+   for (var fi = 0; fi < failedTiles.length; fi++) {
+      var tile = failedTiles[fi];
+      tile.status = "solving";
+      notify("Pass 2 [" + (fi + 1) + "/" + failedTiles.length + "] Tile [" + tile.col + "," + tile.row + "] retrying...", fi);
+
+      // Find nearest successful tile(s) and compute RA/DEC for this tile's center
+      var tileCenterX = tile.offsetX + tile.tileWidth / 2.0;
+      var tileCenterY = tile.offsetY + tile.tileHeight / 2.0;
+
+      var bestDist = Infinity;
+      var bestTile = null;
+      for (var si = 0; si < successTiles.length; si++) {
+         var st = successTiles[si];
+         var stCenterX = st.offsetX + st.tileWidth / 2.0;
+         var stCenterY = st.offsetY + st.tileHeight / 2.0;
+         var dx = tileCenterX - stCenterX;
+         var dy = tileCenterY - stCenterY;
+         var dist = Math.sqrt(dx * dx + dy * dy);
+         if (dist < bestDist) {
+            bestDist = dist;
+            bestTile = st;
+         }
+      }
+
+      if (!bestTile) {
+         tile.status = "failed";
+         continue;
+      }
+
+      // Compute RA/DEC of failed tile center using nearest successful tile's WCS
+      var wcsObj = {
+         crval1: bestTile.wcs.crval1, crval2: bestTile.wcs.crval2,
+         crpix1: bestTile.wcs.crpix1, crpix2: bestTile.wcs.crpix2,
+         cd1_1: bestTile.wcs.cd1_1 || 0, cd1_2: bestTile.wcs.cd1_2 || 0,
+         cd2_1: bestTile.wcs.cd2_1 || 0, cd2_2: bestTile.wcs.cd2_2 || 0,
+         sip: null
+      };
+      var raDec = pixelToRaDec(wcsObj, tileCenterX, tileCenterY, imageHeight);
+      if (!raDec) {
+         tile.status = "failed";
+         continue;
+      }
+
+      // Build refined hints
+      var retryHints = {};
+      for (var key in baseHints) {
+         if (baseHints.hasOwnProperty(key)) retryHints[key] = baseHints[key];
+      }
+      retryHints.center_ra = raDec[0];
+      retryHints.center_dec = raDec[1];
+      retryHints.radius = 2; // Narrow search radius
+
+      // Narrow scale range if we have it
+      if (medianScale > 0) {
+         retryHints.scale_units = "arcsecperpix";
+         retryHints.scale_est = medianScale;
+         retryHints.scale_err = 20; // Tighter error margin
+      }
+
+      // Adjust scale for downsampled tiles
+      if (tile.scaleFactor < 1.0 && retryHints.scale_est) {
+         retryHints.scale_est = retryHints.scale_est / tile.scaleFactor;
+      }
+
+      // Remove internal hint keys before sending to API
+      delete retryHints._projection;
+
+      // Upload
+      var subId = client.upload(tile.filePath, retryHints);
+      if (subId === null) {
+         tile.status = "failed";
+         msleep(2000);
+         continue;
+      }
+
+      // Poll
+      var jobId = client.pollSubmission(subId);
+      if (jobId === null) { tile.status = "failed"; continue; }
+
+      var status = client.pollJob(jobId);
+      if (status !== "success") { tile.status = "failed"; msleep(2000); continue; }
+
+      // Get results
+      var calibration = client.getCalibration(jobId);
+      var wcsPath = File.systemTempDirectory + "/split_wcs_retry_" + tile.col + "_" + tile.row + ".fits";
+      var wcsOk = client.getWcsFile(jobId, wcsPath);
+
+      if (!calibration || !wcsOk) { tile.status = "failed"; continue; }
+
+      var wcsData = readWcsFromFits(wcsPath);
+      if (!wcsData || wcsData.crval1 === undefined) { tile.status = "failed"; continue; }
+
+      // False positive filter: check scale ratio
+      if (medianScale > 0 && calibration.pixscale) {
+         var scaleRatio = calibration.pixscale / medianScale;
+         if (scaleRatio < 0.3 || scaleRatio > 3.0) {
+            console.writeln("  Tile [" + tile.col + "," + tile.row + "] rejected: scale ratio " + scaleRatio.toFixed(2) + " out of range");
+            tile.status = "failed";
+            try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+            continue;
+         }
+      }
+
+      // False positive filter: check coordinate deviation
+      var solvedRa = calibration.ra;
+      var solvedDec = calibration.dec;
+      var coordDev = angularSeparation([raDec[0], raDec[1]], [solvedRa, solvedDec]);
+      if (coordDev > 5.0) { // More than 5 degrees off
+         console.writeln("  Tile [" + tile.col + "," + tile.row + "] rejected: coordinate deviation " + coordDev.toFixed(2) + " deg");
+         tile.status = "failed";
+         try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+         continue;
+      }
+
+      // CRPIX reverse transform + offset (same as pass 1)
+      if (tile.scaleFactor < 1.0) {
+         wcsData.crpix1 = wcsData.crpix1 / tile.scaleFactor;
+         wcsData.crpix2 = wcsData.crpix2 / tile.scaleFactor;
+         if (wcsData.cd1_1 !== undefined) {
+            wcsData.cd1_1 *= tile.scaleFactor;
+            wcsData.cd1_2 *= tile.scaleFactor;
+            wcsData.cd2_1 *= tile.scaleFactor;
+            wcsData.cd2_2 *= tile.scaleFactor;
+         }
+      }
+      wcsData.crpix1 += tile.offsetX;
+      wcsData.crpix2 += tile.offsetY;
+
+      tile.wcs = wcsData;
+      tile.calibration = calibration;
+      tile.status = "success";
+      additionalSolved++;
+
+      console.writeln("  Tile [" + tile.col + "," + tile.row + "] solved (pass 2): RA=" +
+         calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
+         " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px");
+
+      try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+      if (fi < failedTiles.length - 1) msleep(2000);
+   }
+
+   console.writeln("Pass 2 complete: " + additionalSolved + " additional tiles solved");
+   return additionalSolved;
+}
+
+//----------------------------------------------------------------------------
+// validateOverlap
+//
+// Check WCS consistency in overlap regions between adjacent tiles.
+// Tiles whose WCS disagrees with neighbors are flagged and optionally excluded.
+//
+// tiles: array of tile objects
+// imageWidth, imageHeight: full image dimensions
+// toleranceArcsec: maximum allowed RA/DEC deviation (default 5 arcsec)
+//
+// Returns number of tiles invalidated.
+//----------------------------------------------------------------------------
+function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
+   if (typeof toleranceArcsec === "undefined") toleranceArcsec = 5.0;
+
+   var successTiles = [];
+   for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].status === "success" && tiles[i].wcs) successTiles.push(tiles[i]);
+   }
+   if (successTiles.length < 2) return 0;
+
+   console.writeln("");
+   console.writeln("<b>Validating overlap consistency...</b>");
+
+   // For each pair of adjacent tiles, check overlap region
+   var deviations = []; // {tileIdx, maxDevArcsec}
+   for (var i = 0; i < successTiles.length; i++) {
+      deviations.push({ idx: i, maxDev: 0, pairCount: 0, totalDev: 0 });
+   }
+
+   var pairsChecked = 0;
+   for (var i = 0; i < successTiles.length; i++) {
+      for (var j = i + 1; j < successTiles.length; j++) {
+         var ti = successTiles[i];
+         var tj = successTiles[j];
+
+         // Check if tiles overlap
+         var iX0 = ti.offsetX, iX1 = ti.offsetX + ti.tileWidth;
+         var iY0 = ti.offsetY, iY1 = ti.offsetY + ti.tileHeight;
+         var jX0 = tj.offsetX, jX1 = tj.offsetX + tj.tileWidth;
+         var jY0 = tj.offsetY, jY1 = tj.offsetY + tj.tileHeight;
+
+         var overlapX0 = Math.max(iX0, jX0);
+         var overlapX1 = Math.min(iX1, jX1);
+         var overlapY0 = Math.max(iY0, jY0);
+         var overlapY1 = Math.min(iY1, jY1);
+
+         if (overlapX0 >= overlapX1 || overlapY0 >= overlapY1) continue; // No overlap
+
+         // Sample 3x3 points in overlap region
+         var maxDev = 0;
+         var SAMPLE = 3;
+         for (var sy = 0; sy < SAMPLE; sy++) {
+            for (var sx = 0; sx < SAMPLE; sx++) {
+               var px = overlapX0 + (sx + 0.5) * (overlapX1 - overlapX0) / SAMPLE;
+               var py = overlapY0 + (sy + 0.5) * (overlapY1 - overlapY0) / SAMPLE;
+
+               var wcsI = {
+                  crval1: ti.wcs.crval1, crval2: ti.wcs.crval2,
+                  crpix1: ti.wcs.crpix1, crpix2: ti.wcs.crpix2,
+                  cd1_1: ti.wcs.cd1_1 || 0, cd1_2: ti.wcs.cd1_2 || 0,
+                  cd2_1: ti.wcs.cd2_1 || 0, cd2_2: ti.wcs.cd2_2 || 0,
+                  sip: null
+               };
+               var wcsJ = {
+                  crval1: tj.wcs.crval1, crval2: tj.wcs.crval2,
+                  crpix1: tj.wcs.crpix1, crpix2: tj.wcs.crpix2,
+                  cd1_1: tj.wcs.cd1_1 || 0, cd1_2: tj.wcs.cd1_2 || 0,
+                  cd2_1: tj.wcs.cd2_1 || 0, cd2_2: tj.wcs.cd2_2 || 0,
+                  sip: null
+               };
+
+               var rdI = pixelToRaDec(wcsI, px, py, imageHeight);
+               var rdJ = pixelToRaDec(wcsJ, px, py, imageHeight);
+               if (!rdI || !rdJ) continue;
+
+               var dev = angularSeparation(rdI, rdJ) * 3600.0; // arcsec
+               if (dev > maxDev) maxDev = dev;
+            }
+         }
+
+         deviations[i].totalDev += maxDev;
+         deviations[i].pairCount++;
+         deviations[j].totalDev += maxDev;
+         deviations[j].pairCount++;
+         if (maxDev > deviations[i].maxDev) deviations[i].maxDev = maxDev;
+         if (maxDev > deviations[j].maxDev) deviations[j].maxDev = maxDev;
+
+         pairsChecked++;
+         var label = "[" + ti.col + "," + ti.row + "]-[" + tj.col + "," + tj.row + "]";
+         if (maxDev > toleranceArcsec) {
+            console.writeln("  " + label + ": max deviation " + maxDev.toFixed(1) + "\" > " + toleranceArcsec.toFixed(1) + "\" FAIL");
+         } else {
+            console.writeln("  " + label + ": max deviation " + maxDev.toFixed(1) + "\" OK");
+         }
+      }
+   }
+
+   // Identify tiles with consistently high deviation (outliers)
+   var invalidated = 0;
+   for (var i = 0; i < successTiles.length; i++) {
+      if (deviations[i].pairCount === 0) continue;
+      var avgDev = deviations[i].totalDev / deviations[i].pairCount;
+      if (avgDev > toleranceArcsec * 3) {
+         // This tile is consistently inconsistent - likely a false solve
+         console.writeln("  Tile [" + successTiles[i].col + "," + successTiles[i].row +
+            "] INVALIDATED: avg deviation " + avgDev.toFixed(1) + "\" exceeds threshold");
+         successTiles[i].status = "failed";
+         successTiles[i].wcs = null;
+         invalidated++;
+      }
+   }
+
+   console.writeln("Overlap validation: " + pairsChecked + " pairs checked, " + invalidated + " tiles invalidated");
+   return invalidated;
+}
+
+// Load equipment database from JSON file
+// Searches known PixInsight script directories for equipment.json
+function loadEquipmentDB() {
+   // Try common script installation paths
+   var candidates = [];
+
+   // PixInsight standard script directories
+   if (typeof Settings !== "undefined") {
+      // Try to find alongside the script
+      var piDir = Settings.read("Application/LibraryDirectory", DataType_String);
+      if (piDir) {
+         candidates.push(piDir + "/../../src/scripts/SplitImageSolver/equipment.json");
+      }
+   }
+
+   // Standard PixInsight directories on various platforms
+   candidates.push(File.systemTempDirectory + "/../scripts/SplitImageSolver/equipment.json");
+
+   // Use searchDirectory to find the script's own directory
+   var searchDirs = [];
+   if (typeof CoreApplication !== "undefined") {
+      try {
+         searchDirs = CoreApplication.scriptDirectories;
+      } catch (e) {}
+   }
+   for (var i = 0; i < searchDirs.length; i++) {
+      candidates.push(searchDirs[i] + "/SplitImageSolver/equipment.json");
+   }
+
+   // Fallback: try relative to current working directory
+   candidates.push("SplitImageSolver/equipment.json");
+   candidates.push("equipment.json");
+
+   for (var i = 0; i < candidates.length; i++) {
+      try {
+         if (File.exists(candidates[i])) {
+            var content = File.readTextFile(candidates[i]);
+            var db = JSON.parse(content);
+            console.writeln("Loaded equipment DB from: " + candidates[i]);
+            return db;
+         }
+      } catch (e) {
+         // Continue to next candidate
+      }
+   }
+
+   console.writeln("Equipment DB not found (searched " + candidates.length + " paths)");
+   return null;
+}
+
+// Compute pixel scale from camera pixel pitch and lens focal length
+// Returns arcsec/pixel
+function computePixelScale(pixelPitchUm, focalLengthMm) {
+   if (pixelPitchUm <= 0 || focalLengthMm <= 0) return 0;
+   return 206.265 * pixelPitchUm / focalLengthMm;
+}
+
+// Compute diagonal FOV in degrees
+function computeDiagonalFov(sensorWidthPx, sensorHeightPx, pixelScaleArcsec) {
+   if (pixelScaleArcsec <= 0) return 0;
+   var diagPx = Math.sqrt(sensorWidthPx * sensorWidthPx + sensorHeightPx * sensorHeightPx);
+   return diagPx * pixelScaleArcsec / 3600.0;
+}
+
+// Recommend grid size based on FOV
+// Returns {cols, rows, reason}
+function recommendGrid(diagFovDeg, imageWidth, imageHeight) {
+   // astrometry.net works best with FOV < ~10 degrees per tile
+   // For very wide fields, split into more tiles
+   if (diagFovDeg <= 0) return { cols: 1, rows: 1, reason: "FOV unknown" };
+   if (diagFovDeg <= 10) return { cols: 1, rows: 1, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV - single solve" };
+   if (diagFovDeg <= 20) return { cols: 2, rows: 2, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV" };
+   if (diagFovDeg <= 40) return { cols: 3, rows: 2, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV" };
+   if (diagFovDeg <= 60) return { cols: 4, rows: 3, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV" };
+   if (diagFovDeg <= 90) return { cols: 6, rows: 4, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV" };
+   if (diagFovDeg <= 120) return { cols: 8, rows: 6, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV" };
+   return { cols: 12, rows: 8, reason: diagFovDeg.toFixed(1) + "\u00b0 FOV (full-sky)" };
+}
+
+// Find grid preset index matching cols x rows, or -1
+function findGridPresetIndex(presets, cols, rows) {
+   for (var i = 0; i < presets.length; i++) {
+      if (presets[i][0] === cols && presets[i][1] === rows) return i;
+   }
+   return -1;
+}
+
+//============================================================================
+// Main dialog
+//============================================================================
+
+var SETTINGS_KEY = "SplitImageSolver";
+
+function SplitSolverDialog() {
+   this.__base__ = Dialog;
+   this.__base__();
+
+   this.windowTitle = TITLE + " v" + VERSION;
+
+   var self = this;
+
+   // Load saved settings
+   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
+   var savedScale = Settings.read(SETTINGS_KEY + "/pixelScale", DataType_Double);
+
+   // ---- Target image ----
+   var targetWindow = ImageWindow.activeWindow;
+
+   this.targetLabel = new Label(this);
+   this.targetLabel.text = "\u5bfe\u8c61\u753b\u50cf:";
+   this.targetLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.targetLabel.setFixedWidth(80);
+
+   this.targetEdit = new Edit(this);
+   this.targetEdit.readOnly = true;
+   this.targetEdit.text = targetWindow.isNull ? "(\u753b\u50cf\u3092\u958b\u3044\u3066\u304f\u3060\u3055\u3044)" : targetWindow.mainView.id;
+
+   var targetSizer = new HorizontalSizer;
+   targetSizer.spacing = 6;
+   targetSizer.add(this.targetLabel);
+   targetSizer.add(this.targetEdit, 100);
+
+   // ---- API key ----
+   this.apiKeyLabel = new Label(this);
+   this.apiKeyLabel.text = "API \u30ad\u30fc:";
+   this.apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.apiKeyLabel.setFixedWidth(80);
+
+   this.apiKeyEdit = new Edit(this);
+   this.apiKeyEdit.text = savedApiKey || "";
+   this.apiKeyEdit.setMinWidth(300);
+   this.apiKeyEdit.toolTip = "nova.astrometry.net \u306e API \u30ad\u30fc\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044";
+
+   var apiKeySizer = new HorizontalSizer;
+   apiKeySizer.spacing = 6;
+   apiKeySizer.add(this.apiKeyLabel);
+   apiKeySizer.add(this.apiKeyEdit, 100);
+
+   // ---- Equipment (Camera + Lens) ----
+   var equipDB = loadEquipmentDB();
+
+   this.cameraLabel = new Label(this);
+   this.cameraLabel.text = "\u30ab\u30e1\u30e9:";
+   this.cameraLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.cameraLabel.setFixedWidth(80);
+
+   this.cameraCombo = new ComboBox(this);
+   this.cameraCombo.addItem("(\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044)");
+   if (equipDB && equipDB.cameras) {
+      for (var ci = 0; ci < equipDB.cameras.length; ci++) {
+         this.cameraCombo.addItem(equipDB.cameras[ci].name);
+      }
+   }
+   this.cameraCombo.currentItem = 0;
+
+   // Auto-detect camera from INSTRUME header
+   if (!targetWindow.isNull && equipDB && equipDB.cameras) {
+      var keywords = targetWindow.keywords;
+      for (var ki = 0; ki < keywords.length; ki++) {
+         if (keywords[ki].name === "INSTRUME") {
+            var instrVal = keywords[ki].value.trim().replace(/^'|'$/g, "").trim();
+            for (var ci = 0; ci < equipDB.cameras.length; ci++) {
+               if (instrVal.indexOf(equipDB.cameras[ci].instrume) >= 0 && equipDB.cameras[ci].instrume.length > 0) {
+                  this.cameraCombo.currentItem = ci + 1; // +1 for "(select)" entry
+                  console.writeln("Auto-detected camera: " + equipDB.cameras[ci].name);
+                  break;
                }
             }
-            catch (e1) {}
+            break;
          }
+      }
+   }
 
-         // サマリ表示
-         try {
-            var summary = "<b>Result:</b> "
-               + result.tiles_solved + "/" + result.tiles_total
-               + " tiles solved";
-            if (result.wcs) {
-               summary += ", CRVAL=("
-                  + result.wcs.crval1.toFixed(4) + ", "
-                  + result.wcs.crval2.toFixed(4) + ")";
-               if (result.wcs.pixel_scale) {
-                  summary += ", " + result.wcs.pixel_scale.toFixed(2) + "\"/px";
-               }
-            }
-            console.writeln(summary);
-         }
-         catch (e2) {
-            console.writeln("<b>Result:</b> Solver completed");
-         }
+   this.lensLabel = new Label(this);
+   this.lensLabel.text = "\u30ec\u30f3\u30ba:";
+   this.lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
-         // タイル成否グリッド表示
-         if (result.tile_grid && result.grid) {
-            try {
-               var rows = result.grid.rows;
-               var cols = result.grid.cols;
-               var grid = result.tile_grid;
-               // ヘッダー行（列番号）
-               var header = "     ";
-               for (var c = 0; c < cols; c++) {
-                  header += " " + c;
-               }
-               console.writeln("");
-               console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
-               console.writeln(header);
-               // 各行
-               for (var r = 0; r < rows; r++) {
-                  var line = "  " + r + "  ";
-                  if (r < 10) line = "  " + r + "  ";
-                  for (var c = 0; c < cols; c++) {
-                     var cell = grid[r][c];
-                     if (cell === "O") {
-                        line += " O";
-                     } else {
-                        line += " .";
-                     }
+   this.lensCombo = new ComboBox(this);
+   this.lensCombo.addItem("(\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044)");
+   if (equipDB && equipDB.lenses) {
+      for (var li = 0; li < equipDB.lenses.length; li++) {
+         this.lensCombo.addItem(equipDB.lenses[li].name);
+      }
+   }
+   this.lensCombo.currentItem = 0;
+
+   // Auto-detect lens from FOCALLEN header
+   if (!targetWindow.isNull && equipDB && equipDB.lenses) {
+      var keywords = targetWindow.keywords;
+      for (var ki = 0; ki < keywords.length; ki++) {
+         if (keywords[ki].name === "FOCALLEN") {
+            var focalVal = parseFloat(keywords[ki].value);
+            if (!isNaN(focalVal) && focalVal > 0) {
+               // Find closest matching focal length
+               var bestIdx = -1;
+               var bestDiff = Infinity;
+               for (var li = 0; li < equipDB.lenses.length; li++) {
+                  var diff = Math.abs(equipDB.lenses[li].focal_length - focalVal);
+                  if (diff < bestDiff && equipDB.lenses[li].focal_length > 0) {
+                     bestDiff = diff;
+                     bestIdx = li;
                   }
-                  console.writeln(line);
                }
-               console.writeln("  (O=solved, .=failed)");
+               // Match if within 10% of focal length
+               if (bestIdx >= 0 && bestDiff / focalVal < 0.10) {
+                  this.lensCombo.currentItem = bestIdx + 1;
+                  console.writeln("Auto-detected lens: " + equipDB.lenses[bestIdx].name + " (FOCALLEN=" + focalVal + "mm)");
+               }
             }
-            catch (e3) {
-               // グリッド表示失敗は無視
+            break;
+         }
+      }
+   }
+
+   var equipSizer = new HorizontalSizer;
+   equipSizer.spacing = 6;
+   equipSizer.add(this.cameraLabel);
+   equipSizer.add(this.cameraCombo);
+   equipSizer.addSpacing(12);
+   equipSizer.add(this.lensLabel);
+   equipSizer.add(this.lensCombo);
+   equipSizer.addStretch();
+
+   // ---- FOV info + recommended grid ----
+   this.fovInfoLabel = new Label(this);
+   this.fovInfoLabel.text = "";
+   this.fovInfoLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+
+   // Update scale and FOV when camera/lens selection changes
+   var updateScaleAndFov = function() {
+      var camIdx = self.cameraCombo.currentItem - 1; // -1 for "(select)"
+      var lensIdx = self.lensCombo.currentItem - 1;
+      if (!equipDB) return;
+
+      if (camIdx >= 0 && camIdx < equipDB.cameras.length &&
+          lensIdx >= 0 && lensIdx < equipDB.lenses.length) {
+         var cam = equipDB.cameras[camIdx];
+         var lens = equipDB.lenses[lensIdx];
+         if (cam.pixel_pitch > 0 && lens.focal_length > 0) {
+            var ps = computePixelScale(cam.pixel_pitch, lens.focal_length);
+            self.scaleEdit.text = ps.toFixed(3);
+
+            var sW = cam.sensor_width || imageWidth;
+            var sH = cam.sensor_height || imageHeight;
+            var diagFov = computeDiagonalFov(sW, sH, ps);
+            var rec = recommendGrid(diagFov, sW, sH);
+            self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
+               diagFov.toFixed(1) + "\u00b0 | \u63a8\u5968: " + rec.cols + "x" + rec.rows;
+
+            // Auto-select recommended grid
+            var presetIdx = findGridPresetIndex(self.gridPresets, rec.cols, rec.rows);
+            if (presetIdx >= 0) {
+               self.gridCombo.currentItem = presetIdx;
             }
          }
-
-         // 中心・四隅の座標表示 (ImageSolver風)
-         if (result.coordinates) {
-            try {
-               var coords = result.coordinates;
-               console.writeln("");
-               console.writeln("<b>Image coordinates:</b>");
-               if (coords.center) {
-                  console.writeln("  Center ........ RA: " + raToHMS(coords.center.ra_deg)
-                     + "  Dec: " + decToDMS(coords.center.dec_deg));
-               }
-               if (coords.top_left) {
-                  console.writeln("  Top-Left ...... RA: " + raToHMS(coords.top_left.ra_deg)
-                     + "  Dec: " + decToDMS(coords.top_left.dec_deg));
-               }
-               if (coords.top_right) {
-                  console.writeln("  Top-Right ..... RA: " + raToHMS(coords.top_right.ra_deg)
-                     + "  Dec: " + decToDMS(coords.top_right.dec_deg));
-               }
-               if (coords.bottom_left) {
-                  console.writeln("  Bottom-Left ... RA: " + raToHMS(coords.bottom_left.ra_deg)
-                     + "  Dec: " + decToDMS(coords.bottom_left.dec_deg));
-               }
-               if (coords.bottom_right) {
-                  console.writeln("  Bottom-Right .. RA: " + raToHMS(coords.bottom_right.ra_deg)
-                     + "  Dec: " + decToDMS(coords.bottom_right.dec_deg));
-               }
-               // FOV 表示
-               var fovParts = [];
-               if (coords.width_fov_deg) {
-                  fovParts.push(coords.width_fov_deg.toFixed(2) + " x "
-                     + coords.height_fov_deg.toFixed(2));
-               }
-               if (coords.diagonal_fov_deg) {
-                  fovParts.push("diagonal " + coords.diagonal_fov_deg.toFixed(2));
-               }
-               if (fovParts.length > 0) {
-                  console.writeln("  Field of view . " + fovParts.join(", ") + " deg");
-               }
-               if (result.wcs && result.wcs.pixel_scale) {
-                  console.writeln("  Pixel scale ... " + result.wcs.pixel_scale.toFixed(2) + " arcsec/px");
-               }
-            }
-            catch (e4) {
-               // 座標表示失敗は無視
-            }
-         }
-
-         return result;
-      }
-
-      console.writeln("Solver completed successfully (no JSON output found)");
-      return { success: true };
-   };
-}
-
-//============================================================================
-//SettingsDialog - Python環境設定ダイアログ
-//============================================================================
-function SettingsDialog(params) {
-   this.__base__ = Dialog;
-   this.__base__();
-
-   this.params = params;
-
-   this.windowTitle = TITLE + " - Settings";
-   this.minWidth = 500;
-
-   //--- Python path ---
-   var pythonLabel = new Label(this);
-   pythonLabel.text = "Python executable:";
-   pythonLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
-
-   this.pythonEdit = new Edit(this);
-   this.pythonEdit.text = params.pythonPath;
-   this.pythonEdit.toolTip = "Path to the Python executable (e.g., /usr/bin/python3)";
-   this.pythonEdit.onTextUpdated = function () {
-      params.pythonPath = this.dialog.pythonEdit.text.trim();
-   };
-
-   var pythonBrowse = new ToolButton(this);
-   pythonBrowse.icon = this.scaledResource(":/icons/select-file.png");
-   pythonBrowse.setScaledFixedSize(22, 22);
-   pythonBrowse.toolTip = "Browse for Python executable";
-   pythonBrowse.onClick = function () {
-      var fd = new OpenFileDialog;
-      fd.caption = "Select Python Executable";
-      if (fd.execute()) {
-         this.dialog.pythonEdit.text = fd.fileName;
-         params.pythonPath = fd.fileName;
+      } else {
+         self.fovInfoLabel.text = "";
       }
    };
 
-   var pythonSizer = new HorizontalSizer;
-   pythonSizer.spacing = 4;
-   pythonSizer.add(pythonLabel);
-   pythonSizer.add(this.pythonEdit, 100);
-   pythonSizer.add(pythonBrowse);
+   // Need imageWidth/imageHeight for fallback sensor size
+   var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
+   var imageHeight = targetWindow.isNull ? 0 : targetWindow.mainView.image.height;
 
-   //--- Script directory ---
-   var scriptDirLabel = new Label(this);
-   scriptDirLabel.text = "Script directory:";
-   scriptDirLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.cameraCombo.onItemSelected = function() { updateScaleAndFov(); };
+   this.lensCombo.onItemSelected = function() { updateScaleAndFov(); };
 
-   this.scriptDirEdit = new Edit(this);
-   this.scriptDirEdit.text = params.scriptDir;
-   this.scriptDirEdit.toolTip = "Path to the split-image-solver directory";
-   this.scriptDirEdit.onTextUpdated = function () {
-      params.scriptDir = this.dialog.scriptDirEdit.text.trim();
-   };
+   // Trigger initial update if both auto-detected
+   if (this.cameraCombo.currentItem > 0 && this.lensCombo.currentItem > 0) {
+      updateScaleAndFov();
+   }
 
-   var scriptDirBrowse = new ToolButton(this);
-   scriptDirBrowse.icon = this.scaledResource(":/icons/select-file.png");
-   scriptDirBrowse.setScaledFixedSize(22, 22);
-   scriptDirBrowse.toolTip = "Browse for script directory";
-   scriptDirBrowse.onClick = function () {
-      var gdd = new GetDirectoryDialog;
-      gdd.caption = "Select split-image-solver Directory";
-      if (gdd.execute()) {
-         this.dialog.scriptDirEdit.text = gdd.directory;
-         params.scriptDir = gdd.directory;
+   // ---- Pixel scale ----
+   this.scaleLabel = new Label(this);
+   this.scaleLabel.text = "Scale:";
+   this.scaleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.scaleLabel.setFixedWidth(80);
+
+   this.scaleEdit = new Edit(this);
+   this.scaleEdit.text = (savedScale && savedScale > 0) ? savedScale.toFixed(3) : "";
+   this.scaleEdit.setFixedWidth(100);
+   this.scaleEdit.toolTip = "\u30d4\u30af\u30bb\u30eb\u30b9\u30b1\u30fc\u30eb (arcsec/px)\u3002\u7a7a\u6b04\u306e\u5834\u5408\u306f\u30d6\u30e9\u30a4\u30f3\u30c9\u30bd\u30eb\u30d6";
+
+   this.scaleUnitLabel = new Label(this);
+   this.scaleUnitLabel.text = "arcsec/px (\u4efb\u610f)";
+
+   this.scaleErrorLabel = new Label(this);
+   this.scaleErrorLabel.text = "\u8aa4\u5dee:";
+   this.scaleErrorLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.scaleErrorEdit = new Edit(this);
+   this.scaleErrorEdit.text = "30";
+   this.scaleErrorEdit.setFixedWidth(50);
+   this.scaleErrorEdit.toolTip = "\u30b9\u30b1\u30fc\u30eb\u63a8\u5b9a\u8aa4\u5dee (%)";
+
+   this.scaleErrorUnitLabel = new Label(this);
+   this.scaleErrorUnitLabel.text = "%";
+
+   var scaleSizer = new HorizontalSizer;
+   scaleSizer.spacing = 6;
+   scaleSizer.add(this.scaleLabel);
+   scaleSizer.add(this.scaleEdit);
+   scaleSizer.add(this.scaleUnitLabel);
+   scaleSizer.addSpacing(12);
+   scaleSizer.add(this.scaleErrorLabel);
+   scaleSizer.add(this.scaleErrorEdit);
+   scaleSizer.add(this.scaleErrorUnitLabel);
+   scaleSizer.addStretch();
+
+   // ---- Object name search ----
+   this.objectLabel = new Label(this);
+   this.objectLabel.text = "\u5929\u4f53\u540d:";
+   this.objectLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.objectLabel.setFixedWidth(80);
+
+   this.objectEdit = new Edit(this);
+   this.objectEdit.setMinWidth(150);
+   this.objectEdit.toolTip = "\u5929\u4f53\u540d (\u4f8b: M31, NGC 7000)\u3002Sesame \u3067\u691c\u7d22\u3057\u3066 RA/DEC \u3092\u81ea\u52d5\u5165\u529b";
+
+   this.searchButton = new PushButton(this);
+   this.searchButton.text = "\u691c\u7d22";
+   this.searchButton.onClick = function() {
+      var name = self.objectEdit.text.trim();
+      if (name.length === 0) return;
+
+      console.writeln("Sesame searching: " + name);
+      var result = searchObjectCoordinates(name);
+      if (result) {
+         self.raEdit.text = raToHMS(result.ra);
+         self.decEdit.text = decToDMS(result.dec);
+         console.writeln("  Found: RA=" + raToHMS(result.ra) + " Dec=" + decToDMS(result.dec));
+      } else {
+         console.writeln("  Not found: " + name);
+         var msg = new MessageBox("\u5929\u4f53 '" + name + "' \u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", TITLE, StdIcon_Warning, StdButton_Ok);
+         msg.execute();
       }
    };
 
-   var scriptDirSizer = new HorizontalSizer;
-   scriptDirSizer.spacing = 4;
-   scriptDirSizer.add(scriptDirLabel);
-   scriptDirSizer.add(this.scriptDirEdit, 100);
-   scriptDirSizer.add(scriptDirBrowse);
+   var objectSizer = new HorizontalSizer;
+   objectSizer.spacing = 6;
+   objectSizer.add(this.objectLabel);
+   objectSizer.add(this.objectEdit, 100);
+   objectSizer.add(this.searchButton);
 
-   //--- Buttons ---
-   this.okButton = new PushButton(this);
-   this.okButton.text = "OK";
-   this.okButton.icon = this.scaledResource(":/icons/ok.png");
-   this.okButton.onClick = function () {
-      //Validate
-      if (params.pythonPath.length === 0) {
-         var mb = new MessageBox(
-            "Please specify the Python executable path.",
-            TITLE, StdIcon_Error, StdButton_Ok);
-         mb.execute();
-         return;
-      }
-      if (params.scriptDir.length === 0) {
-         var mb = new MessageBox(
-            "Please specify the script directory.",
-            TITLE, StdIcon_Error, StdButton_Ok);
-         mb.execute();
-         return;
-      }
-      this.dialog.ok();
-   };
+   // ---- RA / DEC ----
+   this.raLabel = new Label(this);
+   this.raLabel.text = "RA:";
+   this.raLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.raLabel.setFixedWidth(80);
 
-   this.cancelButton = new PushButton(this);
-   this.cancelButton.text = "Cancel";
-   this.cancelButton.icon = this.scaledResource(":/icons/cancel.png");
-   this.cancelButton.onClick = function () {
-      this.dialog.cancel();
-   };
+   this.raEdit = new Edit(this);
+   this.raEdit.setFixedWidth(150);
+   this.raEdit.toolTip = "RA \u30d2\u30f3\u30c8 (HH MM SS.ss or degrees)\u3002\u4efb\u610f";
 
-   var buttonSizer = new HorizontalSizer;
-   buttonSizer.addStretch();
-   buttonSizer.spacing = 8;
-   buttonSizer.add(this.okButton);
-   buttonSizer.add(this.cancelButton);
+   this.decLabel = new Label(this);
+   this.decLabel.text = "DEC:";
+   this.decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
-   //--- Layout ---
-   this.sizer = new VerticalSizer;
-   this.sizer.margin = 8;
-   this.sizer.spacing = 8;
-   this.sizer.add(pythonSizer);
-   this.sizer.add(scriptDirSizer);
-   this.sizer.addSpacing(8);
-   this.sizer.add(buttonSizer);
+   this.decEdit = new Edit(this);
+   this.decEdit.setFixedWidth(150);
+   this.decEdit.toolTip = "DEC \u30d2\u30f3\u30c8 (+DD MM SS.s or degrees)\u3002\u4efb\u610f";
 
-   this.adjustToContents();
-}
+   this.radiusLabel = new Label(this);
+   this.radiusLabel.text = "Radius:";
+   this.radiusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
-SettingsDialog.prototype = new Dialog;
+   this.radiusEdit = new Edit(this);
+   this.radiusEdit.text = "15";
+   this.radiusEdit.setFixedWidth(50);
+   this.radiusEdit.toolTip = "\u691c\u7d22\u534a\u5f84 (\u5ea6)";
 
-//============================================================================
-//ParameterDialog - 実行パラメータ設定ダイアログ
-//============================================================================
-function ParameterDialog(params, windowInfo) {
-   this.__base__ = Dialog;
-   this.__base__();
+   this.radiusUnitLabel = new Label(this);
+   this.radiusUnitLabel.text = "\u5ea6";
 
-   this.params = params;
+   var coordSizer = new HorizontalSizer;
+   coordSizer.spacing = 6;
+   coordSizer.add(this.raLabel);
+   coordSizer.add(this.raEdit);
+   coordSizer.addSpacing(6);
+   coordSizer.add(this.decLabel);
+   coordSizer.add(this.decEdit);
+   coordSizer.addSpacing(6);
+   coordSizer.add(this.radiusLabel);
+   coordSizer.add(this.radiusEdit);
+   coordSizer.add(this.radiusUnitLabel);
+   coordSizer.addStretch();
 
-   this.windowTitle = TITLE;
-   this.minWidth = 480;
+   // ---- Grid / Split mode ----
+   this.gridLabel = new Label(this);
+   this.gridLabel.text = "Grid:";
+   this.gridLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.gridLabel.setFixedWidth(80);
 
-   //--- Image info (read-only) ---
-   var infoGroup = new GroupBox(this);
-   infoGroup.title = "Image";
-
-   var imageNameLabel = new Label(infoGroup);
-   imageNameLabel.text = "Target: " + windowInfo.name;
-
-   var imageSizeLabel = new Label(infoGroup);
-   imageSizeLabel.text = format("Size: %d x %d px", windowInfo.width, windowInfo.height);
-
-   infoGroup.sizer = new VerticalSizer;
-   infoGroup.sizer.margin = 6;
-   infoGroup.sizer.spacing = 4;
-   infoGroup.sizer.add(imageNameLabel);
-   infoGroup.sizer.add(imageSizeLabel);
-
-   //--- Grid settings ---
-   var gridGroup = new GroupBox(this);
-   gridGroup.title = "Split Settings";
-
-   var gridLabel = new Label(gridGroup);
-   gridLabel.text = "Grid:";
-   gridLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   gridLabel.setFixedWidth(120);
-
-   this.gridCombo = new ComboBox(gridGroup);
+   this.gridCombo = new ComboBox(this);
+   this.gridCombo.addItem("1x1 (Single)");
    this.gridCombo.addItem("2x2");
    this.gridCombo.addItem("3x3");
    this.gridCombo.addItem("4x4");
-   this.gridCombo.addItem("5x5");
-   this.gridCombo.addItem("6x6");
-   this.gridCombo.addItem("8x8");
-   this.gridCombo.addItem("10x10");
+   this.gridCombo.addItem("2x1");
+   this.gridCombo.addItem("3x2");
+   this.gridCombo.addItem("4x3");
+   this.gridCombo.addItem("6x4");
+   this.gridCombo.addItem("8x6");
    this.gridCombo.addItem("12x8");
-   this.gridCombo.addItem("Custom...");
+   this.gridCombo.currentItem = 0;
+   this.gridCombo.toolTip = "\u753b\u50cf\u5206\u5272\u30b0\u30ea\u30c3\u30c9 (cols x rows)\u3002\u5e83\u89d2\u753b\u50cf\u306f\u5206\u5272\u3059\u308b\u3068\u30bd\u30eb\u30d6\u6210\u529f\u7387\u304c\u4e0a\u304c\u308a\u307e\u3059";
 
-   var gridOptions = ["2x2", "3x3", "4x4", "5x5", "6x6", "8x8", "10x10", "12x8"];
-   var GRID_CUSTOM_INDEX = gridOptions.length; // "Custom..." のインデックス
+   // Grid presets: [cols, rows]
+   this.gridPresets = [
+      [1, 1], [2, 2], [3, 3], [4, 4],
+      [2, 1], [3, 2], [4, 3], [6, 4], [8, 6], [12, 8]
+   ];
 
-   // Custom 入力用 Edit
-   this.gridCustomEdit = new Edit(gridGroup);
-   this.gridCustomEdit.toolTip = "Custom grid pattern (e.g., 7x5, 10x8)";
-   this.gridCustomEdit.setFixedWidth(80);
-   this.gridCustomEdit.visible = false;
+   this.overlapLabel = new Label(this);
+   this.overlapLabel.text = "Overlap:";
+   this.overlapLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
-   //現在の設定に合わせて選択
-   var gridIndex = gridOptions.indexOf(params.grid);
-   if (gridIndex >= 0) {
-      this.gridCombo.currentItem = gridIndex;
-   } else if (params.grid && params.grid.length > 0) {
-      // カスタム値
-      this.gridCombo.currentItem = GRID_CUSTOM_INDEX;
-      this.gridCustomEdit.text = params.grid;
-      this.gridCustomEdit.visible = true;
-   } else {
-      this.gridCombo.currentItem = 1; //default: 3x3
-   }
+   this.overlapEdit = new Edit(this);
+   this.overlapEdit.text = "200";
+   this.overlapEdit.setFixedWidth(60);
+   this.overlapEdit.toolTip = "\u30bf\u30a4\u30eb\u9593\u306e\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7 (px)";
 
-   this.gridCombo.onItemSelected = function (index) {
-      if (index === GRID_CUSTOM_INDEX) {
-         dialog.gridCustomEdit.visible = true;
-         if (dialog.gridCustomEdit.text.length > 0)
-            params.grid = dialog.gridCustomEdit.text;
-      } else {
-         dialog.gridCustomEdit.visible = false;
-         params.grid = gridOptions[index];
-      }
-   };
-
-   this.gridCustomEdit.onTextUpdated = function () {
-      var text = dialog.gridCustomEdit.text.trim();
-      if (/^\d+x\d+$/.test(text))
-         params.grid = text;
-   };
-
-   // 推奨グリッド表示ラベル
-   this.gridRecommendLabel = new Label(gridGroup);
-   this.gridRecommendLabel.text = "";
+   this.overlapUnitLabel = new Label(this);
+   this.overlapUnitLabel.text = "px";
 
    var gridSizer = new HorizontalSizer;
-   gridSizer.spacing = 4;
-   gridSizer.add(gridLabel);
+   gridSizer.spacing = 6;
+   gridSizer.add(this.gridLabel);
    gridSizer.add(this.gridCombo);
-   gridSizer.add(this.gridCustomEdit);
-   gridSizer.addSpacing(8);
-   gridSizer.add(this.gridRecommendLabel);
+   gridSizer.addSpacing(12);
+   gridSizer.add(this.overlapLabel);
+   gridSizer.add(this.overlapEdit);
+   gridSizer.add(this.overlapUnitLabel);
    gridSizer.addStretch();
 
-   var overlapLabel = new Label(gridGroup);
-   overlapLabel.text = "Overlap:";
-   overlapLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   overlapLabel.setFixedWidth(120);
+   // ---- Downsample ----
+   this.downsampleLabel = new Label(this);
+   this.downsampleLabel.text = "Downsample:";
+   this.downsampleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.downsampleLabel.setFixedWidth(80);
 
-   this.overlapSpin = new SpinBox(gridGroup);
-   this.overlapSpin.minValue = 0;
-   this.overlapSpin.maxValue = 1000;
-   this.overlapSpin.value = params.overlap;
-   this.overlapSpin.toolTip = "Overlap pixels between tiles";
-   this.overlapSpin.onValueUpdated = function (value) {
-      params.overlap = value;
+   this.downsampleCombo = new ComboBox(this);
+   this.downsampleCombo.addItem("\u81ea\u52d5");
+   this.downsampleCombo.addItem("2");
+   this.downsampleCombo.addItem("4");
+   this.downsampleCombo.currentItem = 0;
+   this.downsampleCombo.toolTip = "API \u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u524d\u306e\u30c0\u30a6\u30f3\u30b5\u30f3\u30d7\u30eb\u4fc2\u6570\u3002\u5206\u5272\u30e2\u30fc\u30c9\u3067\u306f\u81ea\u52d5\u30c0\u30a6\u30f3\u30b5\u30f3\u30d7\u30eb\u304c\u9069\u7528\u3055\u308c\u307e\u3059";
+
+   // ---- SIP order ----
+   this.sipLabel = new Label(this);
+   this.sipLabel.text = "SIP Order:";
+   this.sipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.sipCombo = new ComboBox(this);
+   this.sipCombo.addItem("2 (\u63a8\u5968)");
+   this.sipCombo.addItem("3");
+   this.sipCombo.addItem("4");
+   this.sipCombo.currentItem = 0;
+   this.sipCombo.toolTip = "SIP \u6b6a\u307f\u88dc\u6b63\u306e\u6b21\u6570 (tweak_order)";
+
+   var optionSizer = new HorizontalSizer;
+   optionSizer.spacing = 6;
+   optionSizer.add(this.downsampleLabel);
+   optionSizer.add(this.downsampleCombo);
+   optionSizer.addSpacing(12);
+   optionSizer.add(this.sipLabel);
+   optionSizer.add(this.sipCombo);
+   optionSizer.addStretch();
+
+   // ---- Progress display ----
+   this.progressLabel = new Label(this);
+   this.progressLabel.text = "";
+   this.progressLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+
+   // ---- Buttons ----
+   this.solveButton = new PushButton(this);
+   this.solveButton.text = "Solve";
+   this.solveButton.icon = this.scaledResource(":/icons/execute.png");
+   this.solveButton.onClick = function() {
+      self.doSolve();
    };
 
-   var overlapUnitLabel = new Label(gridGroup);
-   overlapUnitLabel.text = "px";
-
-   var overlapSizer = new HorizontalSizer;
-   overlapSizer.spacing = 4;
-   overlapSizer.add(overlapLabel);
-   overlapSizer.add(this.overlapSpin);
-   overlapSizer.add(overlapUnitLabel);
-   overlapSizer.addStretch();
-
-   gridGroup.sizer = new VerticalSizer;
-   gridGroup.sizer.margin = 6;
-   gridGroup.sizer.spacing = 4;
-   gridGroup.sizer.add(gridSizer);
-   gridGroup.sizer.add(overlapSizer);
-
-   //--- Equipment ---
-   var equipGroup = new GroupBox(this);
-   equipGroup.title = "Equipment";
-
-   var dialog = this;
-
-   var camLabel = new Label(equipGroup);
-   camLabel.text = "Camera:";
-   camLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   camLabel.setFixedWidth(120);
-
-   this.cameraCombo = new ComboBox(equipGroup);
-   this.cameraCombo.addItem("(none)");
-
-   // 機材DBからカメラリストを動的生成
-   this.cameraKeys = [];  // DBキー配列（インデックス対応）
-   if (params.equipmentDB && params.equipmentDB.cameras) {
-      var cams = params.equipmentDB.cameras;
-      for (var k in cams) {
-         if (cams.hasOwnProperty(k)) {
-            this.cameraKeys.push(k);
-            var displayStr = cams[k].display_name + " (" + k + ")";
-            this.cameraCombo.addItem(displayStr);
-         }
-      }
-   }
-
-   // 現在のカメラ設定に合わせて選択
-   var camIdx = 0;
-   for (var ci = 0; ci < this.cameraKeys.length; ci++) {
-      if (this.cameraKeys[ci] === params.camera) {
-         camIdx = ci + 1; // +1 for "(none)"
-         break;
-      }
-   }
-   this.cameraCombo.currentItem = camIdx;
-
-   this.cameraCombo.onItemSelected = function (index) {
-      if (index === 0) {
-         params.camera = "";
-      } else {
-         var key = dialog.cameraKeys[index - 1];
-         params.camera = key;
-         // pixel_pitch 自動入力
-         if (params.equipmentDB && params.equipmentDB.cameras) {
-            var camInfo = params.equipmentDB.cameras[key];
-            if (camInfo && camInfo.pixel_pitch_um) {
-               dialog.pixelPitchEdit.text = camInfo.pixel_pitch_um.toString();
-               params.pixelPitch = camInfo.pixel_pitch_um;
-            }
-         }
-      }
-   };
-
-   var camSizer = new HorizontalSizer;
-   camSizer.spacing = 4;
-   camSizer.add(camLabel);
-   camSizer.add(this.cameraCombo, 100);
-
-   var lensLabel = new Label(equipGroup);
-   lensLabel.text = "Lens:";
-   lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   lensLabel.setFixedWidth(120);
-
-   this.lensCombo = new ComboBox(equipGroup);
-   this.lensCombo.addItem("(none)");
-
-   // 機材DBからレンズリストを動的生成
-   this.lensKeys = [];
-   if (params.equipmentDB && params.equipmentDB.lenses) {
-      var lenses = params.equipmentDB.lenses;
-      for (var lk in lenses) {
-         if (lenses.hasOwnProperty(lk)) {
-            this.lensKeys.push(lk);
-            var lDisplayStr = lenses[lk].display_name + " (" + lk + ")";
-            this.lensCombo.addItem(lDisplayStr);
-         }
-      }
-   }
-
-   // 現在のレンズ設定に合わせて選択
-   var lensIdx = 0;
-   for (var li = 0; li < this.lensKeys.length; li++) {
-      if (this.lensKeys[li] === params.lens) {
-         lensIdx = li + 1;
-         break;
-      }
-   }
-   this.lensCombo.currentItem = lensIdx;
-
-   this.lensCombo.onItemSelected = function (index) {
-      if (index === 0) {
-         params.lens = "";
-      } else {
-         var key = dialog.lensKeys[index - 1];
-         params.lens = key;
-         // focal_length 自動入力
-         if (params.equipmentDB && params.equipmentDB.lenses) {
-            var lensInfo = params.equipmentDB.lenses[key];
-            if (lensInfo && lensInfo.focal_length_mm) {
-               dialog.focalLengthEdit.text = lensInfo.focal_length_mm.toString();
-               params.focalLength = lensInfo.focal_length_mm;
-            }
-         }
-      }
-   };
-
-   var lensSizer = new HorizontalSizer;
-   lensSizer.spacing = 4;
-   lensSizer.add(lensLabel);
-   lensSizer.add(this.lensCombo, 100);
-
-   equipGroup.sizer = new VerticalSizer;
-   equipGroup.sizer.margin = 6;
-   equipGroup.sizer.spacing = 4;
-   equipGroup.sizer.add(camSizer);
-   equipGroup.sizer.add(lensSizer);
-
-   //--- Coordinate hints ---
-   var coordGroup = new GroupBox(this);
-   coordGroup.title = "Coordinate Hints";
-
-   // Object name search
-   var objLabel = new Label(coordGroup);
-   objLabel.text = "Object name:";
-   objLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   objLabel.setFixedWidth(120);
-
-   this.objectNameEdit = new Edit(coordGroup);
-   this.objectNameEdit.toolTip = "Enter object name to search (e.g., M42, NGC2024, Orion Nebula)";
-
-   this.searchButton = new PushButton(coordGroup);
-   this.searchButton.text = "Search";
-   this.searchButton.icon = this.scaledResource(":/icons/find.png");
-   this.searchButton.toolTip = "Search coordinates using CDS Sesame name resolver";
-   this.searchButton.onClick = function () {
-      var name = dialog.objectNameEdit.text.trim();
-      if (name.length === 0) {
-         var mb = new MessageBox("Please enter an object name.",
-            TITLE, StdIcon_Warning, StdButton_Ok);
-         mb.execute();
-         return;
-      }
-      console.writeln("Searching for: " + name + " ...");
-      console.flush();
-      var result = searchObjectCoordinates(name);
-      if (result) {
-         dialog.raEdit.text = degreesToHMS(result.ra);
-         dialog.decEdit.text = degreesToDMS(result.dec);
-         params.ra = result.ra;
-         params.dec = result.dec;
-         console.writeln(format("Found: RA=%s (%.4f\u00B0), DEC=%s (%.4f\u00B0)",
-            degreesToHMS(result.ra), result.ra,
-            degreesToDMS(result.dec), result.dec));
-      } else {
-         var mb = new MessageBox(
-            "Object '" + name + "' not found.\n\n" +
-            "Please check the name and try again.\n" +
-            "Examples: M42, NGC2024, IC434, Vega",
-            TITLE, StdIcon_Warning, StdButton_Ok);
-         mb.execute();
-      }
-   };
-
-   var objSizer = new HorizontalSizer;
-   objSizer.spacing = 4;
-   objSizer.add(objLabel);
-   objSizer.add(this.objectNameEdit, 100);
-   objSizer.add(this.searchButton);
-
-   // RA (HMS format)
-   var raLabel = new Label(coordGroup);
-   raLabel.text = "RA:";
-   raLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   raLabel.setFixedWidth(120);
-
-   this.raEdit = new Edit(coordGroup);
-   this.raEdit.text = (params.ra !== undefined && params.ra !== null)
-      ? degreesToHMS(params.ra) : "";
-   this.raEdit.toolTip = "Right Ascension: HH MM SS.ss (or degrees)";
-   this.raEdit.setFixedWidth(160);
-   this.raEdit.onTextUpdated = function () {
-      params.ra = parseRAInput(dialog.raEdit.text);
-   };
-
-   var raHintLabel = new Label(coordGroup);
-   raHintLabel.text = "(HH MM SS.ss)";
-
-   var raSizer = new HorizontalSizer;
-   raSizer.spacing = 4;
-   raSizer.add(raLabel);
-   raSizer.add(this.raEdit);
-   raSizer.add(raHintLabel);
-   raSizer.addStretch();
-
-   // DEC (DMS format)
-   var decLabel = new Label(coordGroup);
-   decLabel.text = "DEC:";
-   decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   decLabel.setFixedWidth(120);
-
-   this.decEdit = new Edit(coordGroup);
-   this.decEdit.text = (params.dec !== undefined && params.dec !== null)
-      ? degreesToDMS(params.dec) : "";
-   this.decEdit.toolTip = "Declination: \u00B1DD MM SS.ss (or degrees)";
-   this.decEdit.setFixedWidth(160);
-   this.decEdit.onTextUpdated = function () {
-      params.dec = parseDECInput(dialog.decEdit.text);
-   };
-
-   var decHintLabel = new Label(coordGroup);
-   decHintLabel.text = "(\u00B1DD MM SS.ss)";
-
-   var decSizer = new HorizontalSizer;
-   decSizer.spacing = 4;
-   decSizer.add(decLabel);
-   decSizer.add(this.decEdit);
-   decSizer.add(decHintLabel);
-   decSizer.addStretch();
-
-   // Focal length
-   var flLabel = new Label(coordGroup);
-   flLabel.text = "Focal length:";
-   flLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   flLabel.setFixedWidth(120);
-
-   this.focalLengthEdit = new Edit(coordGroup);
-   this.focalLengthEdit.text = (params.focalLength !== undefined && params.focalLength !== null)
-      ? params.focalLength.toString() : "";
-   this.focalLengthEdit.toolTip = "Focal length in mm";
-   this.focalLengthEdit.setFixedWidth(120);
-
-   var flUnitLabel = new Label(coordGroup);
-   flUnitLabel.text = "mm";
-
-   // Fisheye lens checkbox
-   this.fisheyeCheckBox = new CheckBox(coordGroup);
-   this.fisheyeCheckBox.text = "Fisheye lens";
-   this.fisheyeCheckBox.toolTip = "Check if using a fisheye lens (equisolid-angle projection).\n"
-      + "This affects FOV calculation and grid recommendation.\n"
-      + "Auto-checked when a fisheye lens is detected from equipment DB.";
-   this.fisheyeCheckBox.checked = params.fisheye || (params.lensType.indexOf("fisheye") === 0);
-   this.fisheyeCheckBox.onCheck = function (checked) {
-      params.fisheye = checked;
-      if (checked) {
-         params.lensType = "fisheye_equisolid";
-      } else {
-         // DB自動検出が魚眼でなければrectilinearに戻す
-         params.lensType = "rectilinear";
-      }
-      updateScaleAndButton();
-   };
-
-   var flSizer = new HorizontalSizer;
-   flSizer.spacing = 4;
-   flSizer.add(flLabel);
-   flSizer.add(this.focalLengthEdit);
-   flSizer.add(flUnitLabel);
-   flSizer.addSpacing(16);
-   flSizer.add(this.fisheyeCheckBox);
-   flSizer.addStretch();
-
-   // Pixel pitch
-   var ppLabel = new Label(coordGroup);
-   ppLabel.text = "Pixel pitch:";
-   ppLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   ppLabel.setFixedWidth(120);
-
-   this.pixelPitchEdit = new Edit(coordGroup);
-   this.pixelPitchEdit.text = (params.pixelPitch !== undefined && params.pixelPitch !== null)
-      ? params.pixelPitch.toString() : "";
-   this.pixelPitchEdit.toolTip = "Pixel pitch (pixel size) in micrometers";
-   this.pixelPitchEdit.setFixedWidth(120);
-
-   var ppUnitLabel = new Label(coordGroup);
-   ppUnitLabel.text = "\u00B5m";
-
-   // 計算されたピクセルスケール表示ラベル
-   this.scaleInfoLabel = new Label(coordGroup);
-   this.scaleInfoLabel.text = "";
-
-   var ppSizer = new HorizontalSizer;
-   ppSizer.spacing = 4;
-   ppSizer.add(ppLabel);
-   ppSizer.add(this.pixelPitchEdit);
-   ppSizer.add(ppUnitLabel);
-   ppSizer.addSpacing(8);
-   ppSizer.add(this.scaleInfoLabel);
-   ppSizer.addStretch();
-
-   // ピクセルスケール表示・推奨グリッド・Executeボタン有効化を更新するヘルパー
-   var updateScaleAndButton = function () {
-      var fl = parseFloat(dialog.focalLengthEdit.text);
-      var pp = parseFloat(dialog.pixelPitchEdit.text);
-      params.focalLength = isNaN(fl) ? undefined : fl;
-      params.pixelPitch = isNaN(pp) ? undefined : pp;
-      if (!isNaN(fl) && fl > 0 && !isNaN(pp) && pp > 0) {
-         var ps = (206.265 * pp) / fl;
-         dialog.scaleInfoLabel.text = format("(%.2f arcsec/px)", ps);
-         dialog.execButton.enabled = true;
-
-         // 推奨グリッドサイズ計算（画像サイズが分かっている場合）
-         var w = windowInfo.width;
-         var h = windowInfo.height;
-         if (w > 0 && h > 0) {
-            var diagPixels = Math.sqrt(w * w + h * h);
-            var diagFov;
-            var lt = params.lensType || "rectilinear";
-
-            // 投影型に応じた対角FOV計算
-            if (lt === "fisheye_equisolid") {
-               var sRad = (ps / 3600.0) * Math.PI / 180.0;
-               var arg = Math.min(diagPixels * sRad / 2.0, 1.0);
-               diagFov = 2.0 * 2.0 * Math.asin(arg) * 180.0 / Math.PI;
-            } else if (lt === "fisheye_equidistant") {
-               var sRad = (ps / 3600.0) * Math.PI / 180.0;
-               diagFov = 2.0 * diagPixels * sRad * 180.0 / Math.PI;
-            } else if (lt === "fisheye_stereographic") {
-               var sRad = (ps / 3600.0) * Math.PI / 180.0;
-               diagFov = 2.0 * 2.0 * Math.atan(diagPixels * sRad / 2.0) * 180.0 / Math.PI;
-            } else {
-               // rectilinear（gnomonic）: 線形近似で十分
-               diagFov = (ps * diagPixels) / 3600.0;
-            }
-
-            var recommended;
-            if (diagFov > 150)
-               recommended = "12x8";
-            else if (diagFov > 120)
-               recommended = "10x10";
-            else if (diagFov > 90)
-               recommended = "8x8";
-            else if (diagFov > 60)
-               recommended = "5x5";
-            else if (diagFov > 30)
-               recommended = "3x3";
-            else
-               recommended = "2x2";
-
-            var projLabel = (lt !== "rectilinear") ? format(" [%s]", lt) : "";
-            dialog.gridRecommendLabel.text = format("Recommended: %s (diag FOV: %.1f\u00B0%s)", recommended, diagFov, projLabel);
-         } else {
-            dialog.gridRecommendLabel.text = "";
-         }
-      } else {
-         dialog.scaleInfoLabel.text = "";
-         dialog.gridRecommendLabel.text = "";
-         dialog.execButton.enabled = false;
-      }
-   };
-
-   this.focalLengthEdit.onTextUpdated = function () {
-      updateScaleAndButton();
-   };
-   this.pixelPitchEdit.onTextUpdated = function () {
-      updateScaleAndButton();
-   };
-
-   coordGroup.sizer = new VerticalSizer;
-   coordGroup.sizer.margin = 6;
-   coordGroup.sizer.spacing = 4;
-   coordGroup.sizer.add(objSizer);
-   coordGroup.sizer.add(raSizer);
-   coordGroup.sizer.add(decSizer);
-   coordGroup.sizer.add(flSizer);
-   coordGroup.sizer.add(ppSizer);
-
-   //--- Settings button ---
-   this.settingsButton = new PushButton(this);
-   this.settingsButton.text = "Settings...";
-   this.settingsButton.icon = this.scaledResource(":/icons/wrench.png");
-   this.settingsButton.toolTip = "Configure Python environment";
-   this.settingsButton.onClick = function () {
-      var dlg = new SettingsDialog(params);
-      if (dlg.execute()) {
-         params.save();
-      }
-   };
-
-   //--- Buttons ---
-   this.execButton = new PushButton(this);
-   this.execButton.text = "Execute";
-   this.execButton.icon = this.scaledResource(":/icons/power.png");
-   this.execButton.onClick = function () {
-      this.dialog.ok();
-   };
-
-   // Focal length と Pixel pitch が両方入力されている場合のみ Execute を有効化
-   updateScaleAndButton();
-
-   this.cancelButton = new PushButton(this);
-   this.cancelButton.text = "Cancel";
-   this.cancelButton.icon = this.scaledResource(":/icons/cancel.png");
-   this.cancelButton.onClick = function () {
-      this.dialog.cancel();
+   this.closeButton = new PushButton(this);
+   this.closeButton.text = "\u9589\u3058\u308b";
+   this.closeButton.icon = this.scaledResource(":/icons/close.png");
+   this.closeButton.onClick = function() {
+      self.cancel();
    };
 
    var buttonSizer = new HorizontalSizer;
-   buttonSizer.spacing = 8;
-   buttonSizer.add(this.settingsButton);
+   buttonSizer.spacing = 6;
    buttonSizer.addStretch();
-   buttonSizer.add(this.execButton);
-   buttonSizer.add(this.cancelButton);
+   buttonSizer.add(this.solveButton);
+   buttonSizer.add(this.closeButton);
 
-   //--- Layout ---
+   // ---- Layout ----
    this.sizer = new VerticalSizer;
    this.sizer.margin = 8;
-   this.sizer.spacing = 8;
-   this.sizer.add(infoGroup);
-   this.sizer.add(equipGroup);
-   this.sizer.add(gridGroup);
-   this.sizer.add(coordGroup);
+   this.sizer.spacing = 6;
+   this.sizer.add(targetSizer);
+   this.sizer.add(apiKeySizer);
+   this.sizer.add(equipSizer);
+   this.sizer.add(this.fovInfoLabel);
+   this.sizer.add(scaleSizer);
+   this.sizer.add(objectSizer);
+   this.sizer.add(coordSizer);
+   this.sizer.add(gridSizer);
+   this.sizer.add(optionSizer);
+   this.sizer.addSpacing(4);
+   this.sizer.add(this.progressLabel);
    this.sizer.addSpacing(4);
    this.sizer.add(buttonSizer);
 
    this.adjustToContents();
+   this.setMinWidth(500);
 }
 
-ParameterDialog.prototype = new Dialog;
+SplitSolverDialog.prototype = new Dialog;
 
 //============================================================================
-//main() - エントリーポイント
+// Solve execution
 //============================================================================
+
+SplitSolverDialog.prototype.doSolve = function() {
+   var self = this;
+
+   // Validation
+   var targetWindow = ImageWindow.activeWindow;
+   if (targetWindow.isNull) {
+      var msg = new MessageBox("\u753b\u50cf\u3092\u958b\u3044\u3066\u304b\u3089\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", TITLE, StdIcon_Error, StdButton_Ok);
+      msg.execute();
+      return;
+   }
+
+   var apiKey = this.apiKeyEdit.text.trim();
+   if (apiKey.length === 0) {
+      var msg = new MessageBox("API \u30ad\u30fc\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002", TITLE, StdIcon_Error, StdButton_Ok);
+      msg.execute();
+      return;
+   }
+
+   // Save API key
+   Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
+
+   // Build hint parameters
+   var hints = {};
+   hints.tweak_order = [2, 3, 4][this.sipCombo.currentItem];
+
+   // Downsample (for single mode only; split mode uses auto-downsample per tile)
+   if (this.downsampleCombo.currentItem === 1) hints.downsample_factor = 2;
+   else if (this.downsampleCombo.currentItem === 2) hints.downsample_factor = 4;
+
+   // Scale
+   var scaleText = this.scaleEdit.text.trim();
+   if (scaleText.length > 0) {
+      var scale = parseFloat(scaleText);
+      if (!isNaN(scale) && scale > 0) {
+         hints.scale_units = "arcsecperpix";
+         hints.scale_est = scale;
+         var errText = this.scaleErrorEdit.text.trim();
+         var errPct = parseFloat(errText);
+         hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
+         Settings.write(SETTINGS_KEY + "/pixelScale", DataType_Double, scale);
+      }
+   }
+
+   // RA/DEC hints
+   var ra = parseRAInput(this.raEdit.text);
+   var dec = parseDECInput(this.decEdit.text);
+   if (ra !== null && dec !== null) {
+      hints.center_ra = ra;
+      hints.center_dec = dec;
+      var radius = parseFloat(this.radiusEdit.text);
+      hints.radius = (!isNaN(radius) && radius > 0) ? radius : 15;
+   }
+
+   // Projection type from lens selection
+   var projection = "rectilinear";
+   if (equipDB) {
+      var lensIdx = this.lensCombo.currentItem - 1;
+      if (lensIdx >= 0 && lensIdx < equipDB.lenses.length) {
+         projection = equipDB.lenses[lensIdx].projection || "rectilinear";
+      }
+   }
+   hints._projection = projection;
+
+   // Grid settings
+   var gridPreset = this.gridPresets[this.gridCombo.currentItem];
+   var gridX = gridPreset[0];
+   var gridY = gridPreset[1];
+   var isSplitMode = (gridX > 1 || gridY > 1);
+   var overlap = parseInt(this.overlapEdit.text) || 200;
+
+   // Lock UI
+   this.solveButton.enabled = false;
+   this.progressLabel.text = "\u30bd\u30eb\u30d6\u958b\u59cb...";
+   processEvents();
+
+   var imageWidth = targetWindow.mainView.image.width;
+   var imageHeight = targetWindow.mainView.image.height;
+
+   if (isSplitMode) {
+      this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+   } else {
+      this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight);
+   }
+
+   this.solveButton.enabled = true;
+};
+
+//----------------------------------------------------------------------------
+// Single image solve (original Phase 1 flow)
+//----------------------------------------------------------------------------
+SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints, imageWidth, imageHeight) {
+   // Save image to temporary FITS
+   var tmpFits = File.systemTempDirectory + "/split_solver_upload.fits";
+   console.writeln("Saving temporary FITS: " + tmpFits);
+   this.progressLabel.text = "\u753b\u50cf\u3092 FITS \u306b\u66f8\u304d\u51fa\u3057\u4e2d...";
+   processEvents();
+
+   var format = new FileFormat("FITS");
+   if (format.isNull) {
+      console.writeln("ERROR: FITS format not available");
+      this.progressLabel.text = "\u30a8\u30e9\u30fc: FITS \u30d5\u30a9\u30fc\u30de\u30c3\u30c8\u304c\u5229\u7528\u3067\u304d\u307e\u305b\u3093";
+      return;
+   }
+   var writer = new FileFormatInstance(format);
+   if (!writer.create(tmpFits)) {
+      console.writeln("ERROR: Cannot create file: " + tmpFits);
+      this.progressLabel.text = "\u30a8\u30e9\u30fc: \u30d5\u30a1\u30a4\u30eb\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f";
+      return;
+   }
+   var imgDesc = new ImageDescription;
+   imgDesc.bitsPerSample = 32;
+   imgDesc.ieeefpSampleFormat = true;
+   writer.setOptions([imgDesc]);
+   if (!writer.writeImage(targetWindow.mainView.image)) {
+      console.writeln("ERROR: Cannot write image");
+      writer.close();
+      this.progressLabel.text = "\u30a8\u30e9\u30fc: \u753b\u50cf\u66f8\u304d\u51fa\u3057\u306b\u5931\u6557\u3057\u307e\u3057\u305f";
+      return;
+   }
+   writer.close();
+
+   var client = new AstrometryClient(apiKey);
+
+   try {
+      // Login
+      this.progressLabel.text = "API \u30ed\u30b0\u30a4\u30f3\u4e2d...";
+      processEvents();
+      console.writeln("Logging in to astrometry.net...");
+      if (!client.login()) {
+         throw "API \u30ed\u30b0\u30a4\u30f3\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002API \u30ad\u30fc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      }
+      console.writeln("  Login successful, session: " + client.session);
+
+      // Upload
+      this.progressLabel.text = "\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d...";
+      processEvents();
+      console.writeln("Uploading image...");
+      var subId = client.upload(tmpFits, hints);
+      if (subId === null) throw "\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      console.writeln("  Upload successful, submission ID: " + subId);
+
+      // Poll submission
+      this.progressLabel.text = "\u30b5\u30d6\u30df\u30c3\u30b7\u30e7\u30f3\u51e6\u7406\u5f85\u6a5f\u4e2d...";
+      processEvents();
+      var jobId = client.pollSubmission(subId);
+      if (jobId === null) throw "\u30b5\u30d6\u30df\u30c3\u30b7\u30e7\u30f3\u51e6\u7406\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002";
+      console.writeln("  Job ID: " + jobId);
+
+      // Poll job
+      this.progressLabel.text = "\u30bd\u30eb\u30d6\u4e2d... (\u6700\u59275\u5206)";
+      processEvents();
+      var status = client.pollJob(jobId);
+      if (status !== "success") throw "\u30bd\u30eb\u30d6\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002\u30d2\u30f3\u30c8\u30d1\u30e9\u30e1\u30fc\u30bf\u3092\u8abf\u6574\u3057\u3066\u30ea\u30c8\u30e9\u30a4\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      console.writeln("  Solve successful!");
+
+      // Get calibration
+      this.progressLabel.text = "\u7d50\u679c\u53d6\u5f97\u4e2d...";
+      processEvents();
+      var calibration = client.getCalibration(jobId);
+      if (!calibration) throw "\u30ad\u30e3\u30ea\u30d6\u30ec\u30fc\u30b7\u30e7\u30f3\u60c5\u5831\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      console.writeln("  Calibration: RA=" + calibration.ra.toFixed(4) +
+                       " Dec=" + calibration.dec.toFixed(4) +
+                       " scale=" + calibration.pixscale.toFixed(4) + " arcsec/px" +
+                       " rotation=" + calibration.orientation.toFixed(2) + " deg");
+
+      // Get WCS file
+      var wcsPath = File.systemTempDirectory + "/split_solver_wcs.fits";
+      if (!client.getWcsFile(jobId, wcsPath)) throw "WCS \u30d5\u30a1\u30a4\u30eb\u306e\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      console.writeln("  WCS file downloaded: " + wcsPath);
+
+      // Parse WCS from FITS
+      this.progressLabel.text = "WCS \u9069\u7528\u4e2d...";
+      processEvents();
+      var wcsData = readWcsFromFits(wcsPath);
+      if (!wcsData) throw "WCS FITS \u30d5\u30a1\u30a4\u30eb\u306e\u8aad\u307f\u53d6\u308a\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+
+      var wcsResult = convertToWcsResult(wcsData, imageWidth, imageHeight);
+      this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, calibration);
+
+   } catch (e) {
+      var errMsg = (typeof e === "string") ? e : e.toString();
+      console.writeln("ERROR: " + errMsg);
+      this.progressLabel.text = "\u30a8\u30e9\u30fc: " + errMsg;
+      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+      msg.execute();
+   }
+
+   // Clean up
+   try {
+      if (File.exists(tmpFits)) File.remove(tmpFits);
+      var wcsCleanPath = File.systemTempDirectory + "/split_solver_wcs.fits";
+      if (File.exists(wcsCleanPath)) File.remove(wcsCleanPath);
+   } catch (e) {}
+};
+
+//----------------------------------------------------------------------------
+// Split image solve (Phase 2: tile splitting + multi-solve + WCS merge)
+//----------------------------------------------------------------------------
+SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight) {
+   var self = this;
+   var tiles = [];
+
+   try {
+      // 1. Split image into tiles
+      this.progressLabel.text = "\u753b\u50cf\u3092\u30bf\u30a4\u30eb\u306b\u5206\u5272\u4e2d... (" + gridX + "x" + gridY + ")";
+      processEvents();
+      console.writeln("");
+      console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
+
+      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap);
+      if (tiles.length === 0) throw "\u30bf\u30a4\u30eb\u5206\u5272\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+
+      // 2. Login to astrometry.net
+      this.progressLabel.text = "API \u30ed\u30b0\u30a4\u30f3\u4e2d...";
+      processEvents();
+      var client = new AstrometryClient(apiKey);
+      console.writeln("Logging in to astrometry.net...");
+      if (!client.login()) throw "API \u30ed\u30b0\u30a4\u30f3\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002API \u30ad\u30fc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      console.writeln("  Login successful");
+
+      // 3. Solve all tiles
+      console.writeln("");
+      console.writeln("<b>Solving " + tiles.length + " tiles...</b>");
+
+      var successCount = solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight,
+         function(message, tileIdx) {
+            self.progressLabel.text = message;
+            processEvents();
+         }
+      );
+
+      // Print pass 1 tile grid status
+      console.writeln("");
+      console.writeln("<b>Pass 1 results:</b>");
+      for (var row = 0; row < gridY; row++) {
+         var line = "  ";
+         for (var col = 0; col < gridX; col++) {
+            var found = false;
+            for (var t = 0; t < tiles.length; t++) {
+               if (tiles[t].col === col && tiles[t].row === row) {
+                  line += (tiles[t].status === "success") ? "\u25cb " : "\u00d7 ";
+                  found = true;
+                  break;
+               }
+            }
+            if (!found) line += "- ";
+         }
+         console.writeln(line);
+      }
+      console.writeln("Pass 1: " + successCount + "/" + tiles.length + " tiles solved");
+
+      // 4. Pass 2: Retry failed tiles with refined hints
+      if (successCount > 0 && successCount < tiles.length) {
+         this.progressLabel.text = "Pass 2: \u5931\u6557\u30bf\u30a4\u30eb\u3092\u30ea\u30c8\u30e9\u30a4\u4e2d...";
+         processEvents();
+
+         var additionalSolved = retryFailedTiles(client, tiles, hints, imageWidth, imageHeight,
+            function(message, tileIdx) {
+               self.progressLabel.text = message;
+               processEvents();
+            }
+         );
+         successCount += additionalSolved;
+
+         if (additionalSolved > 0) {
+            console.writeln("");
+            console.writeln("<b>After pass 2:</b>");
+            for (var row = 0; row < gridY; row++) {
+               var line = "  ";
+               for (var col = 0; col < gridX; col++) {
+                  var found = false;
+                  for (var t = 0; t < tiles.length; t++) {
+                     if (tiles[t].col === col && tiles[t].row === row) {
+                        line += (tiles[t].status === "success") ? "\u25cb " : "\u00d7 ";
+                        found = true;
+                        break;
+                     }
+                  }
+                  if (!found) line += "- ";
+               }
+               console.writeln(line);
+            }
+            console.writeln("Total: " + successCount + "/" + tiles.length + " tiles solved");
+         }
+      }
+
+      if (successCount < 2) {
+         throw "\u30bd\u30eb\u30d6\u3067\u304d\u305f\u30bf\u30a4\u30eb\u304c\u5c11\u306a\u3059\u304e\u307e\u3059 (" + successCount + "/" + tiles.length + ")\u3002\u6700\u4f4e2\u30bf\u30a4\u30eb\u5fc5\u8981\u3067\u3059\u3002";
+      }
+
+      // 5. Overlap validation
+      this.progressLabel.text = "\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7\u691c\u8a3c\u4e2d...";
+      processEvents();
+
+      var invalidated = validateOverlap(tiles, imageWidth, imageHeight);
+      if (invalidated > 0) {
+         successCount -= invalidated;
+         console.writeln(invalidated + " tiles invalidated by overlap check");
+         if (successCount < 2) {
+            throw "\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7\u691c\u8a3c\u5f8c\u3001\u6709\u52b9\u306a\u30bf\u30a4\u30eb\u304c\u5c11\u306a\u3059\u304e\u307e\u3059 (" + successCount + "/" + tiles.length + ")\u3002";
+         }
+      }
+
+      // 6. Merge WCS solutions
+      this.progressLabel.text = "WCS \u7d71\u5408\u4e2d...";
+      processEvents();
+      console.writeln("");
+      console.writeln("<b>Merging WCS solutions from " + successCount + " tiles...</b>");
+
+      var wcsResult = mergeWcsSolutions(tiles, imageWidth, imageHeight);
+      if (!wcsResult) throw "WCS \u7d71\u5408\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+
+      // 7. Apply unified WCS
+      this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, null);
+
+      // Summary message
+      var msg = new MessageBox("\u5206\u5272\u30bd\u30eb\u30d6\u304c\u5b8c\u4e86\u3057\u307e\u3057\u305f\u3002\n\n" +
+         "\u30bf\u30a4\u30eb: " + successCount + "/" + tiles.length + " \u6210\u529f" +
+         (invalidated > 0 ? " (" + invalidated + "\u500b\u7121\u52b9\u5316)" : "") + "\n" +
+         "RMS: " + wcsResult.rmsArcsec.toFixed(2) + " arcsec",
+         TITLE, StdIcon_Information, StdButton_Ok);
+      msg.execute();
+
+   } catch (e) {
+      var errMsg = (typeof e === "string") ? e : e.toString();
+      console.writeln("ERROR: " + errMsg);
+      this.progressLabel.text = "\u30a8\u30e9\u30fc: " + errMsg;
+      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+      msg.execute();
+   }
+
+   // Clean up tile temp files
+   try {
+      if (tiles) {
+         for (var i = 0; i < tiles.length; i++) {
+            if (tiles[i].filePath && File.exists(tiles[i].filePath)) {
+               File.remove(tiles[i].filePath);
+            }
+         }
+      }
+   } catch (e) {}
+};
+
+//----------------------------------------------------------------------------
+// Common: Apply WCS and display coordinates
+//----------------------------------------------------------------------------
+SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, imageWidth, imageHeight, calibration) {
+   console.writeln("");
+   console.writeln("<b>Applying WCS to image: " + targetWindow.mainView.id + "</b>");
+   console.writeln("  CRVAL = (" + wcsResult.crval1.toFixed(6) + ", " + wcsResult.crval2.toFixed(6) + ")");
+   console.writeln("  CRPIX = (" + wcsResult.crpix1.toFixed(2) + ", " + wcsResult.crpix2.toFixed(2) + ")");
+   console.writeln("  CD = [[" + wcsResult.cd[0][0].toExponential(6) + ", " + wcsResult.cd[0][1].toExponential(6) + "],");
+   console.writeln("        [" + wcsResult.cd[1][0].toExponential(6) + ", " + wcsResult.cd[1][1].toExponential(6) + "]]");
+   if (wcsResult.sip) {
+      console.writeln("  SIP order: " + wcsResult.sip.order);
+   }
+   if (wcsResult.rmsArcsec !== undefined) {
+      console.writeln("  RMS residual: " + wcsResult.rmsArcsec.toFixed(2) + " arcsec");
+   }
+
+   // Apply WCS
+   targetWindow.mainView.beginProcess(UndoFlag_Keywords);
+   applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight);
+   setCustomControlPoints(targetWindow, wcsResult, [], imageWidth, imageHeight, "off");
+   targetWindow.mainView.endProcess();
+
+   // Display coordinates
+   var wcsObj = {
+      crval1: wcsResult.crval1, crval2: wcsResult.crval2,
+      crpix1: wcsResult.crpix1, crpix2: wcsResult.crpix2,
+      cd1_1: wcsResult.cd[0][0], cd1_2: wcsResult.cd[0][1],
+      cd2_1: wcsResult.cd[1][0], cd2_2: wcsResult.cd[1][1],
+      sip: wcsResult.sip
+   };
+   displayImageCoordinates(wcsObj, imageWidth, imageHeight);
+
+   this.progressLabel.text = "\u30bd\u30eb\u30d6\u5b8c\u4e86!";
+   console.writeln("");
+   console.writeln("<b>Solve completed successfully!</b>");
+
+   if (calibration) {
+      var msg = new MessageBox("\u30bd\u30eb\u30d6\u304c\u5b8c\u4e86\u3057\u307e\u3057\u305f\u3002\n\n" +
+         "RA: " + raToHMS(calibration.ra) + "\n" +
+         "DEC: " + decToDMS(calibration.dec) + "\n" +
+         "Scale: " + calibration.pixscale.toFixed(4) + " arcsec/px\n" +
+         "Rotation: " + calibration.orientation.toFixed(2) + " deg",
+         TITLE, StdIcon_Information, StdButton_Ok);
+      msg.execute();
+   }
+};
+
+//============================================================================
+// Main entry point
+//============================================================================
+
 function main() {
    console.show();
    console.writeln("<b>" + TITLE + " v" + VERSION + "</b>");
-   console.writeln("================================");
+   console.writeln("---");
 
-   //1. 保存済み設定を読み込み
-   var params = new SolverParameters;
-   params.load();
-
-   //2. アクティブなImageWindowを取得
-   var window = ImageWindow.activeWindow;
-   if (window.isNull) {
-      var mb = new MessageBox(
-         "No active image window.\nPlease open an image first.",
-         TITLE, StdIcon_Error, StdButton_Ok);
-      mb.execute();
-      return;
-   }
-
-   //3. 画像情報を表示
-   var filePath = window.filePath;
-   if (filePath.length > 0) {
-      console.writeln("Image: " + filePath);
-   } else {
-      console.writeln("Image: (unsaved)");
-   }
-   console.writeln(format("Size: %d x %d", window.mainView.image.width,
-      window.mainView.image.height));
-
-   //4. 環境設定が未設定なら設定ダイアログを表示
-   if (!params.isConfigured()) {
-      console.writeln("Python environment not configured. Opening settings...");
-      var settingsDlg = new SettingsDialog(params);
-      if (!settingsDlg.execute()) {
-         console.writeln("Setup cancelled by user.");
-         return;
-      }
-      params.save();
-   }
-
-   //5. FITSキーワードからメタデータを自動取得
-   var engine = new SolverEngine;
-   var metadata = engine.extractMetadataFromWindow(window);
-
-   if (metadata.ra !== undefined) {
-      console.writeln(format("Auto-detected RA: %s (%.4f\u00B0)", degreesToHMS(metadata.ra), metadata.ra));
-      params.ra = metadata.ra;
-   }
-   if (metadata.dec !== undefined) {
-      console.writeln(format("Auto-detected DEC: %s (%.4f\u00B0)", degreesToDMS(metadata.dec), metadata.dec));
-      params.dec = metadata.dec;
-   }
-   if (metadata.focalLength !== undefined) {
-      console.writeln(format("Auto-detected focal length: %.1f mm", metadata.focalLength));
-      params.focalLength = metadata.focalLength;
-   }
-   if (metadata.pixelSize !== undefined) {
-      console.writeln(format("Auto-detected pixel pitch: %.2f \u00B5m", metadata.pixelSize));
-      params.pixelPitch = metadata.pixelSize;
-   }
-
-   //5b. 機材データベース取得
-   console.writeln("Loading equipment database...");
-   var equipDB = engine.loadEquipmentDB(params);
-   if (equipDB) {
-      params.equipmentDB = equipDB;
-      var nCams = 0, nLenses = 0;
-      for (var ck in equipDB.cameras) if (equipDB.cameras.hasOwnProperty(ck)) nCams++;
-      for (var lk2 in equipDB.lenses) if (equipDB.lenses.hasOwnProperty(lk2)) nLenses++;
-      console.writeln("Equipment DB loaded: " + nCams + " cameras, " + nLenses + " lenses");
-
-      //INSTRUME 自動マッチング → カメラ選択 + pixel_pitch 自動取得
-      if (metadata.instrume && metadata.instrume.length > 0) {
-         console.writeln("INSTRUME header: " + metadata.instrume);
-         if (equipDB.cameras && equipDB.cameras.hasOwnProperty(metadata.instrume)) {
-            params.camera = metadata.instrume;
-            var camInfo = equipDB.cameras[metadata.instrume];
-            if (camInfo.pixel_pitch_um) {
-               // XPIXSZ ヘッダーよりequipment DB値を優先（XPIXSZ は不正確な場合がある）
-               if (params.pixelPitch !== undefined && params.pixelPitch !== null
-                   && Math.abs(params.pixelPitch - camInfo.pixel_pitch_um) > 0.1) {
-                  console.warningln(format("XPIXSZ header (%.2f \u00B5m) differs from equipment DB (%.2f \u00B5m). Using DB value.",
-                     params.pixelPitch, camInfo.pixel_pitch_um));
-               }
-               params.pixelPitch = camInfo.pixel_pitch_um;
-               console.writeln("Auto-matched camera: " + camInfo.display_name
-                  + " (pixel pitch: " + camInfo.pixel_pitch_um.toFixed(2) + " \u00B5m)");
-            }
-         }
-      }
-
-      //焦点距離からレンズを自動推定
-      if (metadata.focalLength !== undefined) {
-         var bestLensKey = "";
-         var lenses = equipDB.lenses;
-         for (var lk in lenses) {
-            if (lenses.hasOwnProperty(lk)) {
-               if (lenses[lk].focal_length_mm !== undefined) {
-                  if (Math.abs(lenses[lk].focal_length_mm - metadata.focalLength) < 0.5) {
-                     bestLensKey = lk;
-                     break;
-                  }
-               }
-            }
-         }
-         if (bestLensKey.length > 0) {
-            params.lens = bestLensKey;
-            var matchedLens = equipDB.lenses[bestLensKey];
-            console.writeln("Auto-matched lens: " + matchedLens.display_name);
-            // レンズの投影型を取得（魚眼レンズ対応）
-            if (matchedLens.type) {
-               params.lensType = matchedLens.type;
-               if (matchedLens.type !== "rectilinear") {
-                  params.fisheye = true;
-                  console.writeln("Lens type: " + matchedLens.type + " (non-rectilinear projection)");
-               }
-            }
-         }
-      }
-   } else {
-      console.warningln("Equipment DB not available (Python not configured or DB load failed).");
-   }
-
-   //6. パラメータダイアログ表示
-   var windowInfo = {
-      name: window.mainView.id,
-      width: window.mainView.image.width,
-      height: window.mainView.image.height
-   };
-
-   var paramDlg = new ParameterDialog(params, windowInfo);
-   if (!paramDlg.execute()) {
-      console.writeln("Cancelled by user.");
-      return;
-   }
-
-   //7. 設定を保存
-   params.save();
-
-   //8. 現在のビュー状態を一時ファイルに保存してPython main.pyを実行
-   console.writeln("");
-   console.writeln("<b>Starting solver...</b>");
-   console.flush();
-
-   // 一時ファイルパスを生成
-   var tmpInput = File.systemTempDirectory + "/split_solver_input.xisf";
-   var tmpOutput = File.systemTempDirectory + "/split_solver_output.xisf";
-
-   try {
-      // 現在のビュー状態（編集中のピクセルデータ含む）を一時XISFに保存
-      // FileFormatInstanceを使い、window.filePathを変えないようにする
-      console.writeln("Saving current view to temporary file...");
-      if (File.exists(tmpInput)) File.remove(tmpInput);
-
-      var xisfFormat = new FileFormat("XISF", false/*toRead*/, true/*toWrite*/);
-      var writer = new FileFormatInstance(xisfFormat);
-      if (!writer.create(tmpInput))
-         throw new Error("Failed to create temp file: " + tmpInput);
-      // FITSキーワードをコピー（メタデータ保持のため）
-      writer.keywords = window.keywords;
-      var imgDesc = new ImageDescription;
-      imgDesc.bitsPerSample = 32;
-      imgDesc.ieeefpSampleFormat = true;
-      if (!writer.setOptions(imgDesc))
-         throw new Error("Failed to set image options for temp file");
-      if (!writer.writeImage(window.mainView.image))
-         throw new Error("Failed to write image data to temp file");
-      writer.close();
-      console.writeln("Saved: " + tmpInput);
-
-      var result = engine.execute(tmpInput, tmpOutput, params);
-
-      if (result.success) {
-         //9. 成功時: WCSキーワードをアクティブウィンドウに直接適用
-         console.writeln("");
-         console.writeln("<b>Solver completed successfully!</b>");
-         console.writeln("Applying WCS keywords to active window...");
-
-         if (result.wcs_keywords) {
-            // 既存キーワードからWCS関連を除去
-            var existingKw = window.keywords;
-            var cleanedKw = [];
-            for (var i = 0; i < existingKw.length; i++) {
-               if (!isWCSKeyword(existingKw[i].name)) {
-                  cleanedKw.push(existingKw[i]);
-               }
-            }
-
-            // 新しいWCSキーワードを追加
-            var wcsKeys = result.wcs_keywords;
-            var addedCount = 0;
-            for (var key in wcsKeys) {
-               if (wcsKeys.hasOwnProperty(key)) {
-                  cleanedKw.push(makeFITSKeyword(key, wcsKeys[key]));
-                  addedCount++;
-               }
-            }
-
-            window.keywords = cleanedKw;
-            console.writeln(format("Added %d WCS keywords.", addedCount));
-
-            // アストロメトリックソリューション表示を再生成
-            window.regenerateAstrometricSolution();
-            console.writeln("Astrometric solution applied. View state preserved.");
-         } else {
-            console.warningln("No WCS keywords in result. Falling back to file reload...");
-            // フォールバック: 一時出力ファイルからWCSを読み込み
-            if (File.exists(tmpOutput)) {
-               // ウィンドウ位置とSTFを保存
-               var savedPosition = new Point(window.position.x, window.position.y);
-               var savedSTF = [];
-               for (var si = 0; si < window.mainView.stf.length; si++) {
-                  savedSTF.push(window.mainView.stf[si]);
-               }
-               var savedZoom = window.zoomFactor;
-
-               var id = window.mainView.id;
-               window.forceClose();
-               var newWindows = ImageWindow.open(tmpOutput);
-               if (newWindows.length > 0) {
-                  var newWin = newWindows[0];
-                  // STFを復元
-                  try {
-                     newWin.mainView.stf = savedSTF;
-                  } catch (e) {
-                     console.warningln("Failed to restore STF: " + e.message);
-                  }
-                  // ウィンドウ位置を復元
-                  try {
-                     newWin.position = savedPosition;
-                     if (savedZoom !== 0) {
-                        newWin.zoomFactor = savedZoom;
-                     }
-                  } catch (e) {
-                     console.warningln("Failed to restore window position: " + e.message);
-                  }
-                  newWin.show();
-                  console.writeln("Image loaded from solver output (view state restored).");
-               } else {
-                  console.warningln("Failed to open solver output.");
-               }
-            }
-         }
-      }
-      else {
-         //実行は正常終了したが結果がfalseの場合
-         var mb = new MessageBox(
-            "Solver completed but reported failure.\n" +
-            "Check the console for details.",
-            TITLE, StdIcon_Warning, StdButton_Ok);
-         mb.execute();
-      }
-   }
-   catch (error) {
-      //10. 失敗時
-      if (error.message.indexOf("aborted by user") >= 0) {
-         // Abort はユーザー操作なのでエラーダイアログは出さない
-         console.warningln("Solver aborted by user.");
-      } else {
-         console.criticalln("Error: " + error.message);
-         var mb = new MessageBox(
-            "Solver failed:\n\n" + error.message +
-            "\n\nCheck the Process Console for details.",
-            TITLE, StdIcon_Error, StdButton_Ok);
-         mb.execute();
-      }
-   }
-   finally {
-      // 一時ファイルのクリーンアップ
-      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
-      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
-   }
-
-   console.writeln("");
-   console.writeln("================================");
-   console.writeln(TITLE + " finished.");
+   var dialog = new SplitSolverDialog();
+   dialog.execute();
 }
 
 main();
