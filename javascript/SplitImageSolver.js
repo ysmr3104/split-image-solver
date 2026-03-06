@@ -1407,13 +1407,13 @@ function SplitSolverDialog() {
    var targetWindow = ImageWindow.activeWindow;
 
    this.targetLabel = new Label(this);
-   this.targetLabel.text = "\u5bfe\u8c61\u753b\u50cf:";
+   this.targetLabel.text = "Target:";
    this.targetLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    this.targetLabel.setFixedWidth(80);
 
    this.targetEdit = new Edit(this);
    this.targetEdit.readOnly = true;
-   this.targetEdit.text = targetWindow.isNull ? "(\u753b\u50cf\u3092\u958b\u3044\u3066\u304f\u3060\u3055\u3044)" : targetWindow.mainView.id;
+   this.targetEdit.text = targetWindow.isNull ? "(No active image)" : targetWindow.mainView.id;
 
    var targetSizer = new HorizontalSizer;
    targetSizer.spacing = 6;
@@ -1422,14 +1422,14 @@ function SplitSolverDialog() {
 
    // ---- API key ----
    this.apiKeyLabel = new Label(this);
-   this.apiKeyLabel.text = "API \u30ad\u30fc:";
+   this.apiKeyLabel.text = "API Key:";
    this.apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    this.apiKeyLabel.setFixedWidth(80);
 
    this.apiKeyEdit = new Edit(this);
    this.apiKeyEdit.text = savedApiKey || "";
    this.apiKeyEdit.setMinWidth(300);
-   this.apiKeyEdit.toolTip = "nova.astrometry.net \u306e API \u30ad\u30fc\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044";
+   this.apiKeyEdit.toolTip = "Enter your nova.astrometry.net API key";
 
    var apiKeySizer = new HorizontalSizer;
    apiKeySizer.spacing = 6;
@@ -1440,12 +1440,12 @@ function SplitSolverDialog() {
    var equipDB = loadEquipmentDB();
 
    this.cameraLabel = new Label(this);
-   this.cameraLabel.text = "\u30ab\u30e1\u30e9:";
+   this.cameraLabel.text = "Camera:";
    this.cameraLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    this.cameraLabel.setFixedWidth(80);
 
    this.cameraCombo = new ComboBox(this);
-   this.cameraCombo.addItem("(\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044)");
+   this.cameraCombo.addItem("(Select)");
    if (equipDB && equipDB.cameras) {
       for (var ci = 0; ci < equipDB.cameras.length; ci++) {
          this.cameraCombo.addItem(equipDB.cameras[ci].name);
@@ -1472,11 +1472,11 @@ function SplitSolverDialog() {
    }
 
    this.lensLabel = new Label(this);
-   this.lensLabel.text = "\u30ec\u30f3\u30ba:";
+   this.lensLabel.text = "Lens:";
    this.lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.lensCombo = new ComboBox(this);
-   this.lensCombo.addItem("(\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044)");
+   this.lensCombo.addItem("(Select)");
    if (equipDB && equipDB.lenses) {
       for (var li = 0; li < equipDB.lenses.length; li++) {
          this.lensCombo.addItem(equipDB.lenses[li].name);
@@ -1545,7 +1545,7 @@ function SplitSolverDialog() {
             var diagFov = computeDiagonalFov(sW, sH, ps);
             var rec = recommendGrid(diagFov, sW, sH);
             self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
-               diagFov.toFixed(1) + "\u00b0 | \u63a8\u5968: " + rec.cols + "x" + rec.rows;
+               diagFov.toFixed(1) + "\u00b0 | Recommended: " + rec.cols + "x" + rec.rows;
 
             // Auto-select recommended grid
             var presetIdx = findGridPresetIndex(self.gridPresets, rec.cols, rec.rows);
@@ -1579,19 +1579,19 @@ function SplitSolverDialog() {
    this.scaleEdit = new Edit(this);
    this.scaleEdit.text = (savedScale && savedScale > 0) ? savedScale.toFixed(3) : "";
    this.scaleEdit.setFixedWidth(100);
-   this.scaleEdit.toolTip = "\u30d4\u30af\u30bb\u30eb\u30b9\u30b1\u30fc\u30eb (arcsec/px)\u3002\u7a7a\u6b04\u306e\u5834\u5408\u306f\u30d6\u30e9\u30a4\u30f3\u30c9\u30bd\u30eb\u30d6";
+   this.scaleEdit.toolTip = "Pixel scale (arcsec/px). Leave blank for blind solve";
 
    this.scaleUnitLabel = new Label(this);
-   this.scaleUnitLabel.text = "arcsec/px (\u4efb\u610f)";
+   this.scaleUnitLabel.text = "arcsec/px (optional)";
 
    this.scaleErrorLabel = new Label(this);
-   this.scaleErrorLabel.text = "\u8aa4\u5dee:";
+   this.scaleErrorLabel.text = "Error:";
    this.scaleErrorLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.scaleErrorEdit = new Edit(this);
    this.scaleErrorEdit.text = "30";
    this.scaleErrorEdit.setFixedWidth(50);
-   this.scaleErrorEdit.toolTip = "\u30b9\u30b1\u30fc\u30eb\u63a8\u5b9a\u8aa4\u5dee (%)";
+   this.scaleErrorEdit.toolTip = "Scale estimation error (%)";
 
    this.scaleErrorUnitLabel = new Label(this);
    this.scaleErrorUnitLabel.text = "%";
@@ -1609,16 +1609,16 @@ function SplitSolverDialog() {
 
    // ---- Object name search ----
    this.objectLabel = new Label(this);
-   this.objectLabel.text = "\u5929\u4f53\u540d:";
+   this.objectLabel.text = "Object:";
    this.objectLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    this.objectLabel.setFixedWidth(80);
 
    this.objectEdit = new Edit(this);
    this.objectEdit.setMinWidth(150);
-   this.objectEdit.toolTip = "\u5929\u4f53\u540d (\u4f8b: M31, NGC 7000)\u3002Sesame \u3067\u691c\u7d22\u3057\u3066 RA/DEC \u3092\u81ea\u52d5\u5165\u529b";
+   this.objectEdit.toolTip = "Object name (e.g. M31, NGC 7000). Sesame search fills RA/DEC automatically";
 
    this.searchButton = new PushButton(this);
-   this.searchButton.text = "\u691c\u7d22";
+   this.searchButton.text = "Search";
    this.searchButton.onClick = function() {
       var name = self.objectEdit.text.trim();
       if (name.length === 0) return;
@@ -1631,7 +1631,7 @@ function SplitSolverDialog() {
          console.writeln("  Found: RA=" + raToHMS(result.ra) + " Dec=" + decToDMS(result.dec));
       } else {
          console.writeln("  Not found: " + name);
-         var msg = new MessageBox("\u5929\u4f53 '" + name + "' \u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3067\u3057\u305f\u3002", TITLE, StdIcon_Warning, StdButton_Ok);
+         var msg = new MessageBox("Object '" + name + "' not found.", TITLE, StdIcon_Warning, StdButton_Ok);
          msg.execute();
       }
    };
@@ -1650,7 +1650,7 @@ function SplitSolverDialog() {
 
    this.raEdit = new Edit(this);
    this.raEdit.setFixedWidth(150);
-   this.raEdit.toolTip = "RA \u30d2\u30f3\u30c8 (HH MM SS.ss or degrees)\u3002\u4efb\u610f";
+   this.raEdit.toolTip = "RA hint (HH MM SS.ss or degrees). Optional";
 
    this.decLabel = new Label(this);
    this.decLabel.text = "DEC:";
@@ -1658,7 +1658,7 @@ function SplitSolverDialog() {
 
    this.decEdit = new Edit(this);
    this.decEdit.setFixedWidth(150);
-   this.decEdit.toolTip = "DEC \u30d2\u30f3\u30c8 (+DD MM SS.s or degrees)\u3002\u4efb\u610f";
+   this.decEdit.toolTip = "DEC hint (+DD MM SS.s or degrees). Optional";
 
    this.radiusLabel = new Label(this);
    this.radiusLabel.text = "Radius:";
@@ -1667,10 +1667,10 @@ function SplitSolverDialog() {
    this.radiusEdit = new Edit(this);
    this.radiusEdit.text = "15";
    this.radiusEdit.setFixedWidth(50);
-   this.radiusEdit.toolTip = "\u691c\u7d22\u534a\u5f84 (\u5ea6)";
+   this.radiusEdit.toolTip = "Search radius (degrees)";
 
    this.radiusUnitLabel = new Label(this);
-   this.radiusUnitLabel.text = "\u5ea6";
+   this.radiusUnitLabel.text = "deg";
 
    var coordSizer = new HorizontalSizer;
    coordSizer.spacing = 6;
@@ -1703,7 +1703,7 @@ function SplitSolverDialog() {
    this.gridCombo.addItem("8x6");
    this.gridCombo.addItem("12x8");
    this.gridCombo.currentItem = 0;
-   this.gridCombo.toolTip = "\u753b\u50cf\u5206\u5272\u30b0\u30ea\u30c3\u30c9 (cols x rows)\u3002\u5e83\u89d2\u753b\u50cf\u306f\u5206\u5272\u3059\u308b\u3068\u30bd\u30eb\u30d6\u6210\u529f\u7387\u304c\u4e0a\u304c\u308a\u307e\u3059";
+   this.gridCombo.toolTip = "Image split grid (cols x rows). Splitting wide-angle images improves solve success rate";
 
    // Grid presets: [cols, rows]
    this.gridPresets = [
@@ -1718,7 +1718,7 @@ function SplitSolverDialog() {
    this.overlapEdit = new Edit(this);
    this.overlapEdit.text = "200";
    this.overlapEdit.setFixedWidth(60);
-   this.overlapEdit.toolTip = "\u30bf\u30a4\u30eb\u9593\u306e\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7 (px)";
+   this.overlapEdit.toolTip = "Overlap between tiles (px)";
 
    this.overlapUnitLabel = new Label(this);
    this.overlapUnitLabel.text = "px";
@@ -1740,11 +1740,11 @@ function SplitSolverDialog() {
    this.downsampleLabel.setFixedWidth(80);
 
    this.downsampleCombo = new ComboBox(this);
-   this.downsampleCombo.addItem("\u81ea\u52d5");
+   this.downsampleCombo.addItem("Auto");
    this.downsampleCombo.addItem("2");
    this.downsampleCombo.addItem("4");
    this.downsampleCombo.currentItem = 0;
-   this.downsampleCombo.toolTip = "API \u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u524d\u306e\u30c0\u30a6\u30f3\u30b5\u30f3\u30d7\u30eb\u4fc2\u6570\u3002\u5206\u5272\u30e2\u30fc\u30c9\u3067\u306f\u81ea\u52d5\u30c0\u30a6\u30f3\u30b5\u30f3\u30d7\u30eb\u304c\u9069\u7528\u3055\u308c\u307e\u3059";
+   this.downsampleCombo.toolTip = "Downsample factor before API upload. Auto-downsample is applied in split mode";
 
    // ---- SIP order ----
    this.sipLabel = new Label(this);
@@ -1752,11 +1752,11 @@ function SplitSolverDialog() {
    this.sipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.sipCombo = new ComboBox(this);
-   this.sipCombo.addItem("2 (\u63a8\u5968)");
+   this.sipCombo.addItem("2 (recommended)");
    this.sipCombo.addItem("3");
    this.sipCombo.addItem("4");
    this.sipCombo.currentItem = 0;
-   this.sipCombo.toolTip = "SIP \u6b6a\u307f\u88dc\u6b63\u306e\u6b21\u6570 (tweak_order)";
+   this.sipCombo.toolTip = "SIP distortion correction polynomial order (tweak_order)";
 
    var optionSizer = new HorizontalSizer;
    optionSizer.spacing = 6;
@@ -1781,7 +1781,7 @@ function SplitSolverDialog() {
    };
 
    this.closeButton = new PushButton(this);
-   this.closeButton.text = "\u9589\u3058\u308b";
+   this.closeButton.text = "Close";
    this.closeButton.icon = this.scaledResource(":/icons/close.png");
    this.closeButton.onClick = function() {
       self.cancel();
@@ -1827,14 +1827,14 @@ SplitSolverDialog.prototype.doSolve = function() {
    // Validation
    var targetWindow = ImageWindow.activeWindow;
    if (targetWindow.isNull) {
-      var msg = new MessageBox("\u753b\u50cf\u3092\u958b\u3044\u3066\u304b\u3089\u5b9f\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002", TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox("Please open an image before running.", TITLE, StdIcon_Error, StdButton_Ok);
       msg.execute();
       return;
    }
 
    var apiKey = this.apiKeyEdit.text.trim();
    if (apiKey.length === 0) {
-      var msg = new MessageBox("API \u30ad\u30fc\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002", TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox("Please enter your API key.", TITLE, StdIcon_Error, StdButton_Ok);
       msg.execute();
       return;
    }
@@ -1893,7 +1893,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    // Lock UI
    this.solveButton.enabled = false;
-   this.progressLabel.text = "\u30bd\u30eb\u30d6\u958b\u59cb...";
+   this.progressLabel.text = "Starting solve...";
    processEvents();
 
    var imageWidth = targetWindow.mainView.image.width;
@@ -1915,19 +1915,19 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    // Save image to temporary FITS
    var tmpFits = File.systemTempDirectory + "/split_solver_upload.fits";
    console.writeln("Saving temporary FITS: " + tmpFits);
-   this.progressLabel.text = "\u753b\u50cf\u3092 FITS \u306b\u66f8\u304d\u51fa\u3057\u4e2d...";
+   this.progressLabel.text = "Saving image as FITS...";
    processEvents();
 
    var format = new FileFormat("FITS");
    if (format.isNull) {
       console.writeln("ERROR: FITS format not available");
-      this.progressLabel.text = "\u30a8\u30e9\u30fc: FITS \u30d5\u30a9\u30fc\u30de\u30c3\u30c8\u304c\u5229\u7528\u3067\u304d\u307e\u305b\u3093";
+      this.progressLabel.text = "Error: FITS format not available";
       return;
    }
    var writer = new FileFormatInstance(format);
    if (!writer.create(tmpFits)) {
       console.writeln("ERROR: Cannot create file: " + tmpFits);
-      this.progressLabel.text = "\u30a8\u30e9\u30fc: \u30d5\u30a1\u30a4\u30eb\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f";
+      this.progressLabel.text = "Error: Failed to create file";
       return;
    }
    var imgDesc = new ImageDescription;
@@ -1937,7 +1937,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    if (!writer.writeImage(targetWindow.mainView.image)) {
       console.writeln("ERROR: Cannot write image");
       writer.close();
-      this.progressLabel.text = "\u30a8\u30e9\u30fc: \u753b\u50cf\u66f8\u304d\u51fa\u3057\u306b\u5931\u6557\u3057\u307e\u3057\u305f";
+      this.progressLabel.text = "Error: Failed to write image";
       return;
    }
    writer.close();
@@ -1946,41 +1946,41 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 
    try {
       // Login
-      this.progressLabel.text = "API \u30ed\u30b0\u30a4\u30f3\u4e2d...";
+      this.progressLabel.text = "Logging in to API...";
       processEvents();
       console.writeln("Logging in to astrometry.net...");
       if (!client.login()) {
-         throw "API \u30ed\u30b0\u30a4\u30f3\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002API \u30ad\u30fc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+         throw "API login failed. Please check your API key.";
       }
       console.writeln("  Login successful, session: " + client.session);
 
       // Upload
-      this.progressLabel.text = "\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u4e2d...";
+      this.progressLabel.text = "Uploading image...";
       processEvents();
       console.writeln("Uploading image...");
       var subId = client.upload(tmpFits, hints);
-      if (subId === null) throw "\u753b\u50cf\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (subId === null) throw "Image upload failed.";
       console.writeln("  Upload successful, submission ID: " + subId);
 
       // Poll submission
-      this.progressLabel.text = "\u30b5\u30d6\u30df\u30c3\u30b7\u30e7\u30f3\u51e6\u7406\u5f85\u6a5f\u4e2d...";
+      this.progressLabel.text = "Waiting for job assignment...";
       processEvents();
       var jobId = client.pollSubmission(subId);
-      if (jobId === null) throw "\u30b5\u30d6\u30df\u30c3\u30b7\u30e7\u30f3\u51e6\u7406\u304c\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3057\u307e\u3057\u305f\u3002";
+      if (jobId === null) throw "Submission timed out.";
       console.writeln("  Job ID: " + jobId);
 
       // Poll job
-      this.progressLabel.text = "\u30bd\u30eb\u30d6\u4e2d... (\u6700\u59275\u5206)";
+      this.progressLabel.text = "Solving... (up to 5 min)";
       processEvents();
       var status = client.pollJob(jobId);
-      if (status !== "success") throw "\u30bd\u30eb\u30d6\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002\u30d2\u30f3\u30c8\u30d1\u30e9\u30e1\u30fc\u30bf\u3092\u8abf\u6574\u3057\u3066\u30ea\u30c8\u30e9\u30a4\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      if (status !== "success") throw "Solve failed. Try adjusting hint parameters.";
       console.writeln("  Solve successful!");
 
       // Get calibration
-      this.progressLabel.text = "\u7d50\u679c\u53d6\u5f97\u4e2d...";
+      this.progressLabel.text = "Retrieving results...";
       processEvents();
       var calibration = client.getCalibration(jobId);
-      if (!calibration) throw "\u30ad\u30e3\u30ea\u30d6\u30ec\u30fc\u30b7\u30e7\u30f3\u60c5\u5831\u306e\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (!calibration) throw "Failed to retrieve calibration data.";
       console.writeln("  Calibration: RA=" + calibration.ra.toFixed(4) +
                        " Dec=" + calibration.dec.toFixed(4) +
                        " scale=" + calibration.pixscale.toFixed(4) + " arcsec/px" +
@@ -1988,14 +1988,14 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 
       // Get WCS file
       var wcsPath = File.systemTempDirectory + "/split_solver_wcs.fits";
-      if (!client.getWcsFile(jobId, wcsPath)) throw "WCS \u30d5\u30a1\u30a4\u30eb\u306e\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (!client.getWcsFile(jobId, wcsPath)) throw "Failed to download WCS file.";
       console.writeln("  WCS file downloaded: " + wcsPath);
 
       // Parse WCS from FITS
-      this.progressLabel.text = "WCS \u9069\u7528\u4e2d...";
+      this.progressLabel.text = "Applying WCS...";
       processEvents();
       var wcsData = readWcsFromFits(wcsPath);
-      if (!wcsData) throw "WCS FITS \u30d5\u30a1\u30a4\u30eb\u306e\u8aad\u307f\u53d6\u308a\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (!wcsData) throw "Failed to parse WCS FITS file.";
 
       var wcsResult = convertToWcsResult(wcsData, imageWidth, imageHeight);
       this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, calibration);
@@ -2003,7 +2003,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
       console.writeln("ERROR: " + errMsg);
-      this.progressLabel.text = "\u30a8\u30e9\u30fc: " + errMsg;
+      this.progressLabel.text = "Error: " + errMsg;
       var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
       msg.execute();
    }
@@ -2025,20 +2025,20 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
 
    try {
       // 1. Split image into tiles
-      this.progressLabel.text = "\u753b\u50cf\u3092\u30bf\u30a4\u30eb\u306b\u5206\u5272\u4e2d... (" + gridX + "x" + gridY + ")";
+      this.progressLabel.text = "Splitting image into tiles... (" + gridX + "x" + gridY + ")";
       processEvents();
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
       tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap);
-      if (tiles.length === 0) throw "\u30bf\u30a4\u30eb\u5206\u5272\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (tiles.length === 0) throw "Tile splitting failed.";
 
       // 2. Login to astrometry.net
-      this.progressLabel.text = "API \u30ed\u30b0\u30a4\u30f3\u4e2d...";
+      this.progressLabel.text = "Logging in to API...";
       processEvents();
       var client = new AstrometryClient(apiKey);
       console.writeln("Logging in to astrometry.net...");
-      if (!client.login()) throw "API \u30ed\u30b0\u30a4\u30f3\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002API \u30ad\u30fc\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      if (!client.login()) throw "API login failed. Please check your API key.";
       console.writeln("  Login successful");
 
       // 3. Solve all tiles
@@ -2074,7 +2074,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
 
       // 4. Pass 2: Retry failed tiles with refined hints
       if (successCount > 0 && successCount < tiles.length) {
-         this.progressLabel.text = "Pass 2: \u5931\u6557\u30bf\u30a4\u30eb\u3092\u30ea\u30c8\u30e9\u30a4\u4e2d...";
+         this.progressLabel.text = "Pass 2: Retrying failed tiles...";
          processEvents();
 
          var additionalSolved = retryFailedTiles(client, tiles, hints, imageWidth, imageHeight,
@@ -2108,11 +2108,11 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       }
 
       if (successCount < 2) {
-         throw "\u30bd\u30eb\u30d6\u3067\u304d\u305f\u30bf\u30a4\u30eb\u304c\u5c11\u306a\u3059\u304e\u307e\u3059 (" + successCount + "/" + tiles.length + ")\u3002\u6700\u4f4e2\u30bf\u30a4\u30eb\u5fc5\u8981\u3067\u3059\u3002";
+         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
       }
 
       // 5. Overlap validation
-      this.progressLabel.text = "\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7\u691c\u8a3c\u4e2d...";
+      this.progressLabel.text = "Validating overlap...";
       processEvents();
 
       var invalidated = validateOverlap(tiles, imageWidth, imageHeight);
@@ -2120,26 +2120,26 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
          successCount -= invalidated;
          console.writeln(invalidated + " tiles invalidated by overlap check");
          if (successCount < 2) {
-            throw "\u30aa\u30fc\u30d0\u30fc\u30e9\u30c3\u30d7\u691c\u8a3c\u5f8c\u3001\u6709\u52b9\u306a\u30bf\u30a4\u30eb\u304c\u5c11\u306a\u3059\u304e\u307e\u3059 (" + successCount + "/" + tiles.length + ")\u3002";
+            throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
          }
       }
 
       // 6. Merge WCS solutions
-      this.progressLabel.text = "WCS \u7d71\u5408\u4e2d...";
+      this.progressLabel.text = "Merging WCS solutions...";
       processEvents();
       console.writeln("");
       console.writeln("<b>Merging WCS solutions from " + successCount + " tiles...</b>");
 
       var wcsResult = mergeWcsSolutions(tiles, imageWidth, imageHeight);
-      if (!wcsResult) throw "WCS \u7d71\u5408\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      if (!wcsResult) throw "WCS merging failed.";
 
       // 7. Apply unified WCS
       this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, null);
 
       // Summary message
-      var msg = new MessageBox("\u5206\u5272\u30bd\u30eb\u30d6\u304c\u5b8c\u4e86\u3057\u307e\u3057\u305f\u3002\n\n" +
-         "\u30bf\u30a4\u30eb: " + successCount + "/" + tiles.length + " \u6210\u529f" +
-         (invalidated > 0 ? " (" + invalidated + "\u500b\u7121\u52b9\u5316)" : "") + "\n" +
+      var msg = new MessageBox("Split solve completed.\n\n" +
+         "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
+         (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
          "RMS: " + wcsResult.rmsArcsec.toFixed(2) + " arcsec",
          TITLE, StdIcon_Information, StdButton_Ok);
       msg.execute();
@@ -2147,7 +2147,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
       console.writeln("ERROR: " + errMsg);
-      this.progressLabel.text = "\u30a8\u30e9\u30fc: " + errMsg;
+      this.progressLabel.text = "Error: " + errMsg;
       var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
       msg.execute();
    }
@@ -2197,12 +2197,12 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
    };
    displayImageCoordinates(wcsObj, imageWidth, imageHeight);
 
-   this.progressLabel.text = "\u30bd\u30eb\u30d6\u5b8c\u4e86!";
+   this.progressLabel.text = "Solve completed!";
    console.writeln("");
    console.writeln("<b>Solve completed successfully!</b>");
 
    if (calibration) {
-      var msg = new MessageBox("\u30bd\u30eb\u30d6\u304c\u5b8c\u4e86\u3057\u307e\u3057\u305f\u3002\n\n" +
+      var msg = new MessageBox("Solve completed.\n\n" +
          "RA: " + raToHMS(calibration.ra) + "\n" +
          "DEC: " + decToDMS(calibration.dec) + "\n" +
          "Scale: " + calibration.pixscale.toFixed(4) + " arcsec/px\n" +
