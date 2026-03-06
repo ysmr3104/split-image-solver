@@ -62,8 +62,8 @@ PixInsight (PJSR のみ)
 ## コマンド
 
 ```bash
-# Node.js 単体テスト（WCS 数学関数）— wcs_math.js のテスト
-node tests/javascript/test_wcs_math.js
+# Node.js 単体テスト（SplitImageSolver の純粋関数）
+node tests/javascript/test_split_solver.js
 
 # リリースビルド（PixInsight リポジトリパッケージ生成）
 bash build-split-release.sh
