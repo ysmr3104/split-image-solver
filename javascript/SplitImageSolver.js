@@ -30,6 +30,18 @@
 
 #define TITLE "Split Image Solver"
 
+// Detect script directory from stack trace for locating equipment.json
+var __scriptDir__ = "";
+try {
+   var __e__ = new Error;
+   if (__e__.stack) {
+      var __m__ = __e__.stack.match(/([^\s]+SplitImageSolver\.js)/);
+      if (__m__) {
+         __scriptDir__ = File.extractDirectory(__m__[1]);
+      }
+   }
+} catch (e) {}
+
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
 //============================================================================
@@ -1275,6 +1287,11 @@ function loadEquipmentDB() {
    // Try common script installation paths
    var candidates = [];
 
+   // Best guess: same directory as this script
+   if (__scriptDir__ && __scriptDir__.length > 0) {
+      candidates.push(__scriptDir__ + "/equipment.json");
+   }
+
    // PixInsight standard script directories
    if (typeof Settings !== "undefined") {
       // Try to find alongside the script
@@ -1291,11 +1308,23 @@ function loadEquipmentDB() {
    var searchDirs = [];
    if (typeof CoreApplication !== "undefined") {
       try {
-         searchDirs = CoreApplication.scriptDirectories;
+         var dirs = CoreApplication.scriptDirectories;
+         if (dirs) searchDirs = dirs;
       } catch (e) {}
    }
    for (var i = 0; i < searchDirs.length; i++) {
       candidates.push(searchDirs[i] + "/SplitImageSolver/equipment.json");
+   }
+
+   // Try well-known platform paths
+   var platformPaths = [
+      "/Applications/PixInsight/src/scripts/SplitImageSolver/equipment.json",
+      File.homeDirectory + "/PixInsight/src/scripts/SplitImageSolver/equipment.json",
+      "C:/Program Files/PixInsight/src/scripts/SplitImageSolver/equipment.json",
+      "/opt/PixInsight/src/scripts/SplitImageSolver/equipment.json"
+   ];
+   for (var p = 0; p < platformPaths.length; p++) {
+      candidates.push(platformPaths[p]);
    }
 
    // Fallback: try relative to current working directory
