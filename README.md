@@ -1,434 +1,181 @@
 # Split Image Solver
 
-広角星野写真を分割してプレートソルブし、統合したWCS座標情報を元画像に適用するツールです。
+広角星野写真を分割してプレートソルブし、統合したWCS座標情報を元画像に適用する PixInsight スクリプトです。
 
-PixInsightの ImageSolver では対応できない超広角な範囲の星空画像に対応します。
+PixInsight の ImageSolver では対応できない超広角な範囲の星空画像に対応します。
+**Python 不要** — PixInsight の PJSR ネイティブ実装で、astrometry.net API を使用します。
 
 ## 特徴
 
-- **柔軟な分割**: 2x2, 3x3, 2x4など、任意のグリッドパターンで画像を分割
-- **高精度**: SIP歪み補正対応、オーバーラップ領域での整合性検証
-- **部分ソルブ対応**: 一部のタイルのソルブに失敗しても、成功したタイルからWCSを全体に適用。星景写真で地上風景が含まれるタイルがソルブできなくても、空の部分だけで座標情報を生成可能
-- **並列処理**: 複数の分割画像を並列でプレートソルブし、処理時間を短縮
-- **ビュー状態の保持**: PixInsightで編集中（ストレッチ、ABE等適用後）の画像に対してソルブしても、ピクセルデータと処理履歴を維持したままWCSを適用
-- **XISF/FITS対応**: PixInsightネイティブのXISF形式とFITS形式の両方に完全対応
-- **自動形式判定**: 入力ファイルの形式を自動判定し、同じ形式で出力
-- **魚眼レンズ対応**: equisolid/equidistant/stereographic投影に対応し、対角180°超のFOVでもソルブ可能
+- **Python 不要**: 純粋 PJSR（JavaScript）のみで動作、外部プロセス依存なし
+- **astrometry.net API**: ローカルの solve-field インストール不要、API キーのみで利用可能
+- **柔軟な分割**: 1x1（単一画像）から 12x8 まで、任意のグリッドパターンで画像を分割
+- **高精度**: SIP 歪み補正対応、WCSFitter による制御点フィット
+- **部分ソルブ対応**: 一部のタイルのソルブに失敗しても、成功したタイルから WCS を全体に適用
+- **2パスリトライ**: 失敗タイルを隣接成功タイルの WCS ヒントで自動再試行
+- **オーバーラップ検証**: 隣接タイルの重複領域で WCS 整合性を自動チェック
+- **機材 DB**: カメラ/レンズの自動認識、ピクセルスケール自動計算、推奨グリッド提案
+- **魚眼レンズ対応**: equisolid/equidistant/stereographic 投影に対応、タイルごとのスケール補正
+- **Sesame 天体名検索**: 天体名から RA/DEC を自動入力
 
 ## 必要な環境
 
-### 必須ソフトウェア
+- **PixInsight 1.8.9 以降**
+- **astrometry.net API キー**（無料）: https://nova.astrometry.net/ でアカウント作成後、API キーを取得
 
-- **Python 3.8以降**
-- **Astrometry.net（solve-field）** - ローカルプレートソルバー
-  - インストール: `brew install astrometry-net netpbm`（macOS）
-  - `netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します
-  - 星カタログ（インデックスファイル）が必要
-  - 詳細: [セットアップガイド](docs/ASTROMETRY_NET_SETUP.md)
-
-### Python依存ライブラリ
-
-```bash
-pip install -r requirements.txt
-```
-
-主な依存関係:
-- numpy >= 1.21.0
-- astropy >= 5.0.0
-- scipy >= 1.7.0
-- Pillow >= 9.0.0
-- xisf >= 0.2.0 (XISF形式サポート)
-- lxml >= 4.9.0 (XISF形式サポート)
+Python、solve-field、星カタログのローカルインストールは**不要**です。
 
 ## インストール
 
-### 前提条件
+### 方法1: PixInsight リポジトリ（推奨）
 
-**必須:**
-- Python 3.8以上（推奨: Python 3.10以上）
-- Astrometry.net（solve-field）
-- 十分なディスク容量（星カタログ用に約1-2GB）
+1. PixInsight を開く
+2. **Resources > Updates > Manage Repositories** を開く
+3. リポジトリ URL を追加:
+   ```
+   https://raw.githubusercontent.com/ysmr3104/split-image-solver/main/repository/
+   ```
+4. **Resources > Updates > Check for Updates** を実行
+5. SplitImageSolver をインストール
 
-**動作確認済み環境:**
-- macOS 14.x (Apple Silicon M1/M2)
-- Python 3.14
-- astrometry-net 0.97（Homebrew）
+### 方法2: 手動インストール
 
-### 簡単インストール（Makefile使用・推奨）
+1. リポジトリをクローンまたはダウンロード:
+   ```bash
+   git clone https://github.com/ysmr3104/split-image-solver.git
+   ```
 
-```bash
-# 1. リポジトリをクローン
-git clone https://github.com/yourusername/split-image-solver.git
-cd split-image-solver
+2. `javascript/` 内の以下のファイルを PixInsight スクリプトディレクトリにコピー:
+   ```
+   SplitImageSolver.js
+   astrometry_api.js
+   wcs_math.js
+   wcs_keywords.js
+   equipment.json
+   ```
 
-# 2. 開発環境を一括セットアップ
-make install-dev
+   スクリプトディレクトリの場所:
+   - macOS: `/Applications/PixInsight/src/scripts/SplitImageSolver/`
+   - Windows: `C:\Program Files\PixInsight\src\scripts\SplitImageSolver\`
+   - Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
 
-# 3. 設定ファイルを作成して編集
-cp config/settings.example.json config/settings.json
-
-# 4. solve-fieldのインストール確認
-solve-field --help
-```
-
-### Astrometry.netのインストール
-
-詳細は [セットアップガイド](docs/ASTROMETRY_NET_SETUP.md) を参照してください。
-
-**macOSの場合:**
-
-```bash
-brew install astrometry-net netpbm
-```
-
-**星カタログのダウンロード:**
-
-対象画像の視野角に合ったインデックスファイルが必要です。公式サイト http://data.astrometry.net/ からダウンロードしてください。
-
-### 手動インストール
-
-1. リポジトリをクローン:
-
-```bash
-git clone https://github.com/yourusername/split-image-solver.git
-cd split-image-solver
-```
-
-2. Python仮想環境を作成:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-```
-
-3. Python依存関係をインストール:
-
-```bash
-pip install -r requirements.txt
-```
-
-4. 設定ファイルを作成:
-
-```bash
-cp config/settings.example.json config/settings.json
-```
-
-## PixInsight ユーザー向けクイックスタート
-
-PixInsight から Split Image Solver を使うための手順です。上から順に進めてください。
-
-### 1. リポジトリをクローン
-
-```bash
-git clone https://github.com/yourusername/split-image-solver.git
-cd split-image-solver
-```
-
-### 2. Python 環境をセットアップ
-
-```bash
-make install-dev
-```
-
-これにより `.venv/` 仮想環境が作成され、すべての依存パッケージがインストールされます。
-
-### 3. astrometry-net と netpbm をインストール
-
-```bash
-brew install astrometry-net netpbm
-```
-
-`netpbm` は `solve-field` が内部で使用するため必須です。インストール後、動作確認:
-
-```bash
-solve-field --help
-```
-
-### 4. インデックスファイル（星カタログ）をダウンロード
-
-撮影に使用したレンズの焦点距離に応じたインデックスファイルが必要です。
-
-```bash
-# astrometry.cfg が参照するディレクトリを確認
-cat /opt/homebrew/etc/astrometry.cfg | grep addpath
-# 出力例: addpath /opt/homebrew/share/astrometry/data
-
-# そのディレクトリにインデックスファイルをダウンロード
-# 35mm レンズ（FOV ~60°）の場合: 4100 シリーズ全体
-cd /opt/homebrew/share/astrometry/data
-for i in $(seq 4110 4119); do
-  curl -O http://data.astrometry.net/4100/index-${i}.fits
-done
-```
-
-| レンズ焦点距離 | FOV (フルサイズ) | 必要なインデックス |
-|--------------|-----------------|------------------|
-| 15mm (魚眼) | ~183° | 4107, 4110 ~ 4119, 4208 ~ 4219 |
-| 24mm | ~74° | 4110 ~ 4119 |
-| 35mm | ~54° | 4110 ~ 4119 |
-| 50mm | ~40° | 4112 ~ 4118 |
-| 85mm | ~24° | 4115 ~ 4119, 4200 シリーズ |
-
-詳細: [Astrometry.net セットアップガイド](docs/ASTROMETRY_NET_SETUP.md)
-
-### 5. astrometry.cfg の確認
-
-```bash
-cat /opt/homebrew/etc/astrometry.cfg
-```
-
-`addpath` が指すディレクトリにインデックスファイルがあることを確認:
-
-```bash
-ls /opt/homebrew/share/astrometry/data/index-41*.fits
-```
-
-ファイルが表示されれば OK です。
-
-### 6. PixInsight にスクリプトを配置
-
-```bash
-# macOS の場合
-cp javascript/SplitImageSolver.js ~/PixInsight/scripts/
-```
-
-PixInsight を再起動し、**Script > Utilities > SplitImageSolver** から実行可能になります。
-
-### 7. PixInsight で初回実行
-
-1. PixInsight で対象画像を開き、ディスクに保存（File > Save As）
-2. **Script > Utilities > SplitImageSolver** を実行
-3. Settings で Python パスを設定: `.venv/bin/python` のフルパス
-4. Script Directory にリポジトリのルートパスを設定
-5. **Focal Length**（焦点距離 mm）と **Pixel Pitch**（ピクセルピッチ μm）を入力
-6. 魚眼レンズの場合は **Fisheye lens** チェックボックスをON（機材DBに登録済みの魚眼レンズは自動でONになります）
-7. Grid を推奨サイズに設定（ダイアログに表示される推奨値を参考に。魚眼レンズでは12x8や10x10が推奨されます）
-8. 「Execute」をクリック
-
-詳細なパラメータ説明は [PixInsight スクリプト README](javascript/README.md) を参照してください。
+3. PixInsight を再起動
+4. **Script > Utilities > SplitImageSolver** から実行可能
 
 ## 使い方
 
-### コマンドライン
+### クイックスタート（単一画像ソルブ）
 
-基本的な使い方:
+1. PixInsight で対象画像を開く
+2. **Script > Utilities > SplitImageSolver** を実行
+3. API キーを入力（初回のみ、以降は自動保存）
+4. Grid を **1x1** のまま「Solve」をクリック
+5. 完了後、画像に WCS が適用される
 
-```bash
-python3 python/main.py \
-  --input input_image.fits \
-  --output output_image.fits \
-  --grid 3x3 \
-  --overlap 100
-```
+### 分割ソルブ（広角画像）
 
-#### オプション
+1. PixInsight で対象画像を開く
+2. **Script > Utilities > SplitImageSolver** を実行
+3. **カメラ/レンズ** を選択（FITS ヘッダーから自動認識される場合あり）
+   - ピクセルスケールと推奨グリッドが自動計算される
+4. 必要に応じて **天体名** を入力し「Search」で RA/DEC を取得
+5. Grid を推奨サイズに設定
+6. 「Solve」をクリック
 
-**必須:**
-- `--input PATH`: 入力FITS/XISF画像パス
-- `--output PATH`: 出力FITS/XISF画像パス
+### パラメータ
 
-**分割設定:**
-- `--grid NxM`: 分割グリッドパターン (例: 2x2, 3x3, 2x4) [デフォルト: 2x2]
-- `--overlap NUM`: オーバーラップピクセル数 [デフォルト: 100]
+| パラメータ | 説明 | デフォルト |
+|-----------|------|-----------|
+| API Key | astrometry.net の API キー | （必須） |
+| Camera | カメラ機種（ピクセルピッチ自動入力） | 自動認識 |
+| Lens | レンズ/鏡筒（焦点距離・投影型自動入力） | 自動認識 |
+| Scale | ピクセルスケール (arcsec/px) | 自動計算 |
+| Scale Error | スケール誤差 (%) | 30 |
+| Object | 天体名（Sesame 検索） | （任意） |
+| RA / DEC | 画像中心座標 | （任意） |
+| Radius | 検索半径 (°) | 15 |
+| Grid | 分割グリッド (ColsxRows) | 1x1 |
+| Overlap | タイル間オーバーラップ (px) | 200 |
+| SIP Order | SIP 歪み補正の次数 | 2 |
 
-**FOV/座標ヒント:**
-- `--focal-length MM`: 焦点距離 (mm) - FOV計算に使用
-- `--pixel-pitch UM`: ピクセルピッチ (μm) - 機材DBにないカメラの場合に指定
-- `--pixel-scale ARCSEC`: ピクセルスケール (arcsec/pixel) - 直接指定する場合
-- `--ra DEG`: 視野中心の赤経 (degrees)
-- `--dec DEG`: 視野中心の赤緯 (degrees)
-- `--lens-type TYPE`: レンズ投影型 (rectilinear, fisheye_equisolid, fisheye_equidistant, fisheye_stereographic) [デフォルト: rectilinear]
+## 処理フロー
 
-**WCS統合設定:**
-- `--wcs-method METHOD`: 統合方法 (weighted_least_squares | central_tile) [デフォルト: weighted_least_squares]
-- `--overlap-tolerance NUM`: オーバーラップ検証の許容誤差（秒角） [デフォルト: 5.0]
+### 単一画像モード（1x1）
 
-**その他:**
-- `--temp-dir PATH`: 一時ファイルディレクトリ
-- `--keep-temp`: 一時ファイルを保持
-- `--log-level LEVEL`: ログレベル (DEBUG | INFO | WARNING | ERROR) [デフォルト: INFO]
-- `--log-file PATH`: ログファイルパス
-- `--config PATH`: 設定ファイルパス [デフォルト: ./config/settings.json]
+1. 画像を FITS に書き出し → API にアップロード
+2. astrometry.net でプレートソルブ
+3. WCS FITS ファイルをダウンロード → WCS パラメータを解析
+4. WCSFitter で CD 行列 + SIP フィット
+5. FITS キーワード + 制御点を画像に適用
 
-### 使用例
+### 分割モード（NxM）
 
-**例1: 3x3分割で広角画像を処理（推奨）**
-
-```bash
-python3 python/main.py \
-  --input wide_field_image.xisf \
-  --output solved_image.xisf \
-  --grid 3x3 \
-  --overlap 100
-```
-
-**例2: RA/DECヒント付きで処理**
-
-```bash
-python3 python/main.py \
-  --input wide_field_image.xisf \
-  --output solved_image.xisf \
-  --grid 3x3 \
-  --overlap 100 \
-  --pixel-scale 35 \
-  --ra 98.0 --dec 5.0
-```
-
-**例3: 魚眼レンズ（Sigma 15mm Fisheye + Sony A7R IV）**
-
-```bash
-python3 python/main.py \
-  --input fisheye_image.xisf \
-  --output solved_fisheye.xisf \
-  --grid 12x8 \
-  --overlap 150 \
-  --focal-length 15 \
-  --pixel-pitch 3.76 \
-  --ra 276.0 --dec -24.0 \
-  --lens-type fisheye_equisolid
-```
-
-魚眼レンズでは `--lens-type fisheye_equisolid` を指定することで、equisolid（等立体角）投影に基づく正確なFOV計算・スケールヒントが使われます。機材DBに登録済みのレンズは `--lens` 指定で自動検出されます。
-
-**例4: 詳細ログ出力**
-
-```bash
-python3 python/main.py \
-  --input ultra_wide_image.fits \
-  --output solved_ultra_wide.fits \
-  --grid 3x3 \
-  --overlap 150 \
-  --log-level DEBUG \
-  --log-file solver.log
-```
-
-## アルゴリズム
-
-### 処理フロー
-
-1. **画像分割**: 元画像を指定されたグリッドパターンで分割
-   - オーバーラップ領域を含めて分割
-   - 各分割画像の位置情報をFITSヘッダーに記録
-
-2. **プレートソルブ**: 各分割画像に対してsolve-fieldを実行
-   - 並列処理で高速化
-   - SIP歪み補正を含むWCS情報を取得
-
-3. **WCS座標変換**: 分割画像のWCSを元画像座標系に変換
-   - CRPIX（参照ピクセル座標）をオフセット調整
-   - SIP係数のCRPIXも同期
-
-4. **整合性検証**: オーバーラップ領域でのWCS整合性を確認
-
-5. **WCS統合**: 全分割画像のWCSから最適な元画像WCSを計算
-   - 中心タイルベースまたは重み付き最小二乗法
-
-6. **WCS書き込み**: 統合したWCS情報を元画像に書き込み
+1. 画像をオーバーラップ付き NxM タイルに分割
+2. 各タイルをダウンサンプル（長辺 2000px 以下）して API にアップロード
+3. **Pass 1**: 全タイルをソルブ
+4. **Pass 2**: 失敗タイルを成功タイルの WCS ヒントで再試行
+5. **オーバーラップ検証**: 隣接タイルの WCS 整合性チェック、異常タイルを除外
+6. 全成功タイルの WCS から制御点を収集 → WCSFitter で統合 WCS を生成
+7. 統合 WCS を元画像に適用
 
 ## プロジェクト構造
 
 ```
 split-image-solver/
-├── config/
-│   ├── settings.json              # 設定ファイル
-│   └── settings.example.json      # 設定例
-├── python/
-│   ├── main.py                    # メインスクリプト
-│   ├── image_splitter.py          # 画像分割
-│   ├── solvers/
-│   │   ├── base_solver.py         # ソルバー基底クラス
-│   │   ├── astrometry_local_solver.py  # solve-field統合
-│   │   └── factory.py             # ソルバーファクトリー
-│   ├── wcs_integrator.py          # WCS座標統合
-│   ├── fits_handler.py            # FITSヘッダー操作
-│   ├── xisf_handler.py            # XISFファイル操作
-│   └── utils/
-│       ├── logger.py              # ロギング
-│       └── coordinate_transform.py # 座標変換
-├── tests/                         # テスト
-├── docs/                          # ドキュメント
-├── requirements.txt               # Python依存関係
-└── README.md
+├── javascript/
+│   ├── SplitImageSolver.js    # メインスクリプト（UI + エンジン）
+│   ├── astrometry_api.js      # astrometry.net API クライアント
+│   ├── wcs_math.js            # WCS 数学ライブラリ
+│   ├── wcs_keywords.js        # FITS キーワードユーティリティ
+│   └── equipment.json         # 機材データベース
+├── build-split-release.sh     # リリースビルドスクリプト
+├── repository/                # PixInsight リポジトリ配布パッケージ
+├── python/                    # レガシー Python 実装（非推奨）
+├── tests/                     # テスト
+└── docs/                      # ドキュメント
 ```
 
 ## トラブルシューティング
 
-### solve-fieldが見つからない
+### API ログインに失敗
 
-```
-FileNotFoundError: solve-field command not found
-```
+- API キーが正しいか確認: https://nova.astrometry.net/api_help
+- インターネット接続を確認
 
-**解決方法:**
-- `brew install astrometry-net`（macOS）でインストール
-- または `config/settings.json` で `solve_field_path` を明示的に指定
+### ソルブに時間がかかる / 失敗する
 
-### すべてのタイルのソルブに失敗
+- **RA/DEC ヒントを入力**: 天体名を入力して Search ボタンで座標を取得すると、ソルブ速度が大幅に向上
+- **ピクセルスケールを入力**: カメラ/レンズを選択するか、手動で入力
+- **グリッドを調整**: タイルが小さすぎると星が少なくてソルブ失敗しやすい
 
-**原因と解決方法:**
-- **星カタログが不足**: 対象の視野角に合ったインデックスファイルをダウンロード
-- **インデックスファイルのパスが合っていない**: `astrometry.cfg` の `addpath` が指すディレクトリにインデックスファイルがあるか確認（下記参照）
-- **視野が広すぎる**: 分割数を増やす（3x3推奨）
-- **RA/DECヒントを活用**: `--ra` `--dec` `--pixel-scale` を指定して検索範囲を絞る
+### 一部タイルがソルブできない
 
-### インデックスファイルのパスが合わない
+- 地上風景や雲を含むタイルはソルブできません（正常動作）
+- 2タイル以上成功すれば WCS 統合が可能です
+- Pass 2 リトライで自動的に再試行されます
 
-`solve-field` がインデックスファイルを見つけられない場合:
+### WCS 精度が低い
 
-```bash
-# 1. astrometry.cfg の場所と addpath を確認
-cat /opt/homebrew/etc/astrometry.cfg | grep addpath
+- オーバーラップを増やす（200 → 400px）
+- SIP Order を上げる（2 → 3）
+- グリッドを細かくする
 
-# 2. そのディレクトリにインデックスファイルがあるか確認
-ls /opt/homebrew/share/astrometry/data/index-*.fits
+## レガシー Python 版について
 
-# 3. ファイルがなければダウンロード、または addpath を修正
-```
+`python/` ディレクトリにはローカル solve-field を使用する旧 Python 実装が含まれています。
+PJSR ネイティブ版（`javascript/`）への移行を推奨します。Python 版は以下の制約があります:
 
-Homebrew のバージョンアップ等で `addpath` のディレクトリが変わる場合があります。インデックスファイルの実体がある場所を `addpath` に設定してください。
-
-### オーバーラップ検証失敗
-
-```
-Overlap validation failed: max error = 10.5" (tolerance = 5.0")
-```
-
-**解決方法:**
-- 許容誤差を増やす (`--overlap-tolerance 15`)
-- より多くの星が含まれるようタイルサイズを調整
-
-## 制限事項
-
-- 超広角レンズの歪みが大きい場合、WCS精度が低下する可能性がある
-- 大きな画像（8000x6000以上）では大量のメモリを使用
-
-### 低解像度・超広角カメラ（ATOM Cam 2 等）について
-
-ATOM Cam 2 のような監視カメラ系デバイス（1920×1080, 対角120° FOV, ピクセルスケール~191"/px）は、魚眼投影対応後もプレートソルブが困難です。
-
-**インデックスファイルの問題**: この解像度では astrometry.net の 4200-4207 シリーズ（超広角用）が必要ですが、これらは healpix 分割で配布されており全天カバーに数十GBのダウンロードが必要です。また、より小スケールの 4100-4106 シリーズは公式サーバー（`data.astrometry.net/4100/`）に存在しません。
-
-**解像度の問題**: ~191"/px では1ピクセルが約3角分に相当し、solve-field が星のパターンマッチングに使える星の数が極めて限られます。タイル分割するとさらに1タイルあたりの星数が減少し、信頼性の高いソルブが困難になります。
-
-対象天域の healpix タイルのみをダウンロードすれば原理的には可能ですが、実用的なワークフローとしては現時点で未検証です。
+- Python 3.8+ / astropy / scipy / numpy のインストールが必要
+- ローカル solve-field + 星カタログ（数 GB）のインストールが必要
+- Windows 非対応
 
 ## ライセンス
 
 MIT License
 
-## 配布方法について
-
-本ツールは PixInsight の[アップデートリポジトリ](https://pixinsight.com/doc/docs/PIRepositoryReference/PIRepositoryReference.html)による配布を検討しましたが、以下の理由により GitHub での配布としています。
-
-- **外部依存の問題**: 本ツールは Python 実行環境と astrometry.net（solve-field）に依存しています。PixInsight のアップデートリポジトリは PJSR スクリプトやネイティブモジュールの配布を想定しており、Python 環境や外部バイナリを内包する仕組みがありません。
-- **ネイティブモジュール化の断念**: C++/PCL によるネイティブモジュールとして実装すればリポジトリ配布は可能ですが、macOS / Linux / Windows の 3 プラットフォーム分のビルド環境が必要となるため、現時点では対応が困難です。
-
-そのため、本リポジトリを clone し、README の手順に従って Python 環境と astrometry.net をセットアップしていただく形での利用をお願いしています。
-
 ## 参考資料
 
-- [Astrometry.net](https://astrometry.net/) - プレートソルバー
-- [Astropy](https://www.astropy.org/) - 天文学Pythonライブラリ
-- [FITS WCS Standard](https://fits.gsfc.nasa.gov/fits_wcs.html) - FITS WCS規格
-- [PixInsight](https://pixinsight.com/) - 天体画像処理ソフトウェア
-- [XISF Specification](https://pixinsight.com/doc/docs/XISF-1.0-spec/XISF-1.0-spec.html) - XISF形式仕様
+- [Astrometry.net](https://astrometry.net/) — プレートソルバー
+- [Astrometry.net API](https://nova.astrometry.net/api_help) — API ドキュメント
+- [PixInsight](https://pixinsight.com/) — 天体画像処理ソフトウェア
+- [FITS WCS Standard](https://fits.gsfc.nasa.gov/fits_wcs.html) — FITS WCS 規格

@@ -4,78 +4,77 @@
 
 ## プロジェクト概要
 
-Split Image Solver は、広角星野写真をタイルに分割し、astrometry.net の `solve-field` で各タイルをプレートソルブし、個別の WCS（World Coordinate System）解を統合して元画像全体の WCS を生成するツールです。PixInsight の ImageSolver では対応できない超広角画像（例: フルサイズセンサー + 35mmレンズ、約60° FOV）を対象としています。
+Split Image Solver は、広角星野写真をタイルに分割し、astrometry.net API で各タイルをプレートソルブし、個別の WCS 解を統合して元画像全体の WCS を生成する PixInsight スクリプトです。Python 不要の純粋 PJSR ネイティブ実装。
+
+## アーキテクチャ
+
+### PJSR ネイティブ構成（JavaScript のみ、Python 不要）
+
+```
+PixInsight (PJSR のみ)
+├── SplitImageSolver.js    — メインスクリプト（UI + エンジン）
+├── astrometry_api.js      — astrometry.net API クライアント（curl 経由）
+├── wcs_math.js            — WCS 数学ライブラリ（manual-image-solver と共有）
+├── wcs_keywords.js        — FITS キーワードユーティリティ（同上）
+└── equipment.json         — 機材 DB（カメラ・レンズ）
+```
+
+### コーディング規約
+
+- **ES5 スタイル必須**: PJSR は `let`/`const`/アロー関数/テンプレートリテラルを未サポート。`var` 宣言のみ使用。
+- コード内の変数名・関数名・コメント・コンソール出力（`console.writeln`）は全て英語。
+- UI テキスト（ラベル・メッセージボックス）は日本語可。
+
+### 処理パイプライン
+
+**単一画像モード (1x1)**:
+1. 画像を FITS に書き出し → astrometry.net API にアップロード
+2. ソルブ完了を待機 → calibration + WCS FITS をダウンロード
+3. WCS パラメータを解析 → WCSFitter で CD 行列 + SIP フィット
+4. FITS キーワード + 制御点を画像に適用
+
+**分割モード (NxM)**:
+1. 画像をオーバーラップ付き NxM タイルに分割（FITS 一時保存 + ダウンサンプル）
+2. Pass 1: 全タイルを API でソルブ
+3. Pass 2: 失敗タイルを成功タイルの WCS ヒントで再試行（retryFailedTiles）
+4. オーバーラップ検証: 隣接タイルの WCS 整合性チェック（validateOverlap）
+5. 全成功タイルの WCS から制御点を収集 → WCSFitter で統合 WCS を生成（mergeWcsSolutions）
+6. 統合 WCS を元画像に適用
+
+### 主要モジュール
+
+- **`javascript/SplitImageSolver.js`** — メインスクリプト。UI（SplitSolverDialog）、タイル分割（splitImageToTiles）、タイルソルブ（solveMultipleTiles）、2パスリトライ（retryFailedTiles）、オーバーラップ検証（validateOverlap）、WCS 統合（mergeWcsSolutions）、WCS 適用（applyWCSToImage, setCustomControlPoints）を含む。
+- **`javascript/astrometry_api.js`** — AstrometryClient クラス。ExternalProcess + curl で astrometry.net API（login → upload → pollSubmission → pollJob → getCalibration → getWcsFile）を呼び出す。
+- **`javascript/wcs_math.js`** — WCS 数学ライブラリ。WCSFitter（CD 行列 + SIP フィット）、tanProject/tanDeproject（TAN 投影）、pixelToRaDec/raDecToPixel、angularSeparation 等。manual-image-solver と共有。PJSR + Node.js 両対応。
+- **`javascript/wcs_keywords.js`** — FITS WCS キーワードユーティリティ（isWCSKeyword, makeFITSKeyword）。
+- **`javascript/equipment.json`** — 機材データベース（カメラ 39 機種 + レンズ/鏡筒 24 種）。
+
+### 実装上の重要な注意点
+
+- **HTTP 通信**: ExternalProcess + curl で一時ファイル経由。stdout キャプチャは不安定なため一時ファイルを使用。
+- **ピクセル→FITS 座標変換**: PixInsight は 0-based (y=0 が上端)、FITS は 1-based (y=1 が下端)。`u = (px + 1) - CRPIX1`、`v = (height - py) - CRPIX2`。
+- **タイル CRPIX 逆変換**: ダウンサンプル時は `crpix_original = crpix_downsampled / scaleFactor`、CD 行列は `cd *= scaleFactor`。タイルオフセット適用: `CRPIX1 += offsetX`, `CRPIX2 += offsetY`。
+- **投影型別スケール補正**: 非 rectilinear レンズ（equisolid, equidistant, stereographic）ではタイルの画像中心からの角距離に応じてスケールヒントを補正。
+- **偽陽性フィルタ**: Pass 2 リトライ時にスケール比 (0.3-3.0 範囲外で拒否) + 座標乖離チェック (>5° で拒否)。
+- **制御点書き込み**: SplineWorldTransformation プロパティに直接書き込み。`ControlPoints:Weights` は非標準プロパティで書き込むとバリデーションエラーになるため使用しない。
+- **FITSKeyword 値アクセス**: PJSR は `kw.value` を使用（`kw.strippedValue` ではない）。文字列値はクォート除去が必要: `kw.value.trim().replace(/^'|'$/g, "").trim()`。
 
 ## コマンド
 
 ```bash
-# .venv を使用すること（venv/ は依存パッケージ不足のため使用不可）
-source .venv/bin/activate
+# Node.js 単体テスト（WCS 数学関数）— wcs_math.js のテスト
+node tests/javascript/test_wcs_math.js
 
-# ソルバー実行
-.venv/bin/python python/main.py --input image.xisf --output solved.xisf --grid 3x3 --overlap 100
+# リリースビルド（PixInsight リポジトリパッケージ生成）
+bash build-split-release.sh
 
-# 全テスト実行
+# レガシー Python テスト
 PYTHONPATH="." .venv/bin/pytest tests/python -v
-
-# 単一テスト実行
-PYTHONPATH="." .venv/bin/pytest tests/python/test_image_splitter.py::test_grid_pattern_parsing -v
-
-# リント（Black フォーマットチェック）
-.venv/bin/black --check --diff python/ tests/
-
-# 自動フォーマット
-.venv/bin/black python/ tests/
-
-# 依存パッケージインストール
-.venv/bin/pip install -r requirements.txt
 ```
-
-`python/main.py` が `from image_splitter import ImageSplitter` のような相対インポートを使用するため、`PYTHONPATH="."` が必須。
-
-## アーキテクチャ
-
-### 処理パイプライン（`python/main.py` の6ステップ）
-
-1. **読み込み** — FITS または XISF 画像を読み込み（`image_splitter.load_image` または `XISFHandler.load_image`）
-2. **分割** — `ImageSplitter` が画像をオーバーラップ付きの NxM グリッドタイルに分割し、各タイルをオフセットメタデータ（`OFFSETX`, `OFFSETY`, `SPLITX`, `SPLITY`）付きで FITS/XISF として保存
-3. **プレートソルブ** — `AstrometryLocalSolver` が各タイルに対して `solve-field` を並列実行（`ThreadPoolExecutor`）。XISF タイルは一時的に FITS に変換される（RGB→ルミナンス、float32→uint16）。ヒント指定時はタイルごとの RA/DEC ヒントを画像中心から計算
-4. **WCS 収集** — ソルブ成功した `astropy.wcs.WCS` オブジェクトを収集
-5. **WCS 統合** — `WCSIntegrator` がタイルの WCS 解を統合:
-   - **weighted_least_squares**（デフォルト）: 全タイルから制御点を収集し、中心タイルの WCS をベースとして CD 行列を `scipy.optimize.least_squares` で最適化、必要に応じて SIP 歪み多項式をフィット
-   - **central_tile**: 中心タイルの WCS の CRPIX をオフセット分調整するだけの簡易手法
-6. **出力書き込み** — 統合した WCS を出力 FITS/XISF ファイルに書き込み
-
-### 主要モジュール
-
-- `python/main.py` — CLI エントリーポイントとパイプライン制御
-- `python/image_splitter.py` — 画像読み込みとグリッド分割
-- `python/wcs_integrator.py` — オーバーラップ検証と SIP フィッティングを含む WCS 統合
-- `python/solvers/astrometry_local_solver.py` — `solve-field` サブプロセスラッパー
-- `python/solvers/base_solver.py` — ソルバー抽象インターフェース（`solve_image`, `batch_solve`）
-- `python/solvers/factory.py` — ソルバーファクトリー（現在は常に `AstrometryLocalSolver` を返す）
-- `python/fits_handler.py` — FITS ファイル I/O と WCS ヘッダー操作
-- `python/xisf_handler.py` — XISF ファイル I/O、メタデータ変換、SIP 係数のラウンドトリップ
-- `python/utils/coordinate_transform.py` — タイルごとのヒント用ピクセルオフセット→RA/DEC 変換
-- `javascript/SplitImageSolver.js` — `ExternalProcess` 経由で `python/main.py` を呼び出す PixInsight PJSR GUI スクリプト
-
-### 実装上の重要な注意点
-
-- **SIP CRPIX の同期**: タイル WCS の CRPIX を元画像座標に調整する際、`wcs.sip.crpix` も別途更新が必要。astropy の SIP は独自の CRPIX を保持している。
-- **`as_completed` の順序**: `concurrent.futures.as_completed` は完了順で返すため、投入順ではない。結果はファイルパスをキーとする辞書で管理すること。
-- **XISF SIP ラウンドトリップ**: `_fits_keywords_to_wcs` が FITS キーワードから SIP 係数（A_ORDER, A_i_j 等）を読み込み、`_wcs_to_fits_keywords` が書き戻す。双方向の同期を維持すること。
-- **solve-field v0.97**: フラグは `--no-verify-uniformize`（`--no-verify-uniformly` ではない）。
-- **solve-field 用 RGB XISF**: ソース抽出前にルミナンスに変換し、float32→uint16 にスケーリングが必要。
-- **座標オフセットの符号**: 標準的な天文画像では X, Y 両方のオフセット符号が反転する: `offset = image_center - tile_center`。
-- **WCS 最適化**: 広角では CD 行列のみ（4パラメータ）を最適化し、CRVAL は中心タイルから固定。CRVAL+CD の同時最適化（6パラメータ）は局所最小に陥る。
-- **SIP 次数**: FOV > 30° では次数5、それ以外では次数3を使用。
-
-## 設定
-
-- `config/settings.json`（gitignore 対象）— 実行時設定。`config/settings.example.json` からコピーして作成。
-- 主要設定: `astrometry_local.solve_field_path` — `null` にすると `solve-field` を自動検出。
 
 ## 外部依存
 
-- **astrometry.net**（`solve-field`）のローカルインストールが必要: macOS では `brew install astrometry-net netpbm`
-- 対象画像の FOV に合った星カタログ（インデックスファイル）のダウンロードが必要
+- **PixInsight 1.8.9+** — PJSR スクリプト実行環境
+- **astrometry.net API キー** — https://nova.astrometry.net/ で取得（無料）
+- **curl** — HTTP 通信用（OS 標準搭載）
+- Node.js — テスト実行用（オプション）
