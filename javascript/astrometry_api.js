@@ -34,6 +34,10 @@ AstrometryClient.prototype._sleep = function(ms) {
          this.aborted = true;
          throw "Aborted by user";
       }
+      // Skip check: break sleep early but don't throw
+      if (typeof this.skipCheck === "function" && this.skipCheck()) {
+         return;
+      }
    }
 };
 
@@ -271,6 +275,10 @@ AstrometryClient.prototype.pollSubmission = function(subId) {
    console.writeln("[AstrometryClient] polling submission " + subId + " ...");
 
    while (elapsed < this.timeout) {
+      if (typeof this.skipCheck === "function" && this.skipCheck()) {
+         console.writeln("[AstrometryClient] pollSubmission skipped by user");
+         return null;
+      }
       var result = this._curlGetJson(this.apiUrl + "/submissions/" + subId);
       if (result && result.jobs && result.jobs.length > 0) {
          for (var i = 0; i < result.jobs.length; i++) {
@@ -298,6 +306,10 @@ AstrometryClient.prototype.pollJob = function(jobId) {
    console.writeln("[AstrometryClient] polling job " + jobId + " ...");
 
    while (elapsed < this.timeout) {
+      if (typeof this.skipCheck === "function" && this.skipCheck()) {
+         console.writeln("[AstrometryClient] pollJob skipped by user");
+         return null;
+      }
       var result = this._curlGetJson(this.apiUrl + "/jobs/" + jobId);
       if (result && result.status) {
          if (result.status === "success" || result.status === "failure") {

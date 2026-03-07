@@ -754,6 +754,16 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
          throw "Aborted by user";
       }
 
+      // Check for "skip to merge" request
+      if (typeof client.skipCheck === "function" && client.skipCheck()) {
+         console.writeln("  [" + timestamp() + "] Skipping remaining " + (tiles.length - i) + " tiles (user requested)");
+         // Mark remaining tiles as skipped
+         for (var j = i; j < tiles.length; j++) {
+            tiles[j].status = "skipped";
+         }
+         break;
+      }
+
       var tile = tiles[i];
       tile.status = "solving";
       var tileStartTime = (new Date()).getTime();
@@ -2035,12 +2045,23 @@ function SplitSolverDialog() {
 
    // ---- Buttons ----
    this._abortRequested = false;
+   this._skipToMerge = false;
 
    this.solveButton = new PushButton(this);
    this.solveButton.text = "Solve";
    this.solveButton.icon = this.scaledResource(":/icons/execute.png");
    this.solveButton.onClick = function() {
       self.doSolve();
+   };
+
+   this.skipButton = new PushButton(this);
+   this.skipButton.text = "Skip to Merge";
+   this.skipButton.icon = this.scaledResource(":/icons/goto-next.png");
+   this.skipButton.toolTip = "Skip remaining tiles and proceed to WCS calculation with solved tiles";
+   this.skipButton.hide();
+   this.skipButton.onClick = function() {
+      self._skipToMerge = true;
+      self.progressLabel.text = "Skipping remaining tiles...";
    };
 
    this.abortButton = new PushButton(this);
@@ -2071,6 +2092,7 @@ function SplitSolverDialog() {
    buttonSizer.add(this.apiKeySettingsButton);
    buttonSizer.addStretch();
    buttonSizer.add(this.solveButton);
+   buttonSizer.add(this.skipButton);
    buttonSizer.add(this.abortButton);
    buttonSizer.add(this.closeButton);
 
@@ -2243,11 +2265,13 @@ SplitSolverDialog.prototype.doSolve = function() {
    console.writeln("========================================");
    console.writeln("");
 
-   // Lock UI, show Abort button
+   // Lock UI, show Abort/Skip buttons
    this._abortRequested = false;
+   this._skipToMerge = false;
    this.solveButton.enabled = false;
    this.solveButton.hide();
    this.abortButton.show();
+   if (isSplitMode) this.skipButton.show();
    this.progressLabel.text = "Starting solve...";
    processEvents();
 
@@ -2272,6 +2296,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    // Restore UI
    this.abortButton.hide();
+   this.skipButton.hide();
    this.solveButton.show();
    this.solveButton.enabled = true;
 };
@@ -2405,6 +2430,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       var client = new AstrometryClient(apiKey);
       client.timeout = timeoutMs;
       client.abortCheck = function() { return self._abortRequested; };
+      client.skipCheck = function() { return self._skipToMerge; };
       console.writeln("Logging in to astrometry.net...");
       if (!client.login()) throw "API login failed. Please check your API key.";
       console.writeln("  Login successful");
