@@ -2105,20 +2105,28 @@ function SplitSolverDialog() {
    this.abortButton.toolTip = "Abort the current solve operation";
    this.abortButton.hide();
    this.abortButton.onClick = function() {
-      self._abortRequested = true;
-      self.progressLabel.text = "Aborting...";
+      var msg = new MessageBox("Solve を中断しますか？",
+         TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
+      if (msg.execute() === StdButton_Yes) {
+         self._abortRequested = true;
+         self.progressLabel.text = "Aborting...";
+      }
    };
 
    this.closeButton = new PushButton(this);
    this.closeButton.text = "Close";
    this.closeButton.icon = this.scaledResource(":/icons/close.png");
    this.closeButton.onClick = function() {
-      if (self.solveButton.enabled) {
+      if (!self._isSolving) {
          self.cancel();
       } else {
-         // During solve, Close acts as abort
-         self._abortRequested = true;
-         self.progressLabel.text = "Aborting...";
+         // During solve, Close acts as abort with confirmation
+         var msg = new MessageBox("Solve を中断して閉じますか？",
+            TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
+         if (msg.execute() === StdButton_Yes) {
+            self._abortRequested = true;
+            self.progressLabel.text = "Aborting...";
+         }
       }
    };
 
@@ -2188,9 +2196,13 @@ function SplitSolverDialog() {
    this._isSolving = false;
    this.onClose = function() {
       if (self._isSolving) {
-         self._abortRequested = true;
-         self.progressLabel.text = "Aborting...";
-         return false; // Prevent close
+         var msg = new MessageBox("Solve を中断しますか？",
+            TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
+         if (msg.execute() === StdButton_Yes) {
+            self._abortRequested = true;
+            self.progressLabel.text = "Aborting...";
+         }
+         return false; // Always prevent close during solve
       }
       return true;
    };
