@@ -781,6 +781,12 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
          tileHints.scale_est = tileHints.scale_est / tile.scaleFactor;
       }
 
+      // Per-tile RA/DEC hints (calculated by computeTileHints)
+      if (tile.hintRA !== undefined && tile.hintDEC !== undefined) {
+         tileHints.center_ra = tile.hintRA;
+         tileHints.center_dec = tile.hintDEC;
+      }
+
       // Projection-based scale correction for non-rectilinear lenses
       if (tileHints.scale_est && tileHints._projection && tileHints._projection !== "rectilinear") {
          var tileCX = tile.offsetX + tile.tileWidth / 2.0;
@@ -1034,6 +1040,99 @@ function tileAngleFromCenter(tileCenterX, tileCenterY, imageCenterX, imageCenter
    var dy = tileCenterY - imageCenterY;
    var distPx = Math.sqrt(dx * dx + dy * dy);
    return distPx * pixelScaleArcsec / 3600.0;
+}
+
+//----------------------------------------------------------------------------
+// pixelOffsetToRaDec
+//
+// Convert pixel offset from image center to RA/DEC using spherical trigonometry.
+// Supports multiple projection types (gnomonic, equisolid, equidistant, stereographic).
+//
+// centerRA, centerDEC: image center coordinates (degrees)
+// pixelScale: arcsec/pixel
+// offsetX: pixel offset (positive = West = RA decreasing direction)
+// offsetY: pixel offset (positive = North = DEC increasing direction)
+// projection: "rectilinear"|"equisolid"|"equidistant"|"stereographic"
+//
+// Returns {ra, dec} in degrees.
+//----------------------------------------------------------------------------
+function pixelOffsetToRaDec(centerRA, centerDEC, pixelScale, offsetX, offsetY, projection) {
+   var scaleRad = (pixelScale / 3600.0) * Math.PI / 180.0;
+   var rPixels = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+
+   if (rPixels < 0.001) {
+      return { ra: centerRA, dec: centerDEC };
+   }
+
+   // Direction angle (phi) on the image plane
+   var phi = Math.atan2(offsetX, offsetY);
+
+   // Angular distance c from center, depending on projection type
+   var rScaled = rPixels * scaleRad;
+   var c;
+   switch (projection || "rectilinear") {
+      case "equisolid":
+         c = 2.0 * Math.asin(Math.min(rScaled / 2.0, 1.0));
+         break;
+      case "equidistant":
+         c = rScaled;
+         break;
+      case "stereographic":
+         c = 2.0 * Math.atan(rScaled / 2.0);
+         break;
+      default: // rectilinear (gnomonic)
+         c = Math.atan(rScaled);
+         break;
+   }
+
+   // Spherical trigonometry: inverse projection
+   var alpha0 = centerRA * Math.PI / 180.0;
+   var delta0 = centerDEC * Math.PI / 180.0;
+
+   var sinC = Math.sin(c);
+   var cosC = Math.cos(c);
+   var sinD0 = Math.sin(delta0);
+   var cosD0 = Math.cos(delta0);
+
+   var dec = Math.asin(cosC * sinD0 + sinC * cosD0 * Math.cos(phi));
+   var ra = alpha0 + Math.atan2(sinC * Math.sin(phi),
+                                 cosC * cosD0 - sinC * sinD0 * Math.cos(phi));
+
+   var raDeg = (ra * 180.0 / Math.PI) % 360.0;
+   if (raDeg < 0) raDeg += 360.0;
+   var decDeg = dec * 180.0 / Math.PI;
+
+   return { ra: raDeg, dec: decDeg };
+}
+
+//----------------------------------------------------------------------------
+// computeTileHints
+//
+// Calculate per-tile RA/DEC hints from image center coordinates and tile positions.
+//
+// tiles: array from splitImageToTiles
+// centerRA, centerDEC: image center (degrees)
+// pixelScale: arcsec/pixel
+// imageWidth, imageHeight: full image dimensions (pixels)
+// projection: projection type string
+//----------------------------------------------------------------------------
+function computeTileHints(tiles, centerRA, centerDEC, pixelScale, imageWidth, imageHeight, projection) {
+   var imgCenterX = imageWidth / 2.0;
+   var imgCenterY = imageHeight / 2.0;
+
+   for (var i = 0; i < tiles.length; i++) {
+      var tile = tiles[i];
+      var tileCenterX = tile.offsetX + tile.tileWidth / 2.0;
+      var tileCenterY = tile.offsetY + tile.tileHeight / 2.0;
+
+      // Offset from image center (note: Y is inverted for astronomical convention)
+      var dx = imgCenterX - tileCenterX;  // positive = West
+      var dy = imgCenterY - tileCenterY;  // positive = North (image Y increases downward)
+
+      var result = pixelOffsetToRaDec(centerRA, centerDEC, pixelScale, dx, dy, projection);
+      tile.hintRA = result.ra;
+      tile.hintDEC = result.dec;
+   }
 }
 
 //----------------------------------------------------------------------------
@@ -2267,6 +2366,17 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
 
       tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap);
       if (tiles.length === 0) throw "Tile splitting failed.";
+
+      // Compute per-tile RA/DEC hints from image center and tile positions
+      if (hints.center_ra !== undefined && hints.center_dec !== undefined && hints.scale_est) {
+         computeTileHints(tiles, hints.center_ra, hints.center_dec,
+            hints.scale_est, imageWidth, imageHeight, hints._projection || "rectilinear");
+         console.writeln("Per-tile RA/DEC hints computed (" + (hints._projection || "rectilinear") + " projection):");
+         for (var ti = 0; ti < tiles.length; ti++) {
+            console.writeln("  Tile [" + tiles[ti].col + "," + tiles[ti].row + "]: RA=" +
+               raToHMS(tiles[ti].hintRA) + " DEC=" + decToDMS(tiles[ti].hintDEC));
+         }
+      }
 
       // 2. Login to astrometry.net
       this.progressLabel.text = "Logging in to API...";

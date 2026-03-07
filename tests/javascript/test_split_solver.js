@@ -791,6 +791,64 @@ test("機材計算: Canon 6D + 35mm → スケール・FOV・グリッド", func
    assertEqual(grid.rows, 4, "6x4 rows");
 });
 
+// pixelOffsetToRaDec - pixel offset to RA/DEC via spherical trigonometry
+function pixelOffsetToRaDec(centerRA, centerDEC, pixelScale, offsetX, offsetY, projection) {
+   var scaleRad = (pixelScale / 3600.0) * Math.PI / 180.0;
+   var rPixels = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+   if (rPixels < 0.001) {
+      return { ra: centerRA, dec: centerDEC };
+   }
+   var phi = Math.atan2(offsetX, offsetY);
+   var rScaled = rPixels * scaleRad;
+   var c;
+   switch (projection || "rectilinear") {
+      case "equisolid": c = 2.0 * Math.asin(Math.min(rScaled / 2.0, 1.0)); break;
+      case "equidistant": c = rScaled; break;
+      case "stereographic": c = 2.0 * Math.atan(rScaled / 2.0); break;
+      default: c = Math.atan(rScaled); break;
+   }
+   var alpha0 = centerRA * Math.PI / 180.0;
+   var delta0 = centerDEC * Math.PI / 180.0;
+   var sinC = Math.sin(c), cosC = Math.cos(c);
+   var sinD0 = Math.sin(delta0), cosD0 = Math.cos(delta0);
+   var dec = Math.asin(cosC * sinD0 + sinC * cosD0 * Math.cos(phi));
+   var ra = alpha0 + Math.atan2(sinC * Math.sin(phi), cosC * cosD0 - sinC * sinD0 * Math.cos(phi));
+   var raDeg = (ra * 180.0 / Math.PI) % 360.0;
+   if (raDeg < 0) raDeg += 360.0;
+   return { ra: raDeg, dec: dec * 180.0 / Math.PI };
+}
+
+test("pixelOffsetToRaDec: オフセット0 → 中心座標そのまま", function() {
+   var r = pixelOffsetToRaDec(180.0, 45.0, 10.0, 0, 0, "rectilinear");
+   assertEqual(r.ra, 180.0, "RA unchanged", 0.001);
+   assertEqual(r.dec, 45.0, "DEC unchanged", 0.001);
+});
+
+test("pixelOffsetToRaDec: 北方向オフセット → DEC増加", function() {
+   // 100px north at 10 arcsec/px = 1000 arcsec ≈ 0.278°
+   var r = pixelOffsetToRaDec(180.0, 45.0, 10.0, 0, 100, "rectilinear");
+   assertEqual(r.ra, 180.0, "RA unchanged for pure N offset", 0.01);
+   assertTrue(r.dec > 45.0 && r.dec < 45.5, "DEC increased: " + r.dec);
+});
+
+test("pixelOffsetToRaDec: 西方向オフセット → RA変化", function() {
+   // 100px west at 10 arcsec/px
+   var r = pixelOffsetToRaDec(180.0, 0.0, 10.0, 100, 0, "rectilinear");
+   assertTrue(r.ra > 180.0 && r.ra < 181.0, "RA increased (west): " + r.ra);
+   assertEqual(r.dec, 0.0, "DEC unchanged for equator", 0.01);
+});
+
+test("pixelOffsetToRaDec: 広角 14mm タイルオフセット", function() {
+   // 8x6 grid, image 9728x6656, tile offset from center ~2400px at ~54 arcsec/px
+   var r = pixelOffsetToRaDec(22.846, -1.743, 54.121, 2400, 1600, "rectilinear");
+   // Should be offset by ~36° and ~24° respectively
+   assertTrue(r.ra !== 22.846, "RA should differ from center");
+   assertTrue(r.dec !== -1.743, "DEC should differ from center");
+   // Should be within reasonable bounds
+   assertTrue(Math.abs(r.ra - 22.846) < 60, "RA within 60° of center: " + r.ra);
+   assertTrue(Math.abs(r.dec - (-1.743)) < 40, "DEC within 40° of center: " + r.dec);
+});
+
 test("機材計算: ASI585MC + 8mm Fisheye → 超広角", function() {
    var scale = computePixelScale(2.90, 8);  // 74.8 arcsec/px
    var fov = computeDiagonalFov(3840, 2160, scale);  // ~77° (arctan-based)
