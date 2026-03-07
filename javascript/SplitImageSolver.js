@@ -1406,8 +1406,13 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
                   sip: null
                };
 
-               var rdI = pixelToRaDec(wcsI, px, py, imageHeight);
-               var rdJ = pixelToRaDec(wcsJ, px, py, imageHeight);
+               // Convert full-image pixel to tile-local pixel
+               var localPxI = px - ti.offsetX;
+               var localPyI = py - ti.offsetY;
+               var localPxJ = px - tj.offsetX;
+               var localPyJ = py - tj.offsetY;
+               var rdI = pixelToRaDec(wcsI, localPxI, localPyI, ti.tileHeight);
+               var rdJ = pixelToRaDec(wcsJ, localPxJ, localPyJ, tj.tileHeight);
                if (!rdI || !rdJ) continue;
 
                var dev = angularSeparation(rdI, rdJ) * 3600.0; // arcsec
@@ -2455,7 +2460,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
             var found = false;
             for (var t = 0; t < tiles.length; t++) {
                if (tiles[t].col === col && tiles[t].row === row) {
-                  line += (tiles[t].status === "success") ? "\u25cb " : "\u00d7 ";
+                  line += (tiles[t].status === "success") ? "\u25cb " : (tiles[t].status === "skipped") ? "\u2014 " : "\u00d7 ";
                   found = true;
                   break;
                }
@@ -2488,7 +2493,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
                   var found = false;
                   for (var t = 0; t < tiles.length; t++) {
                      if (tiles[t].col === col && tiles[t].row === row) {
-                        line += (tiles[t].status === "success") ? "\u25cb " : "\u00d7 ";
+                        line += (tiles[t].status === "success") ? "\u25cb " : (tiles[t].status === "skipped") ? "\u2014 " : "\u00d7 ";
                         found = true;
                         break;
                      }
@@ -2509,7 +2514,9 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       this.progressLabel.text = "Validating overlap...";
       processEvents();
 
-      var invalidated = validateOverlap(tiles, imageWidth, imageHeight);
+      // Scale-adaptive tolerance: 3 pixels worth of arcsec (minimum 5")
+      var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
+      var invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
       if (invalidated > 0) {
          successCount -= invalidated;
          console.writeln(invalidated + " tiles invalidated by overlap check");
