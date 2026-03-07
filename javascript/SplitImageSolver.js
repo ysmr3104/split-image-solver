@@ -2184,6 +2184,17 @@ function SplitSolverDialog() {
    this.sizer.addSpacing(4);
    this.sizer.add(buttonSizer);
 
+   // Prevent Escape / window close during solve — redirect to abort
+   this._isSolving = false;
+   this.onClose = function() {
+      if (self._isSolving) {
+         self._abortRequested = true;
+         self.progressLabel.text = "Aborting...";
+         return false; // Prevent close
+      }
+      return true;
+   };
+
    this.adjustToContents();
    this.setMinWidth(550);
 }
@@ -2301,6 +2312,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    console.writeln("");
 
    // Lock UI, show Abort/Skip buttons
+   this._isSolving = true;
    this._abortRequested = false;
    this._skipToMerge = false;
    this.solveButton.enabled = false;
@@ -2330,6 +2342,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    }
 
    // Restore UI
+   this._isSolving = false;
    this.abortButton.hide();
    this.skipButton.hide();
    this.solveButton.show();
