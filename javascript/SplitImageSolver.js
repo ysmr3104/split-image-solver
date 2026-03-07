@@ -1504,7 +1504,6 @@ function SplitSolverDialog() {
    apiKeySizer.spacing = 6;
    apiKeySizer.add(this.apiKeyLabel);
    apiKeySizer.add(this.apiKeyStatus, 100);
-   apiKeySizer.add(this.apiKeySettingsButton);
 
    // ---- Equipment (Camera + Lens) ----
    var equipDB = loadEquipmentDB();
@@ -1553,6 +1552,7 @@ function SplitSolverDialog() {
    this.lensLabel = new Label(this);
    this.lensLabel.text = "Lens:";
    this.lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.lensLabel.setFixedWidth(80);
 
    this.lensCombo = new ComboBox(this);
    this.lensCombo.addItem("(Select)");
@@ -1591,14 +1591,15 @@ function SplitSolverDialog() {
       }
    }
 
-   var equipSizer = new HorizontalSizer;
-   equipSizer.spacing = 6;
-   equipSizer.add(this.cameraLabel);
-   equipSizer.add(this.cameraCombo);
-   equipSizer.addSpacing(12);
-   equipSizer.add(this.lensLabel);
-   equipSizer.add(this.lensCombo);
-   equipSizer.addStretch();
+   var cameraSizer = new HorizontalSizer;
+   cameraSizer.spacing = 6;
+   cameraSizer.add(this.cameraLabel);
+   cameraSizer.add(this.cameraCombo, 100);
+
+   var lensSizer = new HorizontalSizer;
+   lensSizer.spacing = 6;
+   lensSizer.add(this.lensLabel);
+   lensSizer.add(this.lensCombo, 100);
 
    // ---- FOV info + recommended grid ----
    this.fovInfoLabel = new Label(this);
@@ -1746,17 +1747,39 @@ function SplitSolverDialog() {
    this.raEdit.setFixedWidth(150);
    this.raEdit.toolTip = "RA hint (HH MM SS.ss or degrees). Optional";
 
+   this.raHintLabel = new Label(this);
+   this.raHintLabel.text = "(HH MM SS.ss)";
+
+   var raSizer = new HorizontalSizer;
+   raSizer.spacing = 6;
+   raSizer.add(this.raLabel);
+   raSizer.add(this.raEdit);
+   raSizer.add(this.raHintLabel);
+   raSizer.addStretch();
+
    this.decLabel = new Label(this);
    this.decLabel.text = "DEC:";
    this.decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.decLabel.setFixedWidth(80);
 
    this.decEdit = new Edit(this);
    this.decEdit.setFixedWidth(150);
    this.decEdit.toolTip = "DEC hint (+DD MM SS.s or degrees). Optional";
 
+   this.decHintLabel = new Label(this);
+   this.decHintLabel.text = "(\u00b1DD MM SS.ss)";
+
+   var decSizer = new HorizontalSizer;
+   decSizer.spacing = 6;
+   decSizer.add(this.decLabel);
+   decSizer.add(this.decEdit);
+   decSizer.add(this.decHintLabel);
+   decSizer.addStretch();
+
    this.radiusLabel = new Label(this);
    this.radiusLabel.text = "Radius:";
    this.radiusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.radiusLabel.setFixedWidth(80);
 
    this.radiusEdit = new Edit(this);
    this.radiusEdit.text = "15";
@@ -1766,18 +1789,12 @@ function SplitSolverDialog() {
    this.radiusUnitLabel = new Label(this);
    this.radiusUnitLabel.text = "deg";
 
-   var coordSizer = new HorizontalSizer;
-   coordSizer.spacing = 6;
-   coordSizer.add(this.raLabel);
-   coordSizer.add(this.raEdit);
-   coordSizer.addSpacing(6);
-   coordSizer.add(this.decLabel);
-   coordSizer.add(this.decEdit);
-   coordSizer.addSpacing(6);
-   coordSizer.add(this.radiusLabel);
-   coordSizer.add(this.radiusEdit);
-   coordSizer.add(this.radiusUnitLabel);
-   coordSizer.addStretch();
+   var radiusSizer = new HorizontalSizer;
+   radiusSizer.spacing = 6;
+   radiusSizer.add(this.radiusLabel);
+   radiusSizer.add(this.radiusEdit);
+   radiusSizer.add(this.radiusUnitLabel);
+   radiusSizer.addStretch();
 
    // ---- Grid / Split mode ----
    this.gridLabel = new Label(this);
@@ -1808,6 +1825,7 @@ function SplitSolverDialog() {
    this.overlapLabel = new Label(this);
    this.overlapLabel.text = "Overlap:";
    this.overlapLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.overlapLabel.setFixedWidth(80);
 
    this.overlapEdit = new Edit(this);
    this.overlapEdit.text = "200";
@@ -1822,10 +1840,14 @@ function SplitSolverDialog() {
    gridSizer.add(this.gridLabel);
    gridSizer.add(this.gridCombo);
    gridSizer.addSpacing(12);
-   gridSizer.add(this.overlapLabel);
-   gridSizer.add(this.overlapEdit);
-   gridSizer.add(this.overlapUnitLabel);
-   gridSizer.addStretch();
+   gridSizer.add(this.fovInfoLabel, 100);
+
+   var overlapSizer = new HorizontalSizer;
+   overlapSizer.spacing = 6;
+   overlapSizer.add(this.overlapLabel);
+   overlapSizer.add(this.overlapEdit);
+   overlapSizer.add(this.overlapUnitLabel);
+   overlapSizer.addStretch();
 
    // ---- Downsample ----
    this.downsampleLabel = new Label(this);
@@ -1852,14 +1874,14 @@ function SplitSolverDialog() {
    this.sipCombo.currentItem = 0;
    this.sipCombo.toolTip = "SIP distortion correction polynomial order (tweak_order)";
 
-   var optionSizer = new HorizontalSizer;
-   optionSizer.spacing = 6;
-   optionSizer.add(this.downsampleLabel);
-   optionSizer.add(this.downsampleCombo);
-   optionSizer.addSpacing(12);
-   optionSizer.add(this.sipLabel);
-   optionSizer.add(this.sipCombo);
-   optionSizer.addStretch();
+   var downsampleSizer = new HorizontalSizer;
+   downsampleSizer.spacing = 6;
+   downsampleSizer.add(this.downsampleLabel);
+   downsampleSizer.add(this.downsampleCombo);
+   downsampleSizer.addSpacing(12);
+   downsampleSizer.add(this.sipLabel);
+   downsampleSizer.add(this.sipCombo);
+   downsampleSizer.addStretch();
 
    // ---- Progress display ----
    this.progressLabel = new Label(this);
@@ -1901,31 +1923,67 @@ function SplitSolverDialog() {
 
    var buttonSizer = new HorizontalSizer;
    buttonSizer.spacing = 6;
+   buttonSizer.add(this.apiKeySettingsButton);
    buttonSizer.addStretch();
    buttonSizer.add(this.solveButton);
    buttonSizer.add(this.abortButton);
    buttonSizer.add(this.closeButton);
 
+   // ---- GroupBox: Image ----
+   var imageGroup = new GroupBox(this);
+   imageGroup.title = "Image";
+   imageGroup.sizer = new VerticalSizer;
+   imageGroup.sizer.margin = 6;
+   imageGroup.sizer.spacing = 4;
+   imageGroup.sizer.add(targetSizer);
+   imageGroup.sizer.add(apiKeySizer);
+
+   // ---- GroupBox: Equipment ----
+   var equipGroup = new GroupBox(this);
+   equipGroup.title = "Equipment";
+   equipGroup.sizer = new VerticalSizer;
+   equipGroup.sizer.margin = 6;
+   equipGroup.sizer.spacing = 4;
+   equipGroup.sizer.add(cameraSizer);
+   equipGroup.sizer.add(lensSizer);
+   equipGroup.sizer.add(scaleSizer);
+
+   // ---- GroupBox: Split Settings ----
+   var splitGroup = new GroupBox(this);
+   splitGroup.title = "Split Settings";
+   splitGroup.sizer = new VerticalSizer;
+   splitGroup.sizer.margin = 6;
+   splitGroup.sizer.spacing = 4;
+   splitGroup.sizer.add(gridSizer);
+   splitGroup.sizer.add(overlapSizer);
+   splitGroup.sizer.add(downsampleSizer);
+
+   // ---- GroupBox: Coordinate Hints ----
+   var coordGroup = new GroupBox(this);
+   coordGroup.title = "Coordinate Hints";
+   coordGroup.sizer = new VerticalSizer;
+   coordGroup.sizer.margin = 6;
+   coordGroup.sizer.spacing = 4;
+   coordGroup.sizer.add(objectSizer);
+   coordGroup.sizer.add(raSizer);
+   coordGroup.sizer.add(decSizer);
+   coordGroup.sizer.add(radiusSizer);
+
    // ---- Layout ----
    this.sizer = new VerticalSizer;
    this.sizer.margin = 8;
    this.sizer.spacing = 6;
-   this.sizer.add(targetSizer);
-   this.sizer.add(apiKeySizer);
-   this.sizer.add(equipSizer);
-   this.sizer.add(this.fovInfoLabel);
-   this.sizer.add(scaleSizer);
-   this.sizer.add(objectSizer);
-   this.sizer.add(coordSizer);
-   this.sizer.add(gridSizer);
-   this.sizer.add(optionSizer);
+   this.sizer.add(imageGroup);
+   this.sizer.add(equipGroup);
+   this.sizer.add(splitGroup);
+   this.sizer.add(coordGroup);
    this.sizer.addSpacing(4);
    this.sizer.add(this.progressLabel);
    this.sizer.addSpacing(4);
    this.sizer.add(buttonSizer);
 
    this.adjustToContents();
-   this.setMinWidth(500);
+   this.setMinWidth(550);
 }
 
 SplitSolverDialog.prototype = new Dialog;
