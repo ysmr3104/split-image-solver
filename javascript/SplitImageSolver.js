@@ -663,14 +663,19 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
 
    console.writeln("Split image into " + tiles.length + " tiles (" + gridX + "x" + gridY + ")");
 
-   // Sort tiles: center-first spiral (closer to image center processed first)
+   // Sort tiles: upper half first (by distance from center), then lower half
+   // For odd gridY, the middle row belongs to the upper half
    var centerCol = (gridX - 1) / 2.0;
    var centerRow = (gridY - 1) / 2.0;
+   var upperRowLimit = Math.ceil(gridY / 2.0); // e.g., gridY=3 -> rows 0,1 are upper; gridY=4 -> rows 0,1
    tiles.sort(function(a, b) {
+      var aUpper = (a.row < upperRowLimit) ? 0 : 1;
+      var bUpper = (b.row < upperRowLimit) ? 0 : 1;
+      if (aUpper !== bUpper) return aUpper - bUpper;
+      // Within same half: sort by distance from image center
       var da = (a.col - centerCol) * (a.col - centerCol) + (a.row - centerRow) * (a.row - centerRow);
       var db = (b.col - centerCol) * (b.col - centerCol) + (b.row - centerRow) * (b.row - centerRow);
       if (da !== db) return da - db;
-      // Same distance: top rows first, then left-to-right
       if (a.row !== b.row) return a.row - b.row;
       return a.col - b.col;
    });
