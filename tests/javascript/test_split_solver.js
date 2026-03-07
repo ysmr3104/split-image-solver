@@ -178,7 +178,8 @@ function computePixelScale(pixelPitchUm, focalLengthMm) {
 function computeDiagonalFov(sensorWidthPx, sensorHeightPx, pixelScaleArcsec) {
    if (pixelScaleArcsec <= 0) return 0;
    var diagPx = Math.sqrt(sensorWidthPx * sensorWidthPx + sensorHeightPx * sensorHeightPx);
-   return diagPx * pixelScaleArcsec / 3600.0;
+   var halfDiagRad = diagPx * pixelScaleArcsec / 2.0 / 206265.0;
+   return 2.0 * Math.atan(halfDiagRad) * 180.0 / Math.PI;
 }
 
 function recommendGrid(diagFovDeg, imageWidth, imageHeight) {
@@ -782,22 +783,22 @@ test("機材計算: ASI2600MC Pro + RedCat 51 → スケール・FOV・グリッ
 
 test("機材計算: Canon 6D + 35mm → スケール・FOV・グリッド", function() {
    var scale = computePixelScale(6.55, 35);  // 38.6 arcsec/px
-   var fov = computeDiagonalFov(5472, 3648, scale);  // ~70°
+   var fov = computeDiagonalFov(5472, 3648, scale);  // ~63° (arctan-based)
    var grid = recommendGrid(fov, 5472, 3648);
    assertTrue(scale > 38 && scale < 39, "scale ~38.6: " + scale);
-   assertTrue(fov > 65 && fov < 75, "FOV ~70°: " + fov);
-   assertEqual(grid.cols, 6, "6x4 for ~70° FOV");
+   assertTrue(fov > 60 && fov < 66, "FOV ~63°: " + fov);
+   assertEqual(grid.cols, 6, "6x4 for ~63° FOV");
    assertEqual(grid.rows, 4, "6x4 rows");
 });
 
 test("機材計算: ASI585MC + 8mm Fisheye → 超広角", function() {
    var scale = computePixelScale(2.90, 8);  // 74.8 arcsec/px
-   var fov = computeDiagonalFov(3840, 2160, scale);  // ~91°
+   var fov = computeDiagonalFov(3840, 2160, scale);  // ~77° (arctan-based)
    var grid = recommendGrid(fov, 3840, 2160);
-   assertTrue(fov > 85 && fov < 100, "FOV ~91°: " + fov);
-   // 90° < fov < 120° → 8x6
-   assertEqual(grid.cols, 8, "8x6 for fisheye");
-   assertEqual(grid.rows, 6, "8x6 rows");
+   assertTrue(fov > 74 && fov < 80, "FOV ~77°: " + fov);
+   // 60° < fov < 90° → 6x4
+   assertEqual(grid.cols, 6, "6x4 for wide angle");
+   assertEqual(grid.rows, 4, "6x4 rows");
 });
 
 //============================================================================

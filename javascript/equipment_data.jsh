@@ -1,117 +1,127 @@
-{
+// equipment_data.jsh - Equipment database for SplitImageSolver
+// This file is #included to ensure the data is always available,
+// regardless of the script's runtime working directory.
+// Converted from config/equipment.yaml - keep in sync when editing.
+
+var __equipmentData__ = {
   "cameras": [
+    // ===== Sony alpha7 (Standard) =====
     {
-      "name": "Sony α7",
+      "name": "Sony \u03b17",
       "instrume": "Sony ILCE-7",
       "pixel_pitch": 5.97,
       "sensor_width": 6000,
       "sensor_height": 4000
     },
     {
-      "name": "Sony α7II",
+      "name": "Sony \u03b17II",
       "instrume": "Sony ILCE-7M2",
       "pixel_pitch": 5.97,
       "sensor_width": 6000,
       "sensor_height": 4000
     },
     {
-      "name": "Sony α7III",
+      "name": "Sony \u03b17III",
       "instrume": "Sony ILCE-7M3",
       "pixel_pitch": 5.93,
       "sensor_width": 6000,
       "sensor_height": 4000
     },
     {
-      "name": "Sony α7IV",
+      "name": "Sony \u03b17IV",
       "instrume": "Sony ILCE-7M4",
       "pixel_pitch": 5.12,
       "sensor_width": 7008,
       "sensor_height": 4672
     },
     {
-      "name": "Sony α7V",
+      "name": "Sony \u03b17V",
       "instrume": "Sony ILCE-7M5",
       "pixel_pitch": 5.08,
       "sensor_width": 7008,
       "sensor_height": 4672
     },
+    // ===== Sony alpha7R (High Resolution) =====
     {
-      "name": "Sony α7R",
+      "name": "Sony \u03b17R",
       "instrume": "Sony ILCE-7R",
       "pixel_pitch": 4.88,
       "sensor_width": 7360,
       "sensor_height": 4912
     },
     {
-      "name": "Sony α7RII",
+      "name": "Sony \u03b17RII",
       "instrume": "Sony ILCE-7RM2",
       "pixel_pitch": 4.52,
       "sensor_width": 7952,
       "sensor_height": 5304
     },
     {
-      "name": "Sony α7RIII",
+      "name": "Sony \u03b17RIII",
       "instrume": "Sony ILCE-7RM3",
       "pixel_pitch": 4.52,
       "sensor_width": 7952,
       "sensor_height": 5304
     },
     {
-      "name": "Sony α7RIV",
+      "name": "Sony \u03b17RIV",
       "instrume": "Sony ILCE-7RM4",
       "pixel_pitch": 3.76,
       "sensor_width": 9504,
       "sensor_height": 6336
     },
     {
-      "name": "Sony α7RV",
+      "name": "Sony \u03b17RV",
       "instrume": "Sony ILCE-7RM5",
       "pixel_pitch": 3.76,
       "sensor_width": 9504,
       "sensor_height": 6336
     },
+    // ===== Sony alpha7S (High Sensitivity) =====
     {
-      "name": "Sony α7S",
+      "name": "Sony \u03b17S",
       "instrume": "Sony ILCE-7S",
       "pixel_pitch": 8.45,
       "sensor_width": 4240,
       "sensor_height": 2832
     },
     {
-      "name": "Sony α7SII",
+      "name": "Sony \u03b17SII",
       "instrume": "Sony ILCE-7SM2",
-      "pixel_pitch": 8.4,
+      "pixel_pitch": 8.40,
       "sensor_width": 4240,
       "sensor_height": 2832
     },
     {
-      "name": "Sony α7SIII",
+      "name": "Sony \u03b17SIII",
       "instrume": "Sony ILCE-7SM3",
-      "pixel_pitch": 8.4,
+      "pixel_pitch": 8.40,
       "sensor_width": 4240,
       "sensor_height": 2832
     },
+    // ===== Sony alpha7C (Compact) =====
     {
-      "name": "Sony α7C",
+      "name": "Sony \u03b17C",
       "instrume": "Sony ILCE-7C",
       "pixel_pitch": 5.94,
       "sensor_width": 6000,
       "sensor_height": 4000
     },
     {
-      "name": "Sony α7CII",
+      "name": "Sony \u03b17CII",
       "instrume": "Sony ILCE-7CM2",
       "pixel_pitch": 5.12,
       "sensor_width": 7008,
       "sensor_height": 4672
     },
     {
-      "name": "Sony α7CR",
+      "name": "Sony \u03b17CR",
       "instrume": "Sony ILCE-7CR",
       "pixel_pitch": 3.76,
       "sensor_width": 9504,
       "sensor_height": 6336
     },
+    // ===== Nikon Z (24MP class) =====
     {
       "name": "Nikon Z 5",
       "instrume": "NIKON Z 5",
@@ -154,6 +164,7 @@
       "sensor_width": 6048,
       "sensor_height": 4032
     },
+    // ===== Nikon Z (45MP class) =====
     {
       "name": "Nikon Z 7",
       "instrume": "NIKON Z 7",
@@ -182,6 +193,7 @@
       "sensor_width": 8256,
       "sensor_height": 5504
     },
+    // ===== Nikon DSLR =====
     {
       "name": "Nikon D810A",
       "instrume": "NIKON D810A",
@@ -210,6 +222,7 @@
       "sensor_width": 6000,
       "sensor_height": 4000
     },
+    // ===== Canon EOS R (Standard) =====
     {
       "name": "Canon EOS R",
       "instrume": "Canon EOS R",
@@ -266,6 +279,7 @@
       "sensor_width": 6000,
       "sensor_height": 4000
     },
+    // ===== Canon EOS R (High Resolution / Flagship) =====
     {
       "name": "Canon EOS R5",
       "instrume": "Canon EOS R5",
@@ -283,10 +297,11 @@
     {
       "name": "Canon EOS R1",
       "instrume": "Canon EOS R1",
-      "pixel_pitch": 6,
+      "pixel_pitch": 6.00,
       "sensor_width": 6000,
       "sensor_height": 4000
     },
+    // ===== Canon DSLR =====
     {
       "name": "Canon EOS 6D",
       "instrume": "Canon EOS 6D",
@@ -311,7 +326,7 @@
     {
       "name": "Canon EOS 60Da",
       "instrume": "Canon EOS 60Da",
-      "pixel_pitch": 4.3,
+      "pixel_pitch": 4.30,
       "sensor_width": 5184,
       "sensor_height": 3456
     },
@@ -322,6 +337,7 @@
       "sensor_width": 6000,
       "sensor_height": 4000
     },
+    // ===== ZWO =====
     {
       "name": "ZWO ASI2600MC Pro",
       "instrume": "ZWO ASI2600MC Pro",
@@ -367,21 +383,21 @@
     {
       "name": "ZWO ASI183MC Pro",
       "instrume": "ZWO ASI183MC Pro",
-      "pixel_pitch": 2.4,
+      "pixel_pitch": 2.40,
       "sensor_width": 5496,
       "sensor_height": 3672
     },
     {
       "name": "ZWO ASI585MC",
       "instrume": "ZWO ASI585MC",
-      "pixel_pitch": 2.9,
+      "pixel_pitch": 2.90,
       "sensor_width": 3840,
       "sensor_height": 2160
     },
     {
       "name": "ZWO ASI678MC",
       "instrume": "ZWO ASI678MC",
-      "pixel_pitch": 2,
+      "pixel_pitch": 2.00,
       "sensor_width": 3840,
       "sensor_height": 2160
     },
@@ -399,6 +415,7 @@
       "sensor_width": 9576,
       "sensor_height": 6388
     },
+    // ===== QHY =====
     {
       "name": "QHY268M",
       "instrume": "QHY268M",
@@ -437,10 +454,11 @@
     {
       "name": "QHY183M",
       "instrume": "QHY183M",
-      "pixel_pitch": 2.4,
+      "pixel_pitch": 2.40,
       "sensor_width": 5496,
       "sensor_height": 3672
     },
+    // ===== Player One =====
     {
       "name": "Player One Poseidon-C Pro",
       "instrume": "Player One Poseidon-C Pro",
@@ -455,6 +473,7 @@
       "sensor_width": 4144,
       "sensor_height": 2822
     },
+    // ===== Custom =====
     {
       "name": "Custom",
       "instrume": "",
@@ -464,245 +483,61 @@
     }
   ],
   "lenses": [
-    {
-      "name": "8mm Fisheye",
-      "focal_length": 8,
-      "projection": "equisolid"
-    },
-    {
-      "name": "10mm Fisheye",
-      "focal_length": 10,
-      "projection": "equisolid"
-    },
-    {
-      "name": "Sigma 15mm f/2.8 EX DG Fisheye",
-      "focal_length": 15,
-      "projection": "equisolid"
-    },
-    {
-      "name": "Sony FE 14mm f/1.8 GM",
-      "focal_length": 14,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sony FE 20mm f/1.8 G",
-      "focal_length": 20,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sony FE 24mm f/1.4 GM",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sony FE 24mm f/2.8 G",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sony FE 35mm f/1.4 GM",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 14mm f/1.4 DG DN Art",
-      "focal_length": 14,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 20mm f/1.4 DG DN Art",
-      "focal_length": 20,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 24mm f/2 DG DN Contemp.",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 24mm f/3.5 DG DN Contemp.",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 35mm f/1.2 DG DN Art",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 35mm f/1.4 DG DN Art",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Sigma 35mm f/2 DG DN Contemp.",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 20mm f/1.8 S",
-      "focal_length": 20,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 24mm f/1.8 S",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 26mm f/2.8",
-      "focal_length": 26,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 28mm f/2.8",
-      "focal_length": 28,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 35mm f/1.2 S",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 35mm f/1.4",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "NIKKOR Z 35mm f/1.8 S",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 14mm f/1.4 L VCM",
-      "focal_length": 14,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 16mm f/2.8 STM",
-      "focal_length": 16,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 20mm f/1.4 L VCM",
-      "focal_length": 20,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 24mm f/1.4 L VCM",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 24mm f/1.8 Macro IS STM",
-      "focal_length": 24,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 28mm f/2.8 STM",
-      "focal_length": 28,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 35mm f/1.4 L VCM",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Canon RF 35mm f/1.8 Macro IS STM",
-      "focal_length": 35,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "50mm",
-      "focal_length": 50,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "85mm",
-      "focal_length": 85,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "100mm",
-      "focal_length": 100,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "135mm",
-      "focal_length": 135,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "200mm",
-      "focal_length": 200,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "250mm (RedCat 51)",
-      "focal_length": 250,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "300mm",
-      "focal_length": 300,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "400mm",
-      "focal_length": 400,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "500mm",
-      "focal_length": 500,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "600mm",
-      "focal_length": 600,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "714mm (RASA 8)",
-      "focal_length": 714,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "800mm",
-      "focal_length": 800,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "1000mm",
-      "focal_length": 1000,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "1200mm",
-      "focal_length": 1200,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "1600mm",
-      "focal_length": 1600,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "2000mm",
-      "focal_length": 2000,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "2350mm (C9.25)",
-      "focal_length": 2350,
-      "projection": "rectilinear"
-    },
-    {
-      "name": "Custom",
-      "focal_length": 0,
-      "projection": "rectilinear"
-    }
+    // ===== Fisheye =====
+    {"name": "8mm Fisheye", "focal_length": 8, "projection": "equisolid"},
+    {"name": "10mm Fisheye", "focal_length": 10, "projection": "equisolid"},
+    {"name": "Sigma 15mm f/2.8 EX DG Fisheye", "focal_length": 15, "projection": "equisolid"},
+    // ===== Sony FE =====
+    {"name": "Sony FE 14mm f/1.8 GM", "focal_length": 14, "projection": "rectilinear"},
+    {"name": "Sony FE 20mm f/1.8 G", "focal_length": 20, "projection": "rectilinear"},
+    {"name": "Sony FE 24mm f/1.4 GM", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Sony FE 24mm f/2.8 G", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Sony FE 35mm f/1.4 GM", "focal_length": 35, "projection": "rectilinear"},
+    // ===== Sigma Art / Contemporary =====
+    {"name": "Sigma 14mm f/1.4 DG DN Art", "focal_length": 14, "projection": "rectilinear"},
+    {"name": "Sigma 20mm f/1.4 DG DN Art", "focal_length": 20, "projection": "rectilinear"},
+    {"name": "Sigma 24mm f/2 DG DN Contemp.", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Sigma 24mm f/3.5 DG DN Contemp.", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Sigma 35mm f/1.2 DG DN Art", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "Sigma 35mm f/1.4 DG DN Art", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "Sigma 35mm f/2 DG DN Contemp.", "focal_length": 35, "projection": "rectilinear"},
+    // ===== NIKKOR Z =====
+    {"name": "NIKKOR Z 20mm f/1.8 S", "focal_length": 20, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 24mm f/1.8 S", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 26mm f/2.8", "focal_length": 26, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 28mm f/2.8", "focal_length": 28, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 35mm f/1.2 S", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 35mm f/1.4", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "NIKKOR Z 35mm f/1.8 S", "focal_length": 35, "projection": "rectilinear"},
+    // ===== Canon RF =====
+    {"name": "Canon RF 14mm f/1.4 L VCM", "focal_length": 14, "projection": "rectilinear"},
+    {"name": "Canon RF 16mm f/2.8 STM", "focal_length": 16, "projection": "rectilinear"},
+    {"name": "Canon RF 20mm f/1.4 L VCM", "focal_length": 20, "projection": "rectilinear"},
+    {"name": "Canon RF 24mm f/1.4 L VCM", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Canon RF 24mm f/1.8 Macro IS STM", "focal_length": 24, "projection": "rectilinear"},
+    {"name": "Canon RF 28mm f/2.8 STM", "focal_length": 28, "projection": "rectilinear"},
+    {"name": "Canon RF 35mm f/1.4 L VCM", "focal_length": 35, "projection": "rectilinear"},
+    {"name": "Canon RF 35mm f/1.8 Macro IS STM", "focal_length": 35, "projection": "rectilinear"},
+    // ===== Generic focal lengths =====
+    {"name": "50mm", "focal_length": 50, "projection": "rectilinear"},
+    {"name": "85mm", "focal_length": 85, "projection": "rectilinear"},
+    {"name": "100mm", "focal_length": 100, "projection": "rectilinear"},
+    {"name": "135mm", "focal_length": 135, "projection": "rectilinear"},
+    {"name": "200mm", "focal_length": 200, "projection": "rectilinear"},
+    // ===== Telescopes =====
+    {"name": "250mm (RedCat 51)", "focal_length": 250, "projection": "rectilinear"},
+    {"name": "300mm", "focal_length": 300, "projection": "rectilinear"},
+    {"name": "400mm", "focal_length": 400, "projection": "rectilinear"},
+    {"name": "500mm", "focal_length": 500, "projection": "rectilinear"},
+    {"name": "600mm", "focal_length": 600, "projection": "rectilinear"},
+    {"name": "714mm (RASA 8)", "focal_length": 714, "projection": "rectilinear"},
+    {"name": "800mm", "focal_length": 800, "projection": "rectilinear"},
+    {"name": "1000mm", "focal_length": 1000, "projection": "rectilinear"},
+    {"name": "1200mm", "focal_length": 1200, "projection": "rectilinear"},
+    {"name": "1600mm", "focal_length": 1600, "projection": "rectilinear"},
+    {"name": "2000mm", "focal_length": 2000, "projection": "rectilinear"},
+    {"name": "2350mm (C9.25)", "focal_length": 2350, "projection": "rectilinear"},
+    // ===== Custom =====
+    {"name": "Custom", "focal_length": 0, "projection": "rectilinear"}
   ]
-}
+};

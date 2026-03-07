@@ -17,7 +17,25 @@ function AstrometryClient(apiKey) {
    this.baseUrl = "http://nova.astrometry.net";
    this.pollInterval = 3000; // ms
    this.timeout = 300000;    // 5 min
+   this.aborted = false;
 }
+
+// Interruptible sleep: yields to UI every 200ms and checks for abort
+// Checks both console.abortRequested and this.abortCheck callback
+AstrometryClient.prototype._sleep = function(ms) {
+   var step = 200;
+   var remaining = ms;
+   while (remaining > 0) {
+      msleep(Math.min(step, remaining));
+      remaining -= step;
+      processEvents();
+      if (console.abortRequested ||
+          (typeof this.abortCheck === "function" && this.abortCheck())) {
+         this.aborted = true;
+         throw "Aborted by user";
+      }
+   }
+};
 
 // -------------------------------------------------------------------------
 // _uniqueTmpPath - generate a unique temporary file path
@@ -181,7 +199,7 @@ AstrometryClient.prototype.login = function() {
    }
 
    this.session = result.session;
-   console.writeln("[AstrometryClient] login successful, session: " + this.session);
+   console.writeln("[AstrometryClient] login successful");
    return true;
 };
 
@@ -222,7 +240,12 @@ AstrometryClient.prototype.upload = function(filePath, hints) {
    var formFields = [{ name: "request-json", value: requestJson }];
 
    console.writeln("[AstrometryClient] uploading: " + filePath);
-   console.writeln("[AstrometryClient] hints: " + requestJson);
+   // Log hints without session key
+   var logObj = {};
+   for (var k in requestObj) {
+      if (requestObj.hasOwnProperty(k) && k !== "session") logObj[k] = requestObj[k];
+   }
+   console.writeln("[AstrometryClient] hints: " + JSON.stringify(logObj));
 
    var result = this._curlPost(this.apiUrl + "/upload", formFields, filePath, 120);
    if (!result) {
@@ -257,7 +280,7 @@ AstrometryClient.prototype.pollSubmission = function(subId) {
             }
          }
       }
-      msleep(this.pollInterval);
+      this._sleep(this.pollInterval);
       elapsed += this.pollInterval;
    }
 
@@ -282,7 +305,7 @@ AstrometryClient.prototype.pollJob = function(jobId) {
             return result.status;
          }
       }
-      msleep(this.pollInterval);
+      this._sleep(this.pollInterval);
       elapsed += this.pollInterval;
    }
 

@@ -23,24 +23,17 @@
 #include <pjsr/Color.jsh>
 #include <pjsr/PropertyType.jsh>
 #include <pjsr/PropertyAttribute.jsh>
+#include <pjsr/SampleType.jsh>
+#include <pjsr/ImageOp.jsh>
 
 #include "wcs_math.js"
 #include "wcs_keywords.js"
 #include "astrometry_api.js"
+#include "equipment_data.jsh"
 
 #define TITLE "Split Image Solver"
 
-// Detect script directory from stack trace for locating equipment.json
-var __scriptDir__ = "";
-try {
-   var __e__ = new Error;
-   if (__e__.stack) {
-      var __m__ = __e__.stack.match(/([^\s]+SplitImageSolver\.js)/);
-      if (__m__) {
-         __scriptDir__ = File.extractDirectory(__m__[1]);
-      }
-   }
-} catch (e) {}
+// Equipment data is loaded via #include "equipment_data.jsh" (sets __equipmentData__)
 
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
@@ -481,12 +474,22 @@ function setCustomControlPoints(window, wcsResult, starPairs, imageWidth, imageH
 // WCS FITS header parsing
 //============================================================================
 
-// Read WCS parameters from a FITS file
+// Read WCS parameters from a FITS file (header-only supported)
+// Uses FileFormatInstance to read FITS keywords without requiring image data.
 function readWcsFromFits(fitsPath) {
-   var windows = ImageWindow.open(fitsPath);
-   if (!windows || windows.length === 0) return null;
-   var w = windows[0];
-   var keywords = w.keywords;
+   var fmt = new FileFormat("FITS");
+   var reader = new FileFormatInstance(fmt);
+   if (!reader.open(fitsPath, "verbosity 0")) {
+      console.writeln("readWcsFromFits: cannot open " + fitsPath);
+      return null;
+   }
+   var keywords = reader.keywords;
+   reader.close();
+
+   if (!keywords || keywords.length === 0) {
+      console.writeln("readWcsFromFits: no keywords found in " + fitsPath);
+      return null;
+   }
 
    var wcs = {};
    for (var i = 0; i < keywords.length; i++) {
@@ -518,7 +521,6 @@ function readWcsFromFits(fitsPath) {
       }
    }
 
-   w.forceClose();
    return wcs;
 }
 
@@ -603,9 +605,11 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
             image.sampleType === SampleType_Real, image.isColor,
             "tile_" + col + "_" + row);
 
-         // Copy pixel data from source
+         // Copy pixel data from source using selectedRect
          tileWin.mainView.beginProcess(UndoFlag_NoSwapFile);
-         tileWin.mainView.image.apply(image, ImageOp_Mov, new Rect(x0, y0, x1, y1));
+         image.selectedRect = new Rect(x0, y0, x1, y1);
+         tileWin.mainView.image.apply(image, ImageOp_Mov);
+         image.resetSelections();
          tileWin.mainView.endProcess();
 
          // Downsample if tile is too large (long edge > 2000px)
@@ -625,17 +629,13 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
             resample.executeOn(tileWin.mainView);
          }
 
-         // Save to FITS
+         // Save to FITS using FileFormatInstance
          var fitsPath = tmpDir + "/split_tile_" + col + "_" + row + ".fits";
-         var format = new FileFormat("FITS");
-         var writer = new FileFormatInstance(format);
-         if (writer.create(fitsPath)) {
-            var imgDesc = new ImageDescription;
-            imgDesc.bitsPerSample = 32;
-            imgDesc.ieeefpSampleFormat = true;
-            writer.setOptions([imgDesc]);
-            writer.writeImage(tileWin.mainView.image);
-            writer.close();
+         var fmt = new FileFormat("FITS");
+         var wrt = new FileFormatInstance(fmt);
+         if (wrt.create(fitsPath)) {
+            wrt.writeImage(tileWin.mainView.image);
+            wrt.close();
          }
 
          tileWin.forceClose();
@@ -675,6 +675,17 @@ function formatElapsed(ms) {
    return min + ":" + (sec < 10 ? "0" : "") + sec;
 }
 
+// Format current local time as HH:MM:SS
+function timestamp() {
+   var d = new Date();
+   var h = d.getHours();
+   var m = d.getMinutes();
+   var s = d.getSeconds();
+   return (h < 10 ? "0" : "") + h + ":" +
+          (m < 10 ? "0" : "") + m + ":" +
+          (s < 10 ? "0" : "") + s;
+}
+
 //----------------------------------------------------------------------------
 // solveMultipleTiles
 //
@@ -695,10 +706,18 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
    var startTime = (new Date()).getTime();
 
    for (var i = 0; i < tiles.length; i++) {
+      // Check for user abort (console or dialog abort button)
+      processEvents();
+      if (console.abortRequested ||
+          (typeof client.abortCheck === "function" && client.abortCheck())) {
+         throw "Aborted by user";
+      }
+
       var tile = tiles[i];
       tile.status = "solving";
-      var elapsed = (new Date()).getTime() - startTime;
-      var prefix = "[" + (i + 1) + "/" + tiles.length + "] Tile [" + tile.col + "," + tile.row + "]";
+      var tileStartTime = (new Date()).getTime();
+      var elapsed = tileStartTime - startTime;
+      var prefix = "[" + timestamp() + "] [" + (i + 1) + "/" + tiles.length + "] Tile [" + tile.col + "," + tile.row + "]";
       var timeSuffix = " | " + formatElapsed(elapsed) + " elapsed";
       var completedCount = successCount + failedCount;
       if (completedCount > 0) {
@@ -739,7 +758,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       if (subId === null) {
          tile.status = "failed";
          failedCount++;
-         console.writeln("  Tile [" + tile.col + "," + tile.row + "] upload failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] upload failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
          // Rate limit pause
          msleep(2000);
          continue;
@@ -752,7 +771,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       if (jobId === null) {
          tile.status = "failed";
          failedCount++;
-         console.writeln("  Tile [" + tile.col + "," + tile.row + "] submission timed out (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] submission timed out (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
          continue;
       }
 
@@ -763,7 +782,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       if (status !== "success") {
          tile.status = "failed";
          failedCount++;
-         console.writeln("  Tile [" + tile.col + "," + tile.row + "] solve failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solve failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
          msleep(2000);
          continue;
       }
@@ -776,7 +795,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       if (!calibration || !wcsOk) {
          tile.status = "failed";
          failedCount++;
-         console.writeln("  Tile [" + tile.col + "," + tile.row + "] result retrieval failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] result retrieval failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
          continue;
       }
 
@@ -785,7 +804,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       if (!wcsData || wcsData.crval1 === undefined) {
          tile.status = "failed";
          failedCount++;
-         console.writeln("  Tile [" + tile.col + "," + tile.row + "] WCS parse failed (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] WCS parse failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
          continue;
       }
 
@@ -811,9 +830,9 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
       tile.status = "success";
       successCount++;
 
-      console.writeln("  Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
          calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
-         " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px (" + formatElapsed((new Date()).getTime() - startTime) + ")");
+         " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
 
       // Clean up WCS temp file
       try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
@@ -1281,70 +1300,16 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
    return invalidated;
 }
 
-// Load equipment database from JSON file
-// Searches known PixInsight script directories for equipment.json
+// Load equipment database
+// Uses __equipmentData__ from #include "equipment_data.jsh"
 function loadEquipmentDB() {
-   // Try common script installation paths
-   var candidates = [];
-
-   // Best guess: same directory as this script
-   if (__scriptDir__ && __scriptDir__.length > 0) {
-      candidates.push(__scriptDir__ + "/equipment.json");
+   if (typeof __equipmentData__ !== "undefined" && __equipmentData__) {
+      console.writeln("Loaded equipment DB: " +
+         __equipmentData__.cameras.length + " cameras, " +
+         __equipmentData__.lenses.length + " lenses");
+      return __equipmentData__;
    }
-
-   // PixInsight standard script directories
-   if (typeof Settings !== "undefined") {
-      // Try to find alongside the script
-      var piDir = Settings.read("Application/LibraryDirectory", DataType_String);
-      if (piDir) {
-         candidates.push(piDir + "/../../src/scripts/SplitImageSolver/equipment.json");
-      }
-   }
-
-   // Standard PixInsight directories on various platforms
-   candidates.push(File.systemTempDirectory + "/../scripts/SplitImageSolver/equipment.json");
-
-   // Use searchDirectory to find the script's own directory
-   var searchDirs = [];
-   if (typeof CoreApplication !== "undefined") {
-      try {
-         var dirs = CoreApplication.scriptDirectories;
-         if (dirs) searchDirs = dirs;
-      } catch (e) {}
-   }
-   for (var i = 0; i < searchDirs.length; i++) {
-      candidates.push(searchDirs[i] + "/SplitImageSolver/equipment.json");
-   }
-
-   // Try well-known platform paths
-   var platformPaths = [
-      "/Applications/PixInsight/src/scripts/SplitImageSolver/equipment.json",
-      File.homeDirectory + "/PixInsight/src/scripts/SplitImageSolver/equipment.json",
-      "C:/Program Files/PixInsight/src/scripts/SplitImageSolver/equipment.json",
-      "/opt/PixInsight/src/scripts/SplitImageSolver/equipment.json"
-   ];
-   for (var p = 0; p < platformPaths.length; p++) {
-      candidates.push(platformPaths[p]);
-   }
-
-   // Fallback: try relative to current working directory
-   candidates.push("SplitImageSolver/equipment.json");
-   candidates.push("equipment.json");
-
-   for (var i = 0; i < candidates.length; i++) {
-      try {
-         if (File.exists(candidates[i])) {
-            var content = File.readTextFile(candidates[i]);
-            var db = JSON.parse(content);
-            console.writeln("Loaded equipment DB from: " + candidates[i]);
-            return db;
-         }
-      } catch (e) {
-         // Continue to next candidate
-      }
-   }
-
-   console.writeln("Equipment DB not found (searched " + candidates.length + " paths)");
+   console.writeln("WARNING: Equipment DB not available (__equipmentData__ not defined)");
    return null;
 }
 
@@ -1359,7 +1324,11 @@ function computePixelScale(pixelPitchUm, focalLengthMm) {
 function computeDiagonalFov(sensorWidthPx, sensorHeightPx, pixelScaleArcsec) {
    if (pixelScaleArcsec <= 0) return 0;
    var diagPx = Math.sqrt(sensorWidthPx * sensorWidthPx + sensorHeightPx * sensorHeightPx);
-   return diagPx * pixelScaleArcsec / 3600.0;
+   // Use proper trigonometric formula: FOV = 2 * arctan(half_diag_angular)
+   // pixelScale [arcsec/px] -> half diagonal angle [rad]
+   var halfDiagRad = diagPx * pixelScaleArcsec / 2.0 / 206265.0;
+   // For rectilinear lenses, tan(theta) = r, so FOV = 2 * arctan(r)
+   return 2.0 * Math.atan(halfDiagRad) * 180.0 / Math.PI;
 }
 
 // Recommend grid size based on FOV
@@ -1420,24 +1389,85 @@ function SplitSolverDialog() {
    targetSizer.add(this.targetLabel);
    targetSizer.add(this.targetEdit, 100);
 
-   // ---- API key ----
+   // ---- API key (stored internally, shown as status) ----
+   this._apiKey = savedApiKey || "";
+
    this.apiKeyLabel = new Label(this);
    this.apiKeyLabel.text = "API Key:";
    this.apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    this.apiKeyLabel.setFixedWidth(80);
 
-   this.apiKeyEdit = new Edit(this);
-   this.apiKeyEdit.text = savedApiKey || "";
-   this.apiKeyEdit.setMinWidth(300);
-   this.apiKeyEdit.toolTip = "Enter your nova.astrometry.net API key";
+   this.apiKeyStatus = new Label(this);
+   this.apiKeyStatus.text = this._apiKey.length > 0 ? "Configured" : "Not set";
+   this.apiKeyStatus.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+
+   this.apiKeySettingsButton = new ToolButton(this);
+   this.apiKeySettingsButton.icon = this.scaledResource(":/icons/wrench.png");
+   this.apiKeySettingsButton.setScaledFixedSize(24, 24);
+   this.apiKeySettingsButton.toolTip = "Configure API key";
+   this.apiKeySettingsButton.onClick = function() {
+      var d = new Dialog;
+      d.windowTitle = "API Key Settings";
+
+      var infoLabel = new Label(d);
+      infoLabel.text = "Enter your astrometry.net API key.\nGet one free at nova.astrometry.net";
+      infoLabel.useRichText = false;
+
+      var keyEdit = new Edit(d);
+      keyEdit.text = self._apiKey;
+      keyEdit.passwordMode = true;
+      keyEdit.setMinWidth(300);
+      keyEdit.toolTip = "Your nova.astrometry.net API key";
+
+      var showCheck = new CheckBox(d);
+      showCheck.text = "Show key";
+      showCheck.checked = false;
+      showCheck.onCheck = function(checked) {
+         keyEdit.passwordMode = !checked;
+      };
+
+      var okButton = new PushButton(d);
+      okButton.text = "OK";
+      okButton.icon = d.scaledResource(":/icons/ok.png");
+      okButton.onClick = function() { d.ok(); };
+
+      var cancelButton = new PushButton(d);
+      cancelButton.text = "Cancel";
+      cancelButton.icon = d.scaledResource(":/icons/cancel.png");
+      cancelButton.onClick = function() { d.cancel(); };
+
+      var btnSizer = new HorizontalSizer;
+      btnSizer.addStretch();
+      btnSizer.spacing = 6;
+      btnSizer.add(okButton);
+      btnSizer.add(cancelButton);
+
+      d.sizer = new VerticalSizer;
+      d.sizer.margin = 12;
+      d.sizer.spacing = 8;
+      d.sizer.add(infoLabel);
+      d.sizer.add(keyEdit);
+      d.sizer.add(showCheck);
+      d.sizer.addSpacing(4);
+      d.sizer.add(btnSizer);
+
+      if (d.execute()) {
+         var newKey = keyEdit.text.trim();
+         self._apiKey = newKey;
+         Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, newKey);
+         self.apiKeyStatus.text = newKey.length > 0 ? "Configured" : "Not set";
+      }
+   };
 
    var apiKeySizer = new HorizontalSizer;
    apiKeySizer.spacing = 6;
    apiKeySizer.add(this.apiKeyLabel);
-   apiKeySizer.add(this.apiKeyEdit, 100);
+   apiKeySizer.add(this.apiKeyStatus, 100);
+   apiKeySizer.add(this.apiKeySettingsButton);
 
    // ---- Equipment (Camera + Lens) ----
    var equipDB = loadEquipmentDB();
+   this.equipDB = equipDB;
 
    this.cameraLabel = new Label(this);
    this.cameraLabel.text = "Camera:";
@@ -1526,6 +1556,10 @@ function SplitSolverDialog() {
    this.fovInfoLabel.text = "";
    this.fovInfoLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
 
+   // Need imageWidth/imageHeight for scale correction when image is resampled
+   var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
+   var imageHeight = targetWindow.isNull ? 0 : targetWindow.mainView.image.height;
+
    // Update scale and FOV when camera/lens selection changes
    var updateScaleAndFov = function() {
       var camIdx = self.cameraCombo.currentItem - 1; // -1 for "(select)"
@@ -1537,11 +1571,26 @@ function SplitSolverDialog() {
          var cam = equipDB.cameras[camIdx];
          var lens = equipDB.lenses[lensIdx];
          if (cam.pixel_pitch > 0 && lens.focal_length > 0) {
-            var ps = computePixelScale(cam.pixel_pitch, lens.focal_length);
+            var nativeScale = computePixelScale(cam.pixel_pitch, lens.focal_length);
+
+            // Correct for resampled images (e.g., drizzle/stacking)
+            // If actual image is larger than native sensor, pixels are smaller
+            var ps = nativeScale;
+            var scaleNote = "";
+            if (imageWidth > 0 && cam.sensor_width > 0 && imageWidth !== cam.sensor_width) {
+               var resampleRatio = cam.sensor_width / imageWidth;
+               ps = nativeScale * resampleRatio;
+               scaleNote = " (native: " + nativeScale.toFixed(3) + ", image: " +
+                  imageWidth + "x" + imageHeight + " vs sensor: " +
+                  cam.sensor_width + "x" + cam.sensor_height + ")";
+               console.writeln("Scale corrected for resampled image: " +
+                  nativeScale.toFixed(3) + " -> " + ps.toFixed(3) + " arcsec/px" + scaleNote);
+            }
             self.scaleEdit.text = ps.toFixed(3);
 
-            var sW = cam.sensor_width || imageWidth;
-            var sH = cam.sensor_height || imageHeight;
+            // Use actual image dimensions for FOV and grid recommendation
+            var sW = imageWidth > 0 ? imageWidth : cam.sensor_width;
+            var sH = imageHeight > 0 ? imageHeight : cam.sensor_height;
             var diagFov = computeDiagonalFov(sW, sH, ps);
             var rec = recommendGrid(diagFov, sW, sH);
             self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
@@ -1557,10 +1606,6 @@ function SplitSolverDialog() {
          self.fovInfoLabel.text = "";
       }
    };
-
-   // Need imageWidth/imageHeight for fallback sensor size
-   var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
-   var imageHeight = targetWindow.isNull ? 0 : targetWindow.mainView.image.height;
 
    this.cameraCombo.onItemSelected = function() { updateScaleAndFov(); };
    this.lensCombo.onItemSelected = function() { updateScaleAndFov(); };
@@ -1773,6 +1818,8 @@ function SplitSolverDialog() {
    this.progressLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
 
    // ---- Buttons ----
+   this._abortRequested = false;
+
    this.solveButton = new PushButton(this);
    this.solveButton.text = "Solve";
    this.solveButton.icon = this.scaledResource(":/icons/execute.png");
@@ -1780,17 +1827,34 @@ function SplitSolverDialog() {
       self.doSolve();
    };
 
+   this.abortButton = new PushButton(this);
+   this.abortButton.text = "Abort";
+   this.abortButton.icon = this.scaledResource(":/icons/cancel.png");
+   this.abortButton.toolTip = "Abort the current solve operation";
+   this.abortButton.hide();
+   this.abortButton.onClick = function() {
+      self._abortRequested = true;
+      self.progressLabel.text = "Aborting...";
+   };
+
    this.closeButton = new PushButton(this);
    this.closeButton.text = "Close";
    this.closeButton.icon = this.scaledResource(":/icons/close.png");
    this.closeButton.onClick = function() {
-      self.cancel();
+      if (self.solveButton.enabled) {
+         self.cancel();
+      } else {
+         // During solve, Close acts as abort
+         self._abortRequested = true;
+         self.progressLabel.text = "Aborting...";
+      }
    };
 
    var buttonSizer = new HorizontalSizer;
    buttonSizer.spacing = 6;
    buttonSizer.addStretch();
    buttonSizer.add(this.solveButton);
+   buttonSizer.add(this.abortButton);
    buttonSizer.add(this.closeButton);
 
    // ---- Layout ----
@@ -1832,15 +1896,12 @@ SplitSolverDialog.prototype.doSolve = function() {
       return;
    }
 
-   var apiKey = this.apiKeyEdit.text.trim();
+   var apiKey = this._apiKey.trim();
    if (apiKey.length === 0) {
-      var msg = new MessageBox("Please enter your API key.", TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox("Please configure your API key first.\nClick the wrench icon next to 'API Key'.", TITLE, StdIcon_Error, StdButton_Ok);
       msg.execute();
       return;
    }
-
-   // Save API key
-   Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
 
    // Build hint parameters
    var hints = {};
@@ -1876,10 +1937,10 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    // Projection type from lens selection
    var projection = "rectilinear";
-   if (equipDB) {
+   if (this.equipDB) {
       var lensIdx = this.lensCombo.currentItem - 1;
-      if (lensIdx >= 0 && lensIdx < equipDB.lenses.length) {
-         projection = equipDB.lenses[lensIdx].projection || "rectilinear";
+      if (lensIdx >= 0 && lensIdx < this.equipDB.lenses.length) {
+         projection = this.equipDB.lenses[lensIdx].projection || "rectilinear";
       }
    }
    hints._projection = projection;
@@ -1891,20 +1952,71 @@ SplitSolverDialog.prototype.doSolve = function() {
    var isSplitMode = (gridX > 1 || gridY > 1);
    var overlap = parseInt(this.overlapEdit.text) || 200;
 
-   // Lock UI
-   this.solveButton.enabled = false;
-   this.progressLabel.text = "Starting solve...";
-   processEvents();
-
+   // Log all parameters
    var imageWidth = targetWindow.mainView.image.width;
    var imageHeight = targetWindow.mainView.image.height;
 
-   if (isSplitMode) {
-      this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+   console.writeln("");
+   console.writeln("========================================");
+   console.writeln("Solve Parameters");
+   console.writeln("========================================");
+   console.writeln("  Target:      " + targetWindow.mainView.id + " (" + imageWidth + "x" + imageHeight + ")");
+   console.writeln("  Camera:      " + this.cameraCombo.itemText(this.cameraCombo.currentItem));
+   console.writeln("  Lens:        " + this.lensCombo.itemText(this.lensCombo.currentItem));
+   console.writeln("  Projection:  " + projection);
+   if (hints.scale_est) {
+      console.writeln("  Scale:       " + hints.scale_est.toFixed(3) + " arcsec/px (\u00b1" + (hints.scale_err || 30) + "%)");
    } else {
-      this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight);
+      console.writeln("  Scale:       (not specified)");
+   }
+   if (hints.center_ra !== undefined && hints.center_dec !== undefined) {
+      console.writeln("  Object:      " + this.objectEdit.text.trim());
+      console.writeln("  RA:          " + raToHMS(hints.center_ra) + " (" + hints.center_ra.toFixed(4) + "\u00b0)");
+      console.writeln("  DEC:         " + decToDMS(hints.center_dec) + " (" + hints.center_dec.toFixed(4) + "\u00b0)");
+      console.writeln("  Radius:      " + (hints.radius || 15) + "\u00b0");
+   } else {
+      console.writeln("  RA/DEC:      (not specified - blind solve)");
+   }
+   console.writeln("  Grid:        " + gridX + "x" + gridY + (isSplitMode ? " (overlap " + overlap + "px)" : " (single)"));
+   console.writeln("  SIP Order:   " + hints.tweak_order);
+   if (hints.downsample_factor) {
+      console.writeln("  Downsample:  " + hints.downsample_factor + "x");
+   } else {
+      console.writeln("  Downsample:  Auto");
+   }
+   console.writeln("========================================");
+   console.writeln("");
+
+   // Lock UI, show Abort button
+   this._abortRequested = false;
+   this.solveButton.enabled = false;
+   this.solveButton.hide();
+   this.abortButton.show();
+   this.progressLabel.text = "Starting solve...";
+   processEvents();
+
+   try {
+      if (isSplitMode) {
+         this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+      } else {
+         this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight);
+      }
+   } catch (e) {
+      var errMsg = (typeof e === "string") ? e : e.toString();
+      if (errMsg.indexOf("Abort") >= 0) {
+         console.writeln("Solve aborted by user.");
+         this.progressLabel.text = "Aborted.";
+      } else {
+         console.writeln("ERROR: " + errMsg);
+         this.progressLabel.text = "Error: " + errMsg;
+         var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+         msg.execute();
+      }
    }
 
+   // Restore UI
+   this.abortButton.hide();
+   this.solveButton.show();
    this.solveButton.enabled = true;
 };
 
@@ -1918,31 +2030,17 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    this.progressLabel.text = "Saving image as FITS...";
    processEvents();
 
-   var format = new FileFormat("FITS");
-   if (format.isNull) {
-      console.writeln("ERROR: FITS format not available");
-      this.progressLabel.text = "Error: FITS format not available";
+   var fmt = new FileFormat("FITS");
+   var wrt = new FileFormatInstance(fmt);
+   if (!wrt.create(tmpFits)) {
+      this.progressLabel.text = "Error: Failed to create FITS file";
       return;
    }
-   var writer = new FileFormatInstance(format);
-   if (!writer.create(tmpFits)) {
-      console.writeln("ERROR: Cannot create file: " + tmpFits);
-      this.progressLabel.text = "Error: Failed to create file";
-      return;
-   }
-   var imgDesc = new ImageDescription;
-   imgDesc.bitsPerSample = 32;
-   imgDesc.ieeefpSampleFormat = true;
-   writer.setOptions([imgDesc]);
-   if (!writer.writeImage(targetWindow.mainView.image)) {
-      console.writeln("ERROR: Cannot write image");
-      writer.close();
-      this.progressLabel.text = "Error: Failed to write image";
-      return;
-   }
-   writer.close();
+   wrt.writeImage(targetWindow.mainView.image);
+   wrt.close();
 
    var client = new AstrometryClient(apiKey);
+   client.abortCheck = function() { return self._abortRequested; };
 
    try {
       // Login
@@ -2037,6 +2135,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       this.progressLabel.text = "Logging in to API...";
       processEvents();
       var client = new AstrometryClient(apiKey);
+      client.abortCheck = function() { return self._abortRequested; };
       console.writeln("Logging in to astrometry.net...");
       if (!client.login()) throw "API login failed. Please check your API key.";
       console.writeln("  Login successful");
