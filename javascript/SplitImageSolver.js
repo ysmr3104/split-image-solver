@@ -2277,9 +2277,9 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    try {
       if (isSplitMode) {
-         this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+         this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs);
       } else {
-         this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight);
+         this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs);
       }
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
@@ -2304,7 +2304,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 //----------------------------------------------------------------------------
 // Single image solve (original Phase 1 flow)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints, imageWidth, imageHeight) {
+SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs) {
    // Save image to temporary FITS
    var tmpFits = File.systemTempDirectory + "/split_solver_upload.fits";
    console.writeln("Saving temporary FITS: " + tmpFits);
@@ -2399,7 +2399,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 //----------------------------------------------------------------------------
 // Split image solve (Phase 2: tile splitting + multi-solve + WCS merge)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight) {
+SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs) {
    var self = this;
    var tiles = [];
 
