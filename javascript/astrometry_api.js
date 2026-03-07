@@ -16,7 +16,7 @@ function AstrometryClient(apiKey) {
    this.apiUrl = "http://nova.astrometry.net/api";
    this.baseUrl = "http://nova.astrometry.net";
    this.pollInterval = 3000; // ms
-   this.timeout = 600000;    // 10 min
+   this.timeout = 300000;    // 5 min (default, configurable)
    this.aborted = false;
 }
 

@@ -2003,6 +2003,18 @@ function SplitSolverDialog() {
    this.sipCombo.currentItem = 0;
    this.sipCombo.toolTip = "SIP distortion correction polynomial order (tweak_order)";
 
+   this.timeoutLabel = new Label(this);
+   this.timeoutLabel.text = "Timeout:";
+   this.timeoutLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.timeoutEdit = new Edit(this);
+   this.timeoutEdit.text = "5";
+   this.timeoutEdit.setFixedWidth(40);
+   this.timeoutEdit.toolTip = "Per-tile solve timeout (minutes)";
+
+   this.timeoutUnitLabel = new Label(this);
+   this.timeoutUnitLabel.text = "min";
+
    var downsampleSizer = new HorizontalSizer;
    downsampleSizer.spacing = 6;
    downsampleSizer.add(this.downsampleLabel);
@@ -2010,6 +2022,10 @@ function SplitSolverDialog() {
    downsampleSizer.addSpacing(12);
    downsampleSizer.add(this.sipLabel);
    downsampleSizer.add(this.sipCombo);
+   downsampleSizer.addSpacing(12);
+   downsampleSizer.add(this.timeoutLabel);
+   downsampleSizer.add(this.timeoutEdit);
+   downsampleSizer.add(this.timeoutUnitLabel);
    downsampleSizer.addStretch();
 
    // ---- Progress display ----
@@ -2139,6 +2155,9 @@ SplitSolverDialog.prototype.doSolve = function() {
       return;
    }
 
+   var timeoutMin = parseFloat(this.timeoutEdit.text);
+   var timeoutMs = (!isNaN(timeoutMin) && timeoutMin > 0) ? Math.round(timeoutMin * 60000) : 300000;
+
    // Build hint parameters
    var hints = {};
    hints.tweak_order = [2, 3, 4][this.sipCombo.currentItem];
@@ -2220,6 +2239,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    } else {
       console.writeln("  Downsample:  Auto");
    }
+   console.writeln("  Timeout:     " + (timeoutMs / 60000) + " min");
    console.writeln("========================================");
    console.writeln("");
 
@@ -2276,6 +2296,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    wrt.close();
 
    var client = new AstrometryClient(apiKey);
+   client.timeout = timeoutMs;
    client.abortCheck = function() { return self._abortRequested; };
 
    try {
@@ -2382,6 +2403,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       this.progressLabel.text = "Logging in to API...";
       processEvents();
       var client = new AstrometryClient(apiKey);
+      client.timeout = timeoutMs;
       client.abortCheck = function() { return self._abortRequested; };
       console.writeln("Logging in to astrometry.net...");
       if (!client.login()) throw "API login failed. Please check your API key.";
