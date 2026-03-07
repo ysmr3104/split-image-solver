@@ -892,8 +892,11 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, gridX
                      }
 
                      // Apply tile offset: convert tile-local CRPIX to full image CRPIX
+                     // X: simple addition (no axis flip)
+                     // Y: FITS Y axis is inverted relative to PixInsight
+                     //    CRPIX2_global = CRPIX2_local + (imageHeight - offsetY - tileHeight)
                      wcsData.crpix1 += tile.offsetX;
-                     wcsData.crpix2 += tile.offsetY;
+                     wcsData.crpix2 += (imageHeight - tile.offsetY - tile.tileHeight);
 
                      tile.wcs = wcsData;
                      tile.calibration = calibration;
@@ -1334,7 +1337,7 @@ function retryFailedTiles(client, tiles, baseHints, imageWidth, imageHeight, gri
                                  }
                               }
                               wcsData.crpix1 += tile.offsetX;
-                              wcsData.crpix2 += tile.offsetY;
+                              wcsData.crpix2 += (imageHeight - tile.offsetY - tile.tileHeight);
 
                               tile.wcs = wcsData;
                               tile.calibration = calibration;
@@ -1437,13 +1440,9 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
                   sip: null
                };
 
-               // Convert full-image pixel to tile-local pixel
-               var localPxI = px - ti.offsetX;
-               var localPyI = py - ti.offsetY;
-               var localPxJ = px - tj.offsetX;
-               var localPyJ = py - tj.offsetY;
-               var rdI = pixelToRaDec(wcsI, localPxI, localPyI, ti.tileHeight);
-               var rdJ = pixelToRaDec(wcsJ, localPxJ, localPyJ, tj.tileHeight);
+               // WCS CRPIX is already in full-image coordinate system
+               var rdI = pixelToRaDec(wcsI, px, py, imageHeight);
+               var rdJ = pixelToRaDec(wcsJ, px, py, imageHeight);
                if (!rdI || !rdJ) continue;
 
                var dev = angularSeparation(rdI, rdJ) * 3600.0; // arcsec
