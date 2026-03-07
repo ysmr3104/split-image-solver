@@ -1212,6 +1212,13 @@ function retryFailedTiles(client, tiles, baseHints, imageWidth, imageHeight, gri
    var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
 
    for (var fi = 0; fi < failedTiles.length; fi++) {
+      // Check for user abort
+      processEvents();
+      if (console.abortRequested ||
+          (typeof client.abortCheck === "function" && client.abortCheck())) {
+         throw "Aborted by user";
+      }
+
       var tile = failedTiles[fi];
       tile.status = "solving";
       notify("Pass 2 [" + (fi + 1) + "/" + failedTiles.length + "] Tile [" + tile.col + "," + tile.row + "] retrying...", fi);
@@ -2332,6 +2339,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    this.abortButton.show();
    if (isSplitMode) this.skipButton.show();
    this.progressLabel.text = "Starting solve...";
+   console.abortEnabled = true;
    processEvents();
 
    try {
