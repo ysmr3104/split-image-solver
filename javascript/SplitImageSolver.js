@@ -1797,6 +1797,35 @@ function SplitSolverDialog() {
    radiusSizer.add(this.radiusUnitLabel);
    radiusSizer.addStretch();
 
+   // Pre-fill RA/DEC from existing FITS header (OBJCTRA/OBJCTDEC or RA/DEC)
+   if (!targetWindow.isNull) {
+      var kws = targetWindow.keywords;
+      var hdrRA = null, hdrDEC = null, hdrObject = null;
+      for (var ki = 0; ki < kws.length; ki++) {
+         var kn = kws[ki].name;
+         var kv = kws[ki].value.trim().replace(/^'|'$/g, "").trim();
+         if (kn === "OBJCTRA" && hdrRA === null) hdrRA = kv;
+         else if (kn === "OBJCTDEC" && hdrDEC === null) hdrDEC = kv;
+         else if (kn === "RA" && hdrRA === null) hdrRA = kv;
+         else if (kn === "DEC" && hdrDEC === null) hdrDEC = kv;
+         else if (kn === "OBJECT" && hdrObject === null) hdrObject = kv;
+      }
+      if (hdrRA !== null && hdrDEC !== null) {
+         // OBJCTRA is HMS string, RA may be degrees
+         var parsedRA = parseRAInput(hdrRA);
+         var parsedDEC = parseDECInput(hdrDEC);
+         if (parsedRA !== null && parsedDEC !== null) {
+            this.raEdit.text = raToHMS(parsedRA);
+            this.decEdit.text = decToDMS(parsedDEC);
+            console.writeln("Pre-filled coordinates from FITS header: RA=" +
+               raToHMS(parsedRA) + " DEC=" + decToDMS(parsedDEC));
+         }
+      }
+      if (hdrObject !== null && hdrObject.length > 0) {
+         this.objectEdit.text = hdrObject;
+      }
+   }
+
    // ---- Grid / Split mode ----
    this.gridLabel = new Label(this);
    this.gridLabel.text = "Grid:";
