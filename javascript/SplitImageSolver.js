@@ -1489,12 +1489,20 @@ function SplitSolverDialog() {
       for (var ki = 0; ki < keywords.length; ki++) {
          if (keywords[ki].name === "INSTRUME") {
             var instrVal = keywords[ki].value.trim().replace(/^'|'$/g, "").trim();
+            // Find longest matching instrume to avoid partial matches
+            // e.g., "Sony ILCE-7RM5" must match α7R V, not α7 ("Sony ILCE-7")
+            var bestCi = -1;
+            var bestLen = 0;
             for (var ci = 0; ci < equipDB.cameras.length; ci++) {
-               if (instrVal.indexOf(equipDB.cameras[ci].instrume) >= 0 && equipDB.cameras[ci].instrume.length > 0) {
-                  this.cameraCombo.currentItem = ci + 1; // +1 for "(select)" entry
-                  console.writeln("Auto-detected camera: " + equipDB.cameras[ci].name);
-                  break;
+               var pat = equipDB.cameras[ci].instrume;
+               if (pat.length > 0 && instrVal.indexOf(pat) >= 0 && pat.length > bestLen) {
+                  bestCi = ci;
+                  bestLen = pat.length;
                }
+            }
+            if (bestCi >= 0) {
+               this.cameraCombo.currentItem = bestCi + 1; // +1 for "(select)" entry
+               console.writeln("Auto-detected camera: " + equipDB.cameras[bestCi].name);
             }
             break;
          }
