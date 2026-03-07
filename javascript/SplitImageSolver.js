@@ -895,6 +895,8 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, gridX
                      // X: simple addition (no axis flip)
                      // Y: FITS Y axis is inverted relative to PixInsight
                      //    CRPIX2_global = CRPIX2_local + (imageHeight - offsetY - tileHeight)
+                     var crpix1Local = wcsData.crpix1;
+                     var crpix2Local = wcsData.crpix2;
                      wcsData.crpix1 += tile.offsetX;
                      wcsData.crpix2 += (imageHeight - tile.offsetY - tile.tileHeight);
 
@@ -906,6 +908,9 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, gridX
                      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
                         calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
                         " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
+                     console.writeln("    CRPIX local: (" + crpix1Local.toFixed(2) + ", " + crpix2Local.toFixed(2) +
+                        ") → global: (" + wcsData.crpix1.toFixed(2) + ", " + wcsData.crpix2.toFixed(2) +
+                        ")  offset=(" + tile.offsetX + "," + tile.offsetY + ") tileSize=(" + tile.tileWidth + "x" + tile.tileHeight + ")");
                   }
                }
                // Clean up WCS temp file
@@ -1398,6 +1403,17 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
 
    console.writeln("");
    console.writeln("<b>Validating overlap consistency...</b>");
+
+   // Debug: dump WCS of each successful tile
+   for (var i = 0; i < successTiles.length; i++) {
+      var st = successTiles[i];
+      console.writeln("  Tile [" + st.col + "," + st.row + "] WCS: CRVAL=(" +
+         st.wcs.crval1.toFixed(4) + "," + st.wcs.crval2.toFixed(4) + ") CRPIX=(" +
+         st.wcs.crpix1.toFixed(2) + "," + st.wcs.crpix2.toFixed(2) + ") CD=(" +
+         (st.wcs.cd1_1 || 0).toFixed(6) + "," + (st.wcs.cd1_2 || 0).toFixed(6) + "," +
+         (st.wcs.cd2_1 || 0).toFixed(6) + "," + (st.wcs.cd2_2 || 0).toFixed(6) +
+         ") offset=(" + st.offsetX + "," + st.offsetY + ") size=(" + st.tileWidth + "x" + st.tileHeight + ")");
+   }
 
    // For each pair of adjacent tiles, check overlap region
    var deviations = []; // {tileIdx, maxDevArcsec}
