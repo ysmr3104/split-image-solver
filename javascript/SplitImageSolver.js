@@ -768,6 +768,7 @@ function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, progr
          timeSuffix += " | ~" + formatElapsed(remaining) + " remaining";
       }
       notify(prefix + " uploading..." + timeSuffix, i);
+      console.writeln("  " + prefix + " start");
 
       // Per-tile hints: adjust scale for downsampled tiles
       var tileHints = {};
