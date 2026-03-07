@@ -477,48 +477,64 @@ function setCustomControlPoints(window, wcsResult, starPairs, imageWidth, imageH
 // Read WCS parameters from a FITS file (header-only supported)
 // Uses FileFormatInstance to read FITS keywords without requiring image data.
 function readWcsFromFits(fitsPath) {
-   var fmt = new FileFormat("FITS");
-   var reader = new FileFormatInstance(fmt);
-   if (!reader.open(fitsPath, "verbosity 0")) {
-      console.writeln("readWcsFromFits: cannot open " + fitsPath);
+   // astrometry.net WCS files are header-only FITS (no image data).
+   // PixInsight's FileFormatInstance refuses to open them.
+   // Parse the FITS header directly as 80-byte fixed-width records.
+   var raw;
+   try {
+      raw = File.readTextFile(fitsPath);
+   } catch (e) {
+      console.writeln("readWcsFromFits: cannot read " + fitsPath + ": " + e.message);
       return null;
    }
-   var keywords = reader.keywords;
-   reader.close();
-
-   if (!keywords || keywords.length === 0) {
-      console.writeln("readWcsFromFits: no keywords found in " + fitsPath);
+   if (!raw || raw.length < 80) {
+      console.writeln("readWcsFromFits: file too small or empty: " + fitsPath);
       return null;
    }
 
    var wcs = {};
-   for (var i = 0; i < keywords.length; i++) {
-      var kw = keywords[i];
-      var name = kw.name;
-      var val = kw.value.trim().replace(/^'|'$/g, "").trim();
+   // FITS header: 80-char fixed-width cards until END
+   for (var pos = 0; pos + 80 <= raw.length; pos += 80) {
+      var card = raw.substring(pos, pos + 80);
+      var keyword = card.substring(0, 8).replace(/ +$/, "");
+      if (keyword === "END") break;
+      if (card.charAt(8) !== "=" || card.charAt(9) !== " ") continue;
 
-      switch (name) {
-         case "CRVAL1": wcs.crval1 = parseFloat(val); break;
-         case "CRVAL2": wcs.crval2 = parseFloat(val); break;
-         case "CRPIX1": wcs.crpix1 = parseFloat(val); break;
-         case "CRPIX2": wcs.crpix2 = parseFloat(val); break;
-         case "CD1_1": wcs.cd1_1 = parseFloat(val); break;
-         case "CD1_2": wcs.cd1_2 = parseFloat(val); break;
-         case "CD2_1": wcs.cd2_1 = parseFloat(val); break;
-         case "CD2_2": wcs.cd2_2 = parseFloat(val); break;
-         case "A_ORDER": wcs.aOrder = parseInt(val); break;
-         case "B_ORDER": wcs.bOrder = parseInt(val); break;
-         case "AP_ORDER": wcs.apOrder = parseInt(val); break;
-         case "BP_ORDER": wcs.bpOrder = parseInt(val); break;
+      // Value field starts at column 10, may have / comment
+      var valStr = card.substring(10);
+      var slashIdx = valStr.indexOf("/");
+      if (slashIdx >= 0) valStr = valStr.substring(0, slashIdx);
+      valStr = valStr.trim();
+      // Remove quotes for string values
+      valStr = valStr.replace(/^'|'$/g, "").trim();
+
+      switch (keyword) {
+         case "CRVAL1": wcs.crval1 = parseFloat(valStr); break;
+         case "CRVAL2": wcs.crval2 = parseFloat(valStr); break;
+         case "CRPIX1": wcs.crpix1 = parseFloat(valStr); break;
+         case "CRPIX2": wcs.crpix2 = parseFloat(valStr); break;
+         case "CD1_1": wcs.cd1_1 = parseFloat(valStr); break;
+         case "CD1_2": wcs.cd1_2 = parseFloat(valStr); break;
+         case "CD2_1": wcs.cd2_1 = parseFloat(valStr); break;
+         case "CD2_2": wcs.cd2_2 = parseFloat(valStr); break;
+         case "A_ORDER": wcs.aOrder = parseInt(valStr); break;
+         case "B_ORDER": wcs.bOrder = parseInt(valStr); break;
+         case "AP_ORDER": wcs.apOrder = parseInt(valStr); break;
+         case "BP_ORDER": wcs.bpOrder = parseInt(valStr); break;
       }
       // SIP coefficients: A_i_j, B_i_j, AP_i_j, BP_i_j
-      var sipMatch = name.match(/^(A|B|AP|BP)_(\d+)_(\d+)$/);
+      var sipMatch = keyword.match(/^(A|B|AP|BP)_(\d+)_(\d+)$/);
       if (sipMatch) {
          var sipPrefix = sipMatch[1].toLowerCase();
          if (!wcs.sipCoeffs) wcs.sipCoeffs = {};
          if (!wcs.sipCoeffs[sipPrefix]) wcs.sipCoeffs[sipPrefix] = [];
-         wcs.sipCoeffs[sipPrefix].push([parseInt(sipMatch[2]), parseInt(sipMatch[3]), parseFloat(val)]);
+         wcs.sipCoeffs[sipPrefix].push([parseInt(sipMatch[2]), parseInt(sipMatch[3]), parseFloat(valStr)]);
       }
+   }
+
+   if (wcs.crval1 === undefined || wcs.crval2 === undefined) {
+      console.writeln("readWcsFromFits: no WCS keywords found in " + fitsPath);
+      return null;
    }
 
    return wcs;
