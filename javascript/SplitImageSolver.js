@@ -662,6 +662,26 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
    }
 
    console.writeln("Split image into " + tiles.length + " tiles (" + gridX + "x" + gridY + ")");
+
+   // Sort tiles: center-first spiral (closer to image center processed first)
+   var centerCol = (gridX - 1) / 2.0;
+   var centerRow = (gridY - 1) / 2.0;
+   tiles.sort(function(a, b) {
+      var da = (a.col - centerCol) * (a.col - centerCol) + (a.row - centerRow) * (a.row - centerRow);
+      var db = (b.col - centerCol) * (b.col - centerCol) + (b.row - centerRow) * (b.row - centerRow);
+      if (da !== db) return da - db;
+      // Same distance: top rows first, then left-to-right
+      if (a.row !== b.row) return a.row - b.row;
+      return a.col - b.col;
+   });
+
+   var orderLog = "Tile order: ";
+   for (var si = 0; si < tiles.length; si++) {
+      orderLog += "[" + tiles[si].col + "," + tiles[si].row + "]";
+      if (si < tiles.length - 1) orderLog += " -> ";
+   }
+   console.writeln(orderLog);
+
    return tiles;
 }
 
