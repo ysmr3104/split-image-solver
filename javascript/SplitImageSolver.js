@@ -136,6 +136,22 @@ function pixelToRaDec(wcs, px, py, imageHeight) {
    return tanDeproject([wcs.crval1, wcs.crval2], [xi, eta]);
 }
 
+// pixelToRaDec for astrometry.net WCS (top-down FITS convention)
+// PixInsight saves FITS top-first, so astrometry.net returns CRPIX in
+// top-down convention: FITS y=1 at image top, v = (py + 1) - crpix2
+function pixelToRaDecTD(wcs, px, py) {
+   var u = (px + 1.0) - wcs.crpix1;
+   var v = (py + 1.0) - wcs.crpix2;
+   var up = u, vp = v;
+   if (wcs.sip) {
+      up = u + evalSipPolynomial(wcs.sip.a, u, v);
+      vp = v + evalSipPolynomial(wcs.sip.b, u, v);
+   }
+   var xi  = wcs.cd1_1 * up + wcs.cd1_2 * vp;
+   var eta = wcs.cd2_1 * up + wcs.cd2_2 * vp;
+   return tanDeproject([wcs.crval1, wcs.crval2], [xi, eta]);
+}
+
 // Display coordinates of image corners and center to the console
 function displayImageCoordinates(wcs, imageWidth, imageHeight) {
    var center = pixelToRaDec(wcs, imageWidth / 2.0, imageHeight / 2.0, imageHeight);
@@ -542,24 +558,39 @@ function readWcsFromFits(fitsPath) {
 
 // Convert readWcsFromFits result to WCSFitter-compatible wcsResult format
 function convertToWcsResult(wcs, imageWidth, imageHeight) {
+   // Convert astrometry.net WCS from top-down to bottom-up (FITS standard) convention.
+   // PixInsight saves FITS top-first, so astrometry.net CRPIX uses top-down.
+   // WCSFitter/applyWCSToImage/displayImageCoordinates expect bottom-up.
+   // Conversion: CRPIX2_BU = imageHeight + 1 - CRPIX2_TD, negate CD/SIP v-components.
+   var crpix2BU = imageHeight + 1 - wcs.crpix2;
+
    var result = {
       crval1: wcs.crval1,
       crval2: wcs.crval2,
       crpix1: wcs.crpix1,
-      crpix2: wcs.crpix2,
-      cd: [[wcs.cd1_1 || 0, wcs.cd1_2 || 0], [wcs.cd2_1 || 0, wcs.cd2_2 || 0]],
+      crpix2: crpix2BU,
+      cd: [[wcs.cd1_1 || 0, -(wcs.cd1_2 || 0)], [wcs.cd2_1 || 0, -(wcs.cd2_2 || 0)]],
       sip: null,
       sipMode: null
    };
 
-   // SIP coefficients conversion
+   // SIP coefficients conversion (negate terms with odd v-power)
    if (wcs.sipCoeffs && wcs.aOrder) {
+      var flipV = function(coeffs) {
+         if (!coeffs) return coeffs;
+         var flipped = [];
+         for (var k = 0; k < coeffs.length; k++) {
+            var p = coeffs[k][0], q = coeffs[k][1], c = coeffs[k][2];
+            flipped.push([p, q, (q % 2 === 1) ? -c : c]);
+         }
+         return flipped;
+      };
       result.sip = {
          order: wcs.aOrder,
-         a: wcs.sipCoeffs.a || [],
-         b: wcs.sipCoeffs.b || [],
-         ap: wcs.sipCoeffs.ap || null,
-         bp: wcs.sipCoeffs.bp || null,
+         a: flipV(wcs.sipCoeffs.a || []),
+         b: flipV(wcs.sipCoeffs.b || []),
+         ap: flipV(wcs.sipCoeffs.ap || null),
+         bp: flipV(wcs.sipCoeffs.bp || null),
          invOrder: wcs.apOrder || wcs.aOrder
       };
       result.sipMode = "approx";
@@ -754,181 +785,264 @@ function printTileGrid(tiles, gridX, gridY) {
 }
 
 //----------------------------------------------------------------------------
-// solveMultipleTiles
+// Solve a single tile. Returns true if solved successfully.
+// tile: tile object (modified in place: .wcs, .calibration, .status)
+// tileHints: hint parameters for this tile
+// client: AstrometryClient
+// medianScale: for false positive filter (0 to skip)
+// expectedRaDec: [ra, dec] for false positive filter (null to skip)
+function solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec) {
+   tile.status = "solving";
+
+   // Upload
+   var subId = client.upload(tile.filePath, tileHints);
+   if (subId === null) {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] upload failed");
+      return false;
+   }
+
+   // Poll submission
+   var jobId = client.pollSubmission(subId);
+   if (jobId === null) {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] submission timed out");
+      return false;
+   }
+
+   // Poll job
+   var status = client.pollJob(jobId);
+   if (status !== "success") {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solve failed");
+      return false;
+   }
+
+   // Get calibration + WCS
+   var calibration = client.getCalibration(jobId);
+   var wcsPath = File.systemTempDirectory + "/split_wcs_" + tile.col + "_" + tile.row + ".fits";
+   var wcsOk = client.getWcsFile(jobId, wcsPath);
+
+   if (!calibration || !wcsOk) {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] result retrieval failed");
+      try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+      return false;
+   }
+
+   // Parse WCS
+   var wcsData = readWcsFromFits(wcsPath);
+   try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+   if (!wcsData || wcsData.crval1 === undefined) {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] WCS parse failed");
+      return false;
+   }
+
+   // False positive filter: scale ratio
+   if (medianScale > 0 && calibration.pixscale) {
+      var scaleRatio = calibration.pixscale / medianScale;
+      if (scaleRatio < 0.3 || scaleRatio > 3.0) {
+         tile.status = "failed";
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: scale ratio " + scaleRatio.toFixed(2));
+         return false;
+      }
+   }
+
+   // False positive filter: coordinate deviation
+   if (expectedRaDec) {
+      var coordDev = angularSeparation(expectedRaDec, [calibration.ra, calibration.dec]);
+      if (coordDev > 5.0) {
+         tile.status = "failed";
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: coord deviation " + coordDev.toFixed(2) + " deg");
+         return false;
+      }
+   }
+
+   // CRPIX reverse transform: undo downsampling
+   if (tile.scaleFactor < 1.0) {
+      wcsData.crpix1 = wcsData.crpix1 / tile.scaleFactor;
+      wcsData.crpix2 = wcsData.crpix2 / tile.scaleFactor;
+      if (wcsData.cd1_1 !== undefined) {
+         wcsData.cd1_1 *= tile.scaleFactor;
+         wcsData.cd1_2 *= tile.scaleFactor;
+         wcsData.cd2_1 *= tile.scaleFactor;
+         wcsData.cd2_2 *= tile.scaleFactor;
+      }
+   }
+
+   // Apply tile offset (top-down convention, same as Python)
+   wcsData.crpix1 += tile.offsetX;
+   wcsData.crpix2 += tile.offsetY;
+
+   tile.wcs = wcsData;
+   tile.calibration = calibration;
+   tile.status = "success";
+
+   console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
+      calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
+      " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px");
+   return true;
+}
+
+//----------------------------------------------------------------------------
+// solveWavefront
 //
-// Solve multiple tiles using astrometry.net API sequentially.
-//
-// client: AstrometryClient (already logged in)
-// tiles: array from splitImageToTiles
-// hints: base hints object
-// imageWidth, imageHeight: original image dimensions
-// progressCallback: function(message, tileIdx)
+// Wavefront (ripple) tile solving: start from center, expand outward.
+// Each solved tile provides precise hints for its unsolved neighbors.
+// This replaces the old 2-pass approach (solveMultipleTiles + retryFailedTiles).
 //
 // Returns number of successfully solved tiles.
 //----------------------------------------------------------------------------
-function solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback) {
+function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback) {
    var notify = progressCallback || function() {};
    var successCount = 0;
-   var failedCount = 0;
+   var attemptCount = 0;
    var startTime = (new Date()).getTime();
 
+   // Build tile grid lookup: tileGrid[col][row] = tile
+   var tileGrid = {};
    for (var i = 0; i < tiles.length; i++) {
-      // Check for user abort (console or dialog abort button)
-      processEvents();
-      if (console.abortRequested ||
-          (typeof client.abortCheck === "function" && client.abortCheck())) {
-         throw "Aborted by user";
-      }
+      var key = tiles[i].col + "," + tiles[i].row;
+      tileGrid[key] = tiles[i];
+   }
 
-      // Check for "skip to merge" request
-      if (typeof client.skipCheck === "function" && client.skipCheck()) {
-         console.writeln("  [" + timestamp() + "] Skipping remaining " + (tiles.length - i) + " tiles (user requested)");
-         // Mark remaining tiles as skipped
-         for (var j = i; j < tiles.length; j++) {
-            tiles[j].status = "skipped";
-         }
-         break;
-      }
+   // Helper: get tile by col,row
+   var getTile = function(col, row) {
+      return tileGrid[col + "," + row] || null;
+   };
 
-      var tile = tiles[i];
-      tile.status = "solving";
-      var tileStartTime = (new Date()).getTime();
-      var elapsed = tileStartTime - startTime;
-      var prefix = "[" + timestamp() + "] [" + (i + 1) + "/" + tiles.length + "] Tile [" + tile.col + "," + tile.row + "]";
-      var timeSuffix = " | " + formatElapsed(elapsed) + " elapsed";
-      var completedCount = successCount + failedCount;
-      if (completedCount > 0) {
-         timeSuffix += " | " + successCount + "/" + completedCount + " solved";
-         var avgTime = elapsed / completedCount;
-         var remaining = avgTime * (tiles.length - i);
-         timeSuffix += " | ~" + formatElapsed(remaining) + " remaining";
+   // Helper: get 4-connected neighbors
+   var getNeighbors = function(tile) {
+      var neighbors = [];
+      var dirs = [[0,-1],[0,1],[-1,0],[1,0]]; // up,down,left,right
+      for (var d = 0; d < dirs.length; d++) {
+         var nb = getTile(tile.col + dirs[d][0], tile.row + dirs[d][1]);
+         if (nb) neighbors.push(nb);
       }
-      notify(prefix + " uploading..." + timeSuffix, i);
-      console.writeln("  " + prefix + " start");
+      return neighbors;
+   };
 
-      // Per-tile hints: adjust scale for downsampled tiles
+   // Helper: compute refined scale from solved tiles
+   var computeRefinedHints = function(solvedTiles) {
+      var scales = [];
+      for (var k = 0; k < solvedTiles.length; k++) {
+         if (solvedTiles[k].calibration) scales.push(solvedTiles[k].calibration.pixscale);
+      }
+      scales.sort(function(a, b) { return a - b; });
+      var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
+      return { medianScale: medianScale };
+   };
+
+   // Helper: build hint object for API
+   //
+   // Note: Python version applies per-tile projection scale correction because it uses
+   // local solve-field with full-image coordinate system. The API version solves cropped
+   // tile images where TAN approximation is locally valid, so tile-internal pixel scale
+   // is approximately uniform (~center scale). No projection correction needed here.
+   var buildTileHints = function(tile, baseHints) {
       var tileHints = {};
-      for (var key in hints) {
-         if (hints.hasOwnProperty(key)) tileHints[key] = hints[key];
+      for (var key in baseHints) {
+         if (baseHints.hasOwnProperty(key)) tileHints[key] = baseHints[key];
       }
 
-      // If downsampled, adjust scale hint
-      if (tile.scaleFactor < 1.0 && tileHints.scale_est) {
-         tileHints.scale_est = tileHints.scale_est / tile.scaleFactor;
-      }
-
-      // Per-tile RA/DEC hints (calculated by computeTileHints)
+      // Always use per-tile precomputed hints for center_ra/center_dec
+      // (computed from projection model — reliable for wide-field lenses)
       if (tile.hintRA !== undefined && tile.hintDEC !== undefined) {
          tileHints.center_ra = tile.hintRA;
          tileHints.center_dec = tile.hintDEC;
       }
 
-      // Projection-based scale correction for non-rectilinear lenses
-      if (tileHints.scale_est && tileHints._projection && tileHints._projection !== "rectilinear") {
-         var tileCX = tile.offsetX + tile.tileWidth / 2.0;
-         var tileCY = tile.offsetY + tile.tileHeight / 2.0;
-         var imgCX = imageWidth / 2.0;
-         var imgCY = imageHeight / 2.0;
-         var baseScaleArcsec = hints.scale_est || tileHints.scale_est;
-         var angleDeg = tileAngleFromCenter(tileCX, tileCY, imgCX, imgCY, baseScaleArcsec);
-         tileHints.scale_est = projectionScale(tileHints._projection, tileHints.scale_est, angleDeg);
+      // scale_est: use base scale as-is (no projection correction for API tile solves)
+      // scale_err: keep the user-specified value from baseHints (default 30%)
+
+      // Downsample scale adjustment
+      if (tile.scaleFactor < 1.0 && tileHints.scale_est) {
+         tileHints.scale_est = tileHints.scale_est / tile.scaleFactor;
       }
 
-      // Remove internal hint keys before sending to API
       delete tileHints._projection;
+      return tileHints;
+   };
 
-      // Upload
-      var subId = client.upload(tile.filePath, tileHints);
-      if (subId === null) {
-         tile.status = "failed";
-         failedCount++;
-         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] upload failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-      } else {
-         // Poll submission
-         elapsed = (new Date()).getTime() - startTime;
-         notify(prefix + " waiting for job... | " + formatElapsed(elapsed) + " elapsed", i);
-         var jobId = client.pollSubmission(subId);
-         if (jobId === null) {
-            tile.status = "failed";
-            failedCount++;
-            console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] submission timed out (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-         } else {
-            // Poll job
-            elapsed = (new Date()).getTime() - startTime;
-            notify(prefix + " solving... | " + formatElapsed(elapsed) + " elapsed", i);
-            var status = client.pollJob(jobId);
-            if (status !== "success") {
-               tile.status = "failed";
-               failedCount++;
-               console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solve failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-            } else {
-               // Get calibration + WCS
-               var calibration = client.getCalibration(jobId);
-               var wcsPath = File.systemTempDirectory + "/split_wcs_" + tile.col + "_" + tile.row + ".fits";
-               var wcsOk = client.getWcsFile(jobId, wcsPath);
+   // --- Wavefront algorithm ---
 
-               if (!calibration || !wcsOk) {
-                  tile.status = "failed";
-                  failedCount++;
-                  console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] result retrieval failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-               } else {
-                  // Parse WCS
-                  var wcsData = readWcsFromFits(wcsPath);
-                  if (!wcsData || wcsData.crval1 === undefined) {
-                     tile.status = "failed";
-                     failedCount++;
-                     console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] WCS parse failed (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-                  } else {
-                     // CRPIX reverse transform: undo downsampling
-                     if (tile.scaleFactor < 1.0) {
-                        wcsData.crpix1 = wcsData.crpix1 / tile.scaleFactor;
-                        wcsData.crpix2 = wcsData.crpix2 / tile.scaleFactor;
-                        if (wcsData.cd1_1 !== undefined) {
-                           wcsData.cd1_1 *= tile.scaleFactor;
-                           wcsData.cd1_2 *= tile.scaleFactor;
-                           wcsData.cd2_1 *= tile.scaleFactor;
-                           wcsData.cd2_2 *= tile.scaleFactor;
-                        }
-                     }
+   // Wave 0: center tile (first in spiral order, already sorted center-first)
+   var queue = [tiles[0]];
+   var queued = {}; // track which tiles are in queue/done
+   queued[tiles[0].col + "," + tiles[0].row] = true;
 
-                     // Apply tile offset: convert tile-local CRPIX to full image CRPIX
-                     // X: simple addition (no axis flip)
-                     // Y: FITS Y axis is inverted relative to PixInsight
-                     //    CRPIX2_global = CRPIX2_local + (imageHeight - offsetY - tileHeight)
-                     var crpix1Local = wcsData.crpix1;
-                     var crpix2Local = wcsData.crpix2;
-                     wcsData.crpix1 += tile.offsetX;
-                     wcsData.crpix2 += (imageHeight - tile.offsetY - tile.tileHeight);
+   var wave = 0;
+   var solvedTiles = [];
 
-                     tile.wcs = wcsData;
-                     tile.calibration = calibration;
-                     tile.status = "success";
-                     successCount++;
+   while (queue.length > 0) {
+      wave++;
+      var currentWave = queue.slice(); // copy current wave
+      queue = []; // next wave will be built as tiles solve
 
-                     console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] solved: RA=" +
-                        calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
-                        " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px (tile: " + formatElapsed((new Date()).getTime() - tileStartTime) + ", total: " + formatElapsed((new Date()).getTime() - startTime) + ")");
-                     console.writeln("    CRPIX local: (" + crpix1Local.toFixed(2) + ", " + crpix2Local.toFixed(2) +
-                        ") → global: (" + wcsData.crpix1.toFixed(2) + ", " + wcsData.crpix2.toFixed(2) +
-                        ")  offset=(" + tile.offsetX + "," + tile.offsetY + ") tileSize=(" + tile.tileWidth + "x" + tile.tileHeight + ")");
-                  }
-               }
-               // Clean up WCS temp file
-               try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
+      console.writeln("");
+      console.writeln("<b>Wave " + wave + ": " + currentWave.length + " tile(s)</b>");
+
+      for (var wi = 0; wi < currentWave.length; wi++) {
+         // Check for abort
+         processEvents();
+         if (console.abortRequested ||
+             (typeof client.abortCheck === "function" && client.abortCheck())) {
+            throw "Aborted by user";
+         }
+         if (typeof client.skipCheck === "function" && client.skipCheck()) {
+            console.writeln("  [" + timestamp() + "] Skipping remaining tiles (user requested)");
+            for (var rem = wi; rem < currentWave.length; rem++) {
+               currentWave[rem].status = "skipped";
+            }
+            return successCount;
+         }
+
+         var tile = currentWave[wi];
+         attemptCount++;
+         var elapsed = (new Date()).getTime() - startTime;
+         var prefix = "[" + timestamp() + "] [" + attemptCount + "/" + tiles.length + "] Tile [" + tile.col + "," + tile.row + "]";
+         notify(prefix + " (wave " + wave + ") solving... | " + formatElapsed(elapsed) + " elapsed | " + successCount + " solved", wi);
+         // Build hints: per-tile effective scale with projection correction
+         var refinedInfo = (solvedTiles.length > 0) ? computeRefinedHints(solvedTiles) : null;
+         var tileHints = buildTileHints(tile, hints);
+         var medianScale = refinedInfo ? refinedInfo.medianScale : 0;
+
+         console.writeln("  " + prefix + " start (wave " + wave + ")" +
+            (tileHints.scale_est ? " scale_est=" + tileHints.scale_est.toFixed(1) + "\"/px ±" + (tileHints.scale_err || "?") + "%" : ""));
+         var expectedRaDec = null; // precomputed hints are too coarse for false-positive filtering
+
+         // Solve
+         var solved = solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec);
+
+         if (solved) {
+            successCount++;
+            solvedTiles.push(tile);
+         }
+
+         // Always enqueue unsolved neighbors (even on failure — don't stall wavefront)
+         var neighbors = getNeighbors(tile);
+         for (var ni = 0; ni < neighbors.length; ni++) {
+            var nb = neighbors[ni];
+            var nbKey = nb.col + "," + nb.row;
+            if (!queued[nbKey] && nb.status === "pending") {
+               queue.push(nb);
+               queued[nbKey] = true;
             }
          }
+
+         // Print grid
+         printTileGrid(tiles, gridX, gridY);
+
+         // Rate limit
+         msleep(2000);
       }
-
-      // Print current grid status after each tile
-      printTileGrid(tiles, gridX, gridY);
-
-      // Rate limit between submissions
-      if (i < tiles.length - 1) msleep(2000);
    }
 
    var totalElapsed = (new Date()).getTime() - startTime;
    notify("Solved " + successCount + "/" + tiles.length + " tiles | " + formatElapsed(totalElapsed) + " total", -1);
-   console.writeln("Tile solving complete: " + successCount + "/" + tiles.length + " succeeded (" + formatElapsed(totalElapsed) + ")");
+   console.writeln("");
+   console.writeln("<b>Wavefront solve complete: " + successCount + "/" + tiles.length + " succeeded (" + formatElapsed(totalElapsed) + ")</b>");
    return successCount;
 }
 
@@ -986,8 +1100,8 @@ function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
             var fullPx = localPx + offX;
             var fullPy = localPy + offY;
 
-            // Convert to RA/DEC using tile WCS
-            var raDec = pixelToRaDec(wcsObj, fullPx, fullPy, imageHeight);
+            // Convert to RA/DEC using tile WCS (top-down convention)
+            var raDec = pixelToRaDecTD(wcsObj, fullPx, fullPy);
             if (raDec) {
                controlPoints.push({
                   px: fullPx,
@@ -1017,7 +1131,7 @@ function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
    }
 
    console.writeln("Unified WCS fitted: CRVAL=(" + result.crval1.toFixed(6) + ", " +
-      result.crval2.toFixed(6) + ") RMS=" + result.rmsArcsec.toFixed(2) + " arcsec");
+      result.crval2.toFixed(6) + ") RMS=" + result.rms_arcsec.toFixed(2) + " arcsec");
 
    return result;
 }
@@ -1172,213 +1286,6 @@ function computeTileHints(tiles, centerRA, centerDEC, pixelScale, imageWidth, im
    }
 }
 
-//----------------------------------------------------------------------------
-// retryFailedTiles
-//
-// 2nd pass: retry failed tiles using hints from successful neighbors.
-//
-// client: AstrometryClient (already logged in)
-// tiles: array of tile objects (some with status "success", others "failed")
-// baseHints: original hints
-// imageWidth, imageHeight: full image dimensions
-// progressCallback: function(message, tileIdx)
-//
-// Returns number of additionally solved tiles.
-//----------------------------------------------------------------------------
-function retryFailedTiles(client, tiles, baseHints, imageWidth, imageHeight, gridX, gridY, progressCallback) {
-   var notify = progressCallback || function() {};
-   var additionalSolved = 0;
-
-   // Collect failed tiles
-   var failedTiles = [];
-   for (var i = 0; i < tiles.length; i++) {
-      if (tiles[i].status === "failed") failedTiles.push(tiles[i]);
-   }
-   if (failedTiles.length === 0) return 0;
-
-   // Collect successful tiles for hint computation
-   var successTiles = [];
-   for (var i = 0; i < tiles.length; i++) {
-      if (tiles[i].status === "success" && tiles[i].wcs) successTiles.push(tiles[i]);
-   }
-   if (successTiles.length === 0) return 0;
-
-   console.writeln("");
-   console.writeln("<b>Pass 2: Retrying " + failedTiles.length + " failed tiles with refined hints...</b>");
-
-   // Median pixel scale from successful tiles (for false positive filter)
-   var scales = [];
-   for (var i = 0; i < successTiles.length; i++) {
-      if (successTiles[i].calibration && successTiles[i].calibration.pixscale) {
-         scales.push(successTiles[i].calibration.pixscale);
-      }
-   }
-   scales.sort(function(a, b) { return a - b; });
-   var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
-
-   for (var fi = 0; fi < failedTiles.length; fi++) {
-      // Check for user abort
-      processEvents();
-      if (console.abortRequested ||
-          (typeof client.abortCheck === "function" && client.abortCheck())) {
-         throw "Aborted by user";
-      }
-
-      var tile = failedTiles[fi];
-      tile.status = "solving";
-      notify("Pass 2 [" + (fi + 1) + "/" + failedTiles.length + "] Tile [" + tile.col + "," + tile.row + "] retrying...", fi);
-
-      // Find nearest successful tile(s) and compute RA/DEC for this tile's center
-      var tileCenterX = tile.offsetX + tile.tileWidth / 2.0;
-      var tileCenterY = tile.offsetY + tile.tileHeight / 2.0;
-
-      var bestDist = Infinity;
-      var bestTile = null;
-      for (var si = 0; si < successTiles.length; si++) {
-         var st = successTiles[si];
-         var stCenterX = st.offsetX + st.tileWidth / 2.0;
-         var stCenterY = st.offsetY + st.tileHeight / 2.0;
-         var dx = tileCenterX - stCenterX;
-         var dy = tileCenterY - stCenterY;
-         var dist = Math.sqrt(dx * dx + dy * dy);
-         if (dist < bestDist) {
-            bestDist = dist;
-            bestTile = st;
-         }
-      }
-
-      if (!bestTile) {
-         tile.status = "failed";
-      } else {
-         // Compute RA/DEC of failed tile center using nearest successful tile's WCS
-         var wcsObj = {
-            crval1: bestTile.wcs.crval1, crval2: bestTile.wcs.crval2,
-            crpix1: bestTile.wcs.crpix1, crpix2: bestTile.wcs.crpix2,
-            cd1_1: bestTile.wcs.cd1_1 || 0, cd1_2: bestTile.wcs.cd1_2 || 0,
-            cd2_1: bestTile.wcs.cd2_1 || 0, cd2_2: bestTile.wcs.cd2_2 || 0,
-            sip: null
-         };
-         var raDec = pixelToRaDec(wcsObj, tileCenterX, tileCenterY, imageHeight);
-         if (!raDec) {
-            tile.status = "failed";
-         } else {
-            // Build refined hints
-            var retryHints = {};
-            for (var key in baseHints) {
-               if (baseHints.hasOwnProperty(key)) retryHints[key] = baseHints[key];
-            }
-            retryHints.center_ra = raDec[0];
-            retryHints.center_dec = raDec[1];
-            retryHints.radius = 2; // Narrow search radius
-
-            // Narrow scale range if we have it
-            if (medianScale > 0) {
-               retryHints.scale_units = "arcsecperpix";
-               retryHints.scale_est = medianScale;
-               retryHints.scale_err = 20; // Tighter error margin
-            }
-
-            // Adjust scale for downsampled tiles
-            if (tile.scaleFactor < 1.0 && retryHints.scale_est) {
-               retryHints.scale_est = retryHints.scale_est / tile.scaleFactor;
-            }
-
-            // Remove internal hint keys before sending to API
-            delete retryHints._projection;
-
-            // Upload
-            var subId = client.upload(tile.filePath, retryHints);
-            if (subId === null) {
-               tile.status = "failed";
-            } else {
-               // Poll
-               var jobId = client.pollSubmission(subId);
-               if (jobId === null) {
-                  tile.status = "failed";
-               } else {
-                  var retryStatus = client.pollJob(jobId);
-                  if (retryStatus !== "success") {
-                     tile.status = "failed";
-                  } else {
-                     // Get results
-                     var calibration = client.getCalibration(jobId);
-                     var wcsPath = File.systemTempDirectory + "/split_wcs_retry_" + tile.col + "_" + tile.row + ".fits";
-                     var wcsOk = client.getWcsFile(jobId, wcsPath);
-
-                     if (!calibration || !wcsOk) {
-                        tile.status = "failed";
-                     } else {
-                        var wcsData = readWcsFromFits(wcsPath);
-                        if (!wcsData || wcsData.crval1 === undefined) {
-                           tile.status = "failed";
-                        } else {
-                           var rejected = false;
-
-                           // False positive filter: check scale ratio
-                           if (!rejected && medianScale > 0 && calibration.pixscale) {
-                              var scaleRatio = calibration.pixscale / medianScale;
-                              if (scaleRatio < 0.3 || scaleRatio > 3.0) {
-                                 console.writeln("  Tile [" + tile.col + "," + tile.row + "] rejected: scale ratio " + scaleRatio.toFixed(2) + " out of range");
-                                 tile.status = "failed";
-                                 rejected = true;
-                              }
-                           }
-
-                           // False positive filter: check coordinate deviation
-                           if (!rejected) {
-                              var solvedRa = calibration.ra;
-                              var solvedDec = calibration.dec;
-                              var coordDev = angularSeparation([raDec[0], raDec[1]], [solvedRa, solvedDec]);
-                              if (coordDev > 5.0) {
-                                 console.writeln("  Tile [" + tile.col + "," + tile.row + "] rejected: coordinate deviation " + coordDev.toFixed(2) + " deg");
-                                 tile.status = "failed";
-                                 rejected = true;
-                              }
-                           }
-
-                           if (!rejected) {
-                              // CRPIX reverse transform + offset (same as pass 1)
-                              if (tile.scaleFactor < 1.0) {
-                                 wcsData.crpix1 = wcsData.crpix1 / tile.scaleFactor;
-                                 wcsData.crpix2 = wcsData.crpix2 / tile.scaleFactor;
-                                 if (wcsData.cd1_1 !== undefined) {
-                                    wcsData.cd1_1 *= tile.scaleFactor;
-                                    wcsData.cd1_2 *= tile.scaleFactor;
-                                    wcsData.cd2_1 *= tile.scaleFactor;
-                                    wcsData.cd2_2 *= tile.scaleFactor;
-                                 }
-                              }
-                              wcsData.crpix1 += tile.offsetX;
-                              wcsData.crpix2 += (imageHeight - tile.offsetY - tile.tileHeight);
-
-                              tile.wcs = wcsData;
-                              tile.calibration = calibration;
-                              tile.status = "success";
-                              additionalSolved++;
-
-                              console.writeln("  Tile [" + tile.col + "," + tile.row + "] solved (pass 2): RA=" +
-                                 calibration.ra.toFixed(4) + " Dec=" + calibration.dec.toFixed(4) +
-                                 " scale=" + calibration.pixscale.toFixed(3) + " arcsec/px");
-                           }
-                        }
-                     }
-                     try { if (File.exists(wcsPath)) File.remove(wcsPath); } catch (e) {}
-                  }
-               }
-            }
-            if (tile.status === "failed") msleep(2000);
-         }
-      }
-
-      // Print grid after each tile
-      printTileGrid(tiles, gridX, gridY);
-
-      if (tile.status !== "failed" && fi < failedTiles.length - 1) msleep(2000);
-   }
-
-   console.writeln("Pass 2 complete: " + additionalSolved + " additional tiles solved");
-   return additionalSolved;
-}
 
 //----------------------------------------------------------------------------
 // validateOverlap
@@ -1448,24 +1355,26 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
                var px = overlapX0 + (sx + 0.5) * (overlapX1 - overlapX0) / SAMPLE;
                var py = overlapY0 + (sy + 0.5) * (overlapY1 - overlapY0) / SAMPLE;
 
+               var sipI = (ti.wcs.sipCoeffs && ti.wcs.aOrder) ? { a: ti.wcs.sipCoeffs.a || [], b: ti.wcs.sipCoeffs.b || [] } : null;
+               var sipJ = (tj.wcs.sipCoeffs && tj.wcs.aOrder) ? { a: tj.wcs.sipCoeffs.a || [], b: tj.wcs.sipCoeffs.b || [] } : null;
                var wcsI = {
                   crval1: ti.wcs.crval1, crval2: ti.wcs.crval2,
                   crpix1: ti.wcs.crpix1, crpix2: ti.wcs.crpix2,
                   cd1_1: ti.wcs.cd1_1 || 0, cd1_2: ti.wcs.cd1_2 || 0,
                   cd2_1: ti.wcs.cd2_1 || 0, cd2_2: ti.wcs.cd2_2 || 0,
-                  sip: null
+                  sip: sipI
                };
                var wcsJ = {
                   crval1: tj.wcs.crval1, crval2: tj.wcs.crval2,
                   crpix1: tj.wcs.crpix1, crpix2: tj.wcs.crpix2,
                   cd1_1: tj.wcs.cd1_1 || 0, cd1_2: tj.wcs.cd1_2 || 0,
                   cd2_1: tj.wcs.cd2_1 || 0, cd2_2: tj.wcs.cd2_2 || 0,
-                  sip: null
+                  sip: sipJ
                };
 
-               // WCS CRPIX is already in full-image coordinate system
-               var rdI = pixelToRaDec(wcsI, px, py, imageHeight);
-               var rdJ = pixelToRaDec(wcsJ, px, py, imageHeight);
+               // WCS CRPIX is in full-image top-down coordinate system
+               var rdI = pixelToRaDecTD(wcsI, px, py);
+               var rdJ = pixelToRaDecTD(wcsJ, px, py);
                if (!rdI || !rdJ) continue;
 
                var dev = angularSeparation(rdI, rdJ) * 3600.0; // arcsec
@@ -1490,23 +1399,21 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
       }
    }
 
-   // Identify tiles with consistently high deviation (outliers)
-   var invalidated = 0;
+   // Report tiles with consistently high deviation (warning only, no invalidation)
+   // Python version also does not invalidate tiles — WCSFitter handles outliers via least-squares
+   var warnings = 0;
    for (var i = 0; i < successTiles.length; i++) {
       if (deviations[i].pairCount === 0) continue;
       var avgDev = deviations[i].totalDev / deviations[i].pairCount;
       if (avgDev > toleranceArcsec * 3) {
-         // This tile is consistently inconsistent - likely a false solve
          console.writeln("  Tile [" + successTiles[i].col + "," + successTiles[i].row +
-            "] INVALIDATED: avg deviation " + avgDev.toFixed(1) + "\" exceeds threshold");
-         successTiles[i].status = "failed";
-         successTiles[i].wcs = null;
-         invalidated++;
+            "] WARNING: avg deviation " + avgDev.toFixed(1) + "\" exceeds threshold");
+         warnings++;
       }
    }
 
-   console.writeln("Overlap validation: " + pairsChecked + " pairs checked, " + invalidated + " tiles invalidated");
-   return invalidated;
+   console.writeln("Overlap validation: " + pairsChecked + " pairs checked, " + warnings + " tiles with high deviation");
+   return 0;
 }
 
 // Load equipment database
@@ -2009,6 +1916,7 @@ function SplitSolverDialog() {
    this.gridCombo.addItem("4x3");
    this.gridCombo.addItem("6x4");
    this.gridCombo.addItem("8x6");
+   this.gridCombo.addItem("8x8");
    this.gridCombo.addItem("12x8");
    this.gridCombo.currentItem = 0;
    this.gridCombo.toolTip = "Image split grid (cols x rows). Splitting wide-angle images improves solve success rate";
@@ -2016,7 +1924,7 @@ function SplitSolverDialog() {
    // Grid presets: [cols, rows]
    this.gridPresets = [
       [1, 1], [2, 2], [3, 3], [4, 4],
-      [2, 1], [3, 2], [4, 3], [6, 4], [8, 6], [12, 8]
+      [2, 1], [3, 2], [4, 3], [6, 4], [8, 6], [8, 8], [12, 8]
    ];
 
    this.overlapLabel = new Label(this);
@@ -2076,7 +1984,7 @@ function SplitSolverDialog() {
    this.timeoutLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.timeoutEdit = new Edit(this);
-   this.timeoutEdit.text = "5";
+   this.timeoutEdit.text = "2";
    this.timeoutEdit.setFixedWidth(40);
    this.timeoutEdit.toolTip = "Per-tile solve timeout (minutes)";
 
@@ -2128,7 +2036,7 @@ function SplitSolverDialog() {
    this.abortButton.toolTip = "Abort the current solve operation";
    this.abortButton.hide();
    this.abortButton.onClick = function() {
-      var msg = new MessageBox("Solve を中断しますか？",
+      var msg = new MessageBox("Abort the current solve?",
          TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
       if (msg.execute() === StdButton_Yes) {
          self._abortRequested = true;
@@ -2144,7 +2052,7 @@ function SplitSolverDialog() {
          self.cancel();
       } else {
          // During solve, Close acts as abort with confirmation
-         var msg = new MessageBox("Solve を中断して閉じますか？",
+         var msg = new MessageBox("Abort the current solve and close?",
             TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
          if (msg.execute() === StdButton_Yes) {
             self._abortRequested = true;
@@ -2219,7 +2127,7 @@ function SplitSolverDialog() {
    this._isSolving = false;
    this.onClose = function() {
       if (self._isSolving) {
-         var msg = new MessageBox("Solve を中断しますか？",
+         var msg = new MessageBox("Abort the current solve?",
             TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
          if (msg.execute() === StdButton_Yes) {
             self._abortRequested = true;
@@ -2523,39 +2431,12 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       console.writeln("");
       console.writeln("<b>Solving " + tiles.length + " tiles...</b>");
 
-      var successCount = solveMultipleTiles(client, tiles, hints, imageWidth, imageHeight, gridX, gridY,
+      var successCount = solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY,
          function(message, tileIdx) {
             self.progressLabel.text = message;
             processEvents();
          }
       );
-
-      // Print pass 1 tile grid status
-      console.writeln("");
-      console.writeln("<b>Pass 1 results:</b>");
-      printTileGrid(tiles, gridX, gridY);
-      console.writeln("Pass 1: " + successCount + "/" + tiles.length + " tiles solved");
-
-      // 4. Pass 2: Retry failed tiles with refined hints
-      if (successCount > 0 && successCount < tiles.length) {
-         this.progressLabel.text = "Pass 2: Retrying failed tiles...";
-         processEvents();
-
-         var additionalSolved = retryFailedTiles(client, tiles, hints, imageWidth, imageHeight, gridX, gridY,
-            function(message, tileIdx) {
-               self.progressLabel.text = message;
-               processEvents();
-            }
-         );
-         successCount += additionalSolved;
-
-         if (additionalSolved > 0) {
-            console.writeln("");
-            console.writeln("<b>After pass 2:</b>");
-            printTileGrid(tiles, gridX, gridY);
-            console.writeln("Total: " + successCount + "/" + tiles.length + " tiles solved");
-         }
-      }
 
       if (successCount < 2) {
          throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
@@ -2592,7 +2473,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       var msg = new MessageBox("Split solve completed.\n\n" +
          "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
          (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
-         "RMS: " + wcsResult.rmsArcsec.toFixed(2) + " arcsec",
+         "RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec",
          TITLE, StdIcon_Information, StdButton_Ok);
       msg.execute();
 
@@ -2629,8 +2510,8 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
    if (wcsResult.sip) {
       console.writeln("  SIP order: " + wcsResult.sip.order);
    }
-   if (wcsResult.rmsArcsec !== undefined) {
-      console.writeln("  RMS residual: " + wcsResult.rmsArcsec.toFixed(2) + " arcsec");
+   if (wcsResult.rms_arcsec !== undefined) {
+      console.writeln("  RMS residual: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec");
    }
 
    // Apply WCS

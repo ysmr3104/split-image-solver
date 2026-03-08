@@ -52,8 +52,11 @@ PixInsight (PJSR のみ)
 ### 実装上の重要な注意点
 
 - **HTTP 通信**: ExternalProcess + curl で一時ファイル経由。stdout キャプチャは不安定なため一時ファイルを使用。
-- **ピクセル→FITS 座標変換**: PixInsight は 0-based (y=0 が上端)、FITS は 1-based (y=1 が下端)。`u = (px + 1) - CRPIX1`、`v = (height - py) - CRPIX2`。
-- **タイル CRPIX 逆変換**: ダウンサンプル時は `crpix_original = crpix_downsampled / scaleFactor`、CD 行列は `cd *= scaleFactor`。タイルオフセット適用: `CRPIX1 += offsetX`, `CRPIX2 += offsetY`。
+- **FITS 座標 convention（重要）**: PixInsight の `FileFormatInstance.writeImage()` は FITS をトップファースト（y=1 が画像上端）で保存する。astrometry.net が返す CRPIX もこのトップダウン convention に従う。Python/astropy と同じ。
+  - **astrometry.net WCS（トップダウン）**: `v = (py + 1) - CRPIX2`。タイルの CRPIX オフセット: `CRPIX2 += offsetY`。`pixelToRaDecTD()` を使用。
+  - **WCSFitter 出力（ボトムアップ）**: `v = (height - py) - CRPIX2`。manual-image-solver と同じ FITS 標準 convention。`pixelToRaDec()` を使用。
+  - **convertToWcsResult()**: 単一画像ソルブ時に astrometry.net WCS を TD→BU に変換（CRPIX2 反転 + CD/SIP の v 成分符号反転）。
+- **タイル CRPIX 逆変換**: ダウンサンプル時は `crpix_original = crpix_downsampled / scaleFactor`、CD 行列は `cd *= scaleFactor`。タイルオフセット適用: `CRPIX1 += offsetX`, `CRPIX2 += offsetY`（トップダウン convention）。
 - **投影型別スケール補正**: 非 rectilinear レンズ（equisolid, equidistant, stereographic）ではタイルの画像中心からの角距離に応じてスケールヒントを補正。
 - **偽陽性フィルタ**: Pass 2 リトライ時にスケール比 (0.3-3.0 範囲外で拒否) + 座標乖離チェック (>5° で拒否)。
 - **制御点書き込み**: SplineWorldTransformation プロパティに直接書き込み。`ControlPoints:Weights` は非標準プロパティで書き込むとバリデーションエラーになるため使用しない。
@@ -71,6 +74,18 @@ bash build-split-release.sh
 # レガシー Python テスト
 PYTHONPATH="." .venv/bin/pytest tests/python -v
 ```
+
+## PixInsight でのテスト
+
+PixInsight でテスト実行する際は、**必ずコンソールログの保存を案内する**こと。スクリプト実行前に以下のコマンドを PixInsight コンソールで実行してもらう。ファイル名には実行時の日付時刻（YYYYMMDD_HHMMSS）を埋め込むこと:
+
+```
+log -f="/Users/ysmr/Downloads/pixinsight_split_20260307_154800.log" -a
+```
+
+（上記は例。日付時刻部分はその時点の値に置き換える）
+
+ログファイルはテスト結果の分析・比較に使用する。
 
 ## 外部依存
 
