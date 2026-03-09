@@ -25,6 +25,7 @@
 #include <pjsr/PropertyAttribute.jsh>
 #include <pjsr/SampleType.jsh>
 #include <pjsr/ImageOp.jsh>
+#include <pjsr/StdCursor.jsh>
 
 #include "wcs_math.js"
 #include "wcs_keywords.js"
@@ -1847,6 +1848,433 @@ SolverSettingsDialog.prototype.getSettings = function() {
 };
 
 //============================================================================
+// Image Preview - STF stretch and bitmap utilities
+//============================================================================
+
+#define MAX_PREVIEW_EDGE 1024
+
+function computeAutoSTF(image, channel) {
+   if (typeof channel === "undefined") channel = 0;
+   var savedChannel = image.selectedChannel;
+   image.selectedChannel = channel;
+   var median = image.median();
+
+   var mad;
+   try {
+      mad = image.MAD();
+   } catch (e) {
+      mad = image.avgDev() * 1.4826;
+   }
+   image.selectedChannel = savedChannel;
+
+   if (mad === 0 || mad < 1e-15) {
+      return { shadowClip: 0.0, midtone: 0.5 };
+   }
+
+   var targetMedian = 0.25;
+   var shadowClipK = -2.8;
+
+   var shadow = median + shadowClipK * mad;
+   if (shadow < 0) shadow = 0;
+
+   var normalizedMedian = (median - shadow) / (1.0 - shadow);
+   if (normalizedMedian <= 0) normalizedMedian = 1e-6;
+   if (normalizedMedian >= 1) normalizedMedian = 1 - 1e-6;
+
+   var m = (targetMedian - 1.0) * normalizedMedian /
+           ((2.0 * targetMedian - 1.0) * normalizedMedian - targetMedian);
+   if (m < 0) m = 0;
+   if (m > 1) m = 1;
+
+   return { shadowClip: shadow, midtone: m };
+}
+
+function midtonesTransferFunction(m, x) {
+   if (x <= 0) return 0;
+   if (x >= 1) return 1;
+   if (m === 0) return 0;
+   if (m === 1) return 1;
+   if (m === 0.5) return x;
+   return ((m - 1.0) * x) / ((2.0 * m - 1.0) * x - m);
+}
+
+// stretchMode: "none" / "linked" / "unlinked" (default "linked")
+function createStretchedBitmap(image, maxEdge, stretchMode) {
+   if (typeof maxEdge === "undefined") maxEdge = MAX_PREVIEW_EDGE;
+   if (typeof stretchMode === "undefined") stretchMode = "linked";
+
+   var w = image.width;
+   var h = image.height;
+
+   var scale = 1.0;
+   if (maxEdge > 0) {
+      var maxDim = Math.max(w, h);
+      if (maxDim > maxEdge) {
+         scale = maxEdge / maxDim;
+      }
+   }
+
+   var bmpW = Math.round(w * scale);
+   var bmpH = Math.round(h * scale);
+
+   var isColor = image.numberOfChannels >= 3;
+
+   // Compute STF parameters per mode
+   var stfR, stfG, stfB;
+   if (stretchMode === "linked") {
+      stfR = computeAutoSTF(image, 0);
+      stfG = stfR;
+      stfB = stfR;
+   } else if (stretchMode === "unlinked" && isColor) {
+      stfR = computeAutoSTF(image, 0);
+      stfG = computeAutoSTF(image, 1);
+      stfB = computeAutoSTF(image, 2);
+   } else if (stretchMode === "unlinked") {
+      stfR = computeAutoSTF(image, 0);
+      stfG = stfR;
+      stfB = stfR;
+   }
+
+   var bmp = new Bitmap(bmpW, bmpH);
+
+   for (var by = 0; by < bmpH; by++) {
+      for (var bx = 0; bx < bmpW; bx++) {
+         var ix = Math.min(Math.floor(bx / scale), w - 1);
+         var iy = Math.min(Math.floor(by / scale), h - 1);
+
+         var r, g, b;
+         if (isColor) {
+            r = image.sample(ix, iy, 0);
+            g = image.sample(ix, iy, 1);
+            b = image.sample(ix, iy, 2);
+         } else {
+            r = g = b = image.sample(ix, iy, 0);
+         }
+
+         if (stretchMode === "none") {
+            r = Math.max(0, Math.min(1, r));
+            g = Math.max(0, Math.min(1, g));
+            b = Math.max(0, Math.min(1, b));
+         } else {
+            r = (r - stfR.shadowClip) / (1.0 - stfR.shadowClip);
+            g = (g - stfG.shadowClip) / (1.0 - stfG.shadowClip);
+            b = (b - stfB.shadowClip) / (1.0 - stfB.shadowClip);
+
+            r = midtonesTransferFunction(stfR.midtone, Math.max(0, Math.min(1, r)));
+            g = midtonesTransferFunction(stfG.midtone, Math.max(0, Math.min(1, g)));
+            b = midtonesTransferFunction(stfB.midtone, Math.max(0, Math.min(1, b)));
+         }
+
+         var ri = Math.round(r * 255);
+         var gi = Math.round(g * 255);
+         var bi = Math.round(b * 255);
+         bmp.setPixel(bx, by, 0xFF000000 | (ri << 16) | (gi << 8) | bi);
+      }
+   }
+
+   return { bitmap: bmp, scale: scale, width: bmpW, height: bmpH };
+}
+
+//============================================================================
+// Grid Preview Control - Image preview with grid overlay
+//============================================================================
+
+function GridPreviewControl(parent) {
+   this.__base__ = ScrollBox;
+   this.__base__(parent);
+
+   this.bitmap = null;
+   this.bitmapScale = 1.0;
+   this.zoomLevel = 1.0;
+   this.gridCols = 1;
+   this.gridRows = 1;
+   this.overlapPx = 100;
+   this.imageWidth = 0;
+   this.imageHeight = 0;
+
+   // Manual scroll management
+   this.scrollX = 0;
+   this.scrollY = 0;
+
+   // Drag for pan
+   this.isDragging = false;
+   this.hasMoved = false;
+   this.dragStartX = 0;
+   this.dragStartY = 0;
+   this.panScrollX = 0;
+   this.panScrollY = 0;
+
+   this.zoomLevels = [
+      0.0625, 0.125, 0.25, 0.5, 0.75,
+      1.0, 1.5, 2.0, 3.0, 4.0
+   ];
+   this.zoomIndex = 5;
+
+   this.autoScrolls = false;
+
+   var self = this;
+
+   this.viewport.cursor = new Cursor(StdCursor_Arrow);
+   this._needsFit = true;
+
+   // Fit to window on first resize (viewport size is 0 during construction)
+   this.viewport.onResize = function() {
+      if (self._needsFit && self.bitmap) {
+         self._needsFit = false;
+         self.fitToWindow();
+      }
+   };
+
+   this.onHorizontalScrollPosUpdated = function(pos) {
+      self.scrollX = pos;
+      self.viewport.update();
+   };
+   this.onVerticalScrollPosUpdated = function(pos) {
+      self.scrollY = pos;
+      self.viewport.update();
+   };
+
+   // --- Paint ---
+   this.viewport.onPaint = function() {
+      var g = new Graphics(this);
+      g.fillRect(this.boundsRect, new Brush(0xFF202020));
+
+      if (self.bitmap) {
+         var dispW = Math.round(self.bitmap.width * self.zoomLevel);
+         var dispH = Math.round(self.bitmap.height * self.zoomLevel);
+
+         // Draw the stretched image
+         g.drawScaledBitmap(
+            new Rect(-self.scrollX, -self.scrollY,
+                     dispW - self.scrollX, dispH - self.scrollY),
+            self.bitmap);
+
+         // Draw grid lines
+         if (self.gridCols > 1 || self.gridRows > 1) {
+            var imgW = self.imageWidth;
+            var imgH = self.imageHeight;
+            var cols = self.gridCols;
+            var rows = self.gridRows;
+            var overlap = self.overlapPx;
+
+            // Compute tile boundaries (same logic as splitImageToTiles)
+            var tileW = Math.floor((imgW + (cols - 1) * overlap) / cols);
+            var tileH = Math.floor((imgH + (rows - 1) * overlap) / rows);
+            var stepX = tileW - overlap;
+            var stepY = tileH - overlap;
+
+            // Scale factor: original image pixels -> bitmap pixels -> display pixels
+            var toDisp = self.bitmapScale * self.zoomLevel;
+
+            g.pen = new Pen(0xBB00FF00, 1.5);
+            g.antialiasing = true;
+
+            // Vertical grid lines (between columns)
+            for (var c = 1; c < cols; c++) {
+               var x = c * stepX;
+               var dx = Math.round(x * toDisp) - self.scrollX;
+               g.drawLine(dx, -self.scrollY, dx, dispH - self.scrollY);
+            }
+
+            // Horizontal grid lines (between rows)
+            for (var r = 1; r < rows; r++) {
+               var y = r * stepY;
+               var dy = Math.round(y * toDisp) - self.scrollY;
+               g.drawLine(-self.scrollX, dy, dispW - self.scrollX, dy);
+            }
+
+            // Draw overlap regions (semi-transparent)
+            if (overlap > 0) {
+               g.pen = new Pen(0x5500AAFF, 1.0);
+
+               // Vertical overlap bands
+               for (var c = 1; c < cols; c++) {
+                  var xStart = c * stepX;
+                  var xEnd = xStart + overlap;
+                  var dxs = Math.round(xStart * toDisp) - self.scrollX;
+                  var dxe = Math.round(xEnd * toDisp) - self.scrollX;
+                  // Left overlap edge
+                  g.drawLine(dxs, -self.scrollY, dxs, dispH - self.scrollY);
+                  // Right overlap edge
+                  g.drawLine(dxe, -self.scrollY, dxe, dispH - self.scrollY);
+               }
+
+               // Horizontal overlap bands
+               for (var r = 1; r < rows; r++) {
+                  var yStart = r * stepY;
+                  var yEnd = yStart + overlap;
+                  var dys = Math.round(yStart * toDisp) - self.scrollY;
+                  var dye = Math.round(yEnd * toDisp) - self.scrollY;
+                  g.drawLine(-self.scrollX, dys, dispW - self.scrollX, dys);
+                  g.drawLine(-self.scrollX, dye, dispW - self.scrollX, dye);
+               }
+            }
+
+            // Tile labels
+            g.pen = new Pen(0xCCFFFF00);
+            g.font = new Font("Helvetica", 10);
+            for (var r = 0; r < rows; r++) {
+               for (var c = 0; c < cols; c++) {
+                  var tx = c * stepX + tileW / 2;
+                  var ty = r * stepY + tileH / 2;
+                  var lx = Math.round(tx * toDisp) - self.scrollX - 8;
+                  var ly = Math.round(ty * toDisp) - self.scrollY - 6;
+                  g.drawText(lx, ly, "" + (r * cols + c + 1));
+               }
+            }
+         }
+      }
+
+      g.end();
+   };
+
+   // --- Mouse events for pan ---
+   #define GRID_DRAG_THRESHOLD 4
+
+   this.viewport.onMousePress = function(x, y, button, buttonState, modifiers) {
+      if (!self.bitmap) return;
+      if (button === 1 || button === 4) {
+         self.isDragging = true;
+         self.hasMoved = false;
+         self.dragStartX = x;
+         self.dragStartY = y;
+         self.panScrollX = self.scrollX;
+         self.panScrollY = self.scrollY;
+      }
+   };
+
+   this.viewport.onMouseMove = function(x, y, buttonState, modifiers) {
+      if (!self.isDragging) return;
+      var dx = x - self.dragStartX;
+      var dy = y - self.dragStartY;
+      if (!self.hasMoved) {
+         if (Math.abs(dx) > GRID_DRAG_THRESHOLD || Math.abs(dy) > GRID_DRAG_THRESHOLD) {
+            self.hasMoved = true;
+            self.viewport.cursor = new Cursor(StdCursor_ClosedHand);
+         }
+      }
+      if (self.hasMoved) {
+         self.setScroll(self.panScrollX - dx, self.panScrollY - dy);
+      }
+   };
+
+   this.viewport.onMouseRelease = function(x, y, button, buttonState, modifiers) {
+      if (!self.isDragging) return;
+      self.isDragging = false;
+      self.hasMoved = false;
+      self.viewport.cursor = new Cursor(StdCursor_Arrow);
+   };
+
+   this.viewport.onMouseWheel = function(x, y, delta, buttonState, modifiers) {
+      if (!self.bitmap) return;
+      var oldZoom = self.zoomLevel;
+      var newIdx = self.zoomIndex;
+
+      if (delta > 0) {
+         for (var i = 0; i < self.zoomLevels.length; i++) {
+            if (self.zoomLevels[i] > oldZoom + 1e-6) { newIdx = i; break; }
+         }
+      } else {
+         for (var i = self.zoomLevels.length - 1; i >= 0; i--) {
+            if (self.zoomLevels[i] < oldZoom - 1e-6) { newIdx = i; break; }
+         }
+      }
+      if (newIdx === self.zoomIndex) return;
+
+      var newZoom = self.zoomLevels[newIdx];
+      var factor = newZoom / oldZoom;
+      self.zoomIndex = newIdx;
+      self.zoomLevel = newZoom;
+      self.scrollX = Math.round((self.scrollX + x) * factor - x);
+      self.scrollY = Math.round((self.scrollY + y) * factor - y);
+      self.updateViewport();
+   };
+}
+
+GridPreviewControl.prototype = new ScrollBox;
+
+GridPreviewControl.prototype.setScroll = function(sx, sy) {
+   var dbmp = this.bitmap;
+   if (!dbmp) return;
+   var dispW = Math.round(dbmp.width * this.zoomLevel);
+   var dispH = Math.round(dbmp.height * this.zoomLevel);
+   var maxX = Math.max(0, dispW - this.viewport.width);
+   var maxY = Math.max(0, dispH - this.viewport.height);
+   this.scrollX = Math.max(0, Math.min(sx, maxX));
+   this.scrollY = Math.max(0, Math.min(sy, maxY));
+   this.horizontalScrollPosition = this.scrollX;
+   this.verticalScrollPosition = this.scrollY;
+   this.viewport.update();
+};
+
+GridPreviewControl.prototype.updateViewport = function() {
+   var dbmp = this.bitmap;
+   if (!dbmp) {
+      this.setHorizontalScrollRange(0, 0);
+      this.setVerticalScrollRange(0, 0);
+      this.viewport.update();
+      return;
+   }
+   var dispW = Math.round(dbmp.width * this.zoomLevel);
+   var dispH = Math.round(dbmp.height * this.zoomLevel);
+   var viewW = this.viewport.width;
+   var viewH = this.viewport.height;
+
+   this.setHorizontalScrollRange(0, Math.max(0, dispW - viewW));
+   this.setVerticalScrollRange(0, Math.max(0, dispH - viewH));
+
+   // Clamp scroll
+   if (this.scrollX > Math.max(0, dispW - viewW))
+      this.scrollX = Math.max(0, dispW - viewW);
+   if (this.scrollY > Math.max(0, dispH - viewH))
+      this.scrollY = Math.max(0, dispH - viewH);
+
+   this.horizontalScrollPosition = this.scrollX;
+   this.verticalScrollPosition = this.scrollY;
+   this.viewport.update();
+};
+
+GridPreviewControl.prototype.fitToWindow = function() {
+   if (!this.bitmap) return;
+   var viewW = this.viewport.width;
+   var viewH = this.viewport.height;
+   if (viewW <= 0 || viewH <= 0) return;
+
+   var scaleX = viewW / this.bitmap.width;
+   var scaleY = viewH / this.bitmap.height;
+   var fitZoom = Math.min(scaleX, scaleY);
+
+   // Use exact fit zoom (not snapped to preset levels)
+   this.zoomLevel = fitZoom;
+   // Set zoomIndex to nearest preset for wheel zoom reference
+   this.zoomIndex = 0;
+   for (var i = this.zoomLevels.length - 1; i >= 0; i--) {
+      if (this.zoomLevels[i] <= fitZoom + 1e-6) {
+         this.zoomIndex = i;
+         break;
+      }
+   }
+   this.scrollX = 0;
+   this.scrollY = 0;
+   this.updateViewport();
+};
+
+GridPreviewControl.prototype.setBitmap = function(bmp, bmpScale, imgW, imgH) {
+   this.bitmap = bmp;
+   this.bitmapScale = bmpScale;
+   this.imageWidth = imgW;
+   this.imageHeight = imgH;
+   this.fitToWindow();
+};
+
+GridPreviewControl.prototype.setGrid = function(cols, rows, overlapPx) {
+   this.gridCols = cols;
+   this.gridRows = rows;
+   this.overlapPx = overlapPx;
+   this.viewport.update();
+};
+
+//============================================================================
 // Main Dialog
 //============================================================================
 
@@ -2120,11 +2548,9 @@ function SplitSolverDialog() {
             self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
                diagFov.toFixed(1) + "\u00b0 | Recommended: " + rec.cols + "x" + rec.rows;
 
-            // Auto-select recommended grid
-            var presetIdx = findGridPresetIndex(self.gridPresets, rec.cols, rec.rows);
-            if (presetIdx >= 0) {
-               self.gridCombo.currentItem = presetIdx;
-            }
+            // Store recommended grid for "Recommended" button
+            self._recommendedCols = rec.cols;
+            self._recommendedRows = rec.rows;
          } else {
             self.fovInfoLabel.text = "";
          }
@@ -2366,12 +2792,34 @@ function SplitSolverDialog() {
    this.overlapUnitLabel = new Label(this);
    this.overlapUnitLabel.text = "px";
 
+   this._recommendedCols = 0;
+   this._recommendedRows = 0;
+
+   this.recommendButton = new PushButton(this);
+   this.recommendButton.text = "Recommended";
+   this.recommendButton.toolTip = "Set grid to recommended size based on FOV";
+   this.recommendButton.onClick = function() {
+      if (self._recommendedCols > 0 && self._recommendedRows > 0) {
+         var idx = findGridPresetIndex(self.gridPresets, self._recommendedCols, self._recommendedRows);
+         if (idx >= 0) {
+            self.gridCombo.currentItem = idx;
+            updatePreviewGrid();
+         }
+      }
+   };
+
    var gridSizer = new HorizontalSizer;
    gridSizer.spacing = 6;
    gridSizer.add(this.gridLabel);
    gridSizer.add(this.gridCombo);
-   gridSizer.addSpacing(12);
-   gridSizer.add(this.fovInfoLabel, 100);
+   gridSizer.addSpacing(6);
+   gridSizer.add(this.recommendButton);
+   gridSizer.addStretch();
+
+   var fovSizer = new HorizontalSizer;
+   fovSizer.spacing = 6;
+   fovSizer.addSpacing(120 + 6); // Align with fields after label width
+   fovSizer.add(this.fovInfoLabel, 100);
 
    var overlapSizer = new HorizontalSizer;
    overlapSizer.spacing = 6;
@@ -2538,6 +2986,106 @@ function SplitSolverDialog() {
    buttonSizer.add(this.abortButton);
    buttonSizer.add(this.closeButton);
 
+   // ---- Image Preview with Grid Overlay ----
+   this.previewControl = new GridPreviewControl(this);
+   this.previewControl.setMinSize(500, 500);
+   this._stretchMode = "linked";
+
+   // Create bitmap from active image
+   if (!targetWindow.isNull) {
+      var previewResult = createStretchedBitmap(
+         targetWindow.mainView.image, MAX_PREVIEW_EDGE, this._stretchMode);
+      this.previewControl.setBitmap(
+         previewResult.bitmap, previewResult.scale,
+         targetWindow.mainView.image.width, targetWindow.mainView.image.height);
+   }
+
+   // Rebuild bitmap with current stretch mode
+   var rebuildPreviewBitmap = function() {
+      var tw = ImageWindow.activeWindow;
+      if (tw.isNull) return;
+      self.cursor = new Cursor(StdCursor_Wait);
+      var result = createStretchedBitmap(
+         tw.mainView.image, MAX_PREVIEW_EDGE, self._stretchMode);
+      self.previewControl.setBitmap(
+         result.bitmap, result.scale,
+         tw.mainView.image.width, tw.mainView.image.height);
+      self.cursor = new Cursor(StdCursor_Arrow);
+   };
+
+   var updateStretchButtons = function() {
+      self.stretchNoneButton.text = (self._stretchMode === "none") ? "\u25B6None" : "None";
+      self.stretchLinkedButton.text = (self._stretchMode === "linked") ? "\u25B6Linked" : "Linked";
+      self.stretchUnlinkedButton.text = (self._stretchMode === "unlinked") ? "\u25B6Unlinked" : "Unlinked";
+   };
+
+   // STF stretch buttons
+   var stretchLabel = new Label(this);
+   stretchLabel.text = "STF:";
+   stretchLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+
+   this.stretchNoneButton = new PushButton(this);
+   this.stretchNoneButton.text = "None";
+   this.stretchNoneButton.toolTip = "No stretch (linear)";
+   this.stretchNoneButton.onClick = function() {
+      if (self._stretchMode !== "none") {
+         self._stretchMode = "none";
+         updateStretchButtons();
+         rebuildPreviewBitmap();
+      }
+   };
+
+   this.stretchLinkedButton = new PushButton(this);
+   this.stretchLinkedButton.text = "\u25B6Linked";
+   this.stretchLinkedButton.toolTip = "Same stretch for all channels";
+   this.stretchLinkedButton.onClick = function() {
+      if (self._stretchMode !== "linked") {
+         self._stretchMode = "linked";
+         updateStretchButtons();
+         rebuildPreviewBitmap();
+      }
+   };
+
+   this.stretchUnlinkedButton = new PushButton(this);
+   this.stretchUnlinkedButton.text = "Unlinked";
+   this.stretchUnlinkedButton.toolTip = "Independent stretch per channel";
+   this.stretchUnlinkedButton.onClick = function() {
+      if (self._stretchMode !== "unlinked") {
+         self._stretchMode = "unlinked";
+         updateStretchButtons();
+         rebuildPreviewBitmap();
+      }
+   };
+
+   var previewToolbar = new HorizontalSizer;
+   previewToolbar.spacing = 4;
+   previewToolbar.add(stretchLabel);
+   previewToolbar.add(this.stretchNoneButton);
+   previewToolbar.add(this.stretchLinkedButton);
+   previewToolbar.add(this.stretchUnlinkedButton);
+   previewToolbar.addStretch();
+
+   // Helper: update preview grid from current UI values
+   var updatePreviewGrid = function() {
+      var gridIdx = self.gridCombo.currentItem;
+      var preset = self.gridPresets[gridIdx];
+      var cols = preset ? preset[0] : 1;
+      var rows = preset ? preset[1] : 1;
+      var overlap = parseInt(self.overlapEdit.text) || 100;
+      self.previewControl.setGrid(cols, rows, overlap);
+   };
+
+   // Wire grid/overlap changes to update preview
+   this.gridCombo.onItemSelected = function() {
+      updatePreviewGrid();
+   };
+   this.overlapEdit.onTextUpdated = function() {
+      updatePreviewGrid();
+   };
+
+   // Set initial grid state on preview
+   updatePreviewGrid();
+
    // ---- GroupBox: Image ----
    var imageGroup = new GroupBox(this);
    imageGroup.title = "Image";
@@ -2565,6 +3113,7 @@ function SplitSolverDialog() {
    splitGroup.sizer.margin = 6;
    splitGroup.sizer.spacing = 4;
    splitGroup.sizer.add(gridSizer);
+   splitGroup.sizer.add(fovSizer);
    splitGroup.sizer.add(overlapSizer);
    splitGroup.sizer.add(downsampleSizer);
 
@@ -2579,14 +3128,38 @@ function SplitSolverDialog() {
    coordGroup.sizer.add(decSizer);
    coordGroup.sizer.add(radiusSizer);
 
-   // ---- Layout ----
+   // ---- Layout: Left = Preview, Right = Parameters ----
+   var rightPanel = new VerticalSizer;
+   rightPanel.spacing = 8;
+   rightPanel.add(imageGroup);
+   rightPanel.add(equipGroup);
+   rightPanel.add(splitGroup);
+   rightPanel.add(coordGroup);
+   rightPanel.addStretch();
+
+   // Right panel in a Control to set fixed width
+   var rightPanelControl = new Control(this);
+   rightPanelControl.sizer = rightPanel;
+   rightPanelControl.setMinWidth(420);
+
+   // Left panel: preview + toolbar
+   var leftPanel = new VerticalSizer;
+   leftPanel.spacing = 4;
+   leftPanel.add(this.previewControl, 100);
+   leftPanel.add(previewToolbar);
+
+   var leftPanelControl = new Control(this);
+   leftPanelControl.sizer = leftPanel;
+
+   var mainHSizer = new HorizontalSizer;
+   mainHSizer.spacing = 8;
+   mainHSizer.add(leftPanelControl, 100);
+   mainHSizer.add(rightPanelControl);
+
    this.sizer = new VerticalSizer;
    this.sizer.margin = 8;
    this.sizer.spacing = 8;
-   this.sizer.add(imageGroup);
-   this.sizer.add(equipGroup);
-   this.sizer.add(splitGroup);
-   this.sizer.add(coordGroup);
+   this.sizer.add(mainHSizer, 100);
    this.sizer.addSpacing(4);
    this.sizer.add(this.progressLabel);
    this.sizer.addSpacing(4);
@@ -2608,7 +3181,8 @@ function SplitSolverDialog() {
    };
 
    this.adjustToContents();
-   this.setMinWidth(550);
+   this.setMinWidth(1000);
+   this.setMinHeight(600);
 }
 
 SplitSolverDialog.prototype = new Dialog;

@@ -11,12 +11,13 @@ Handles ultra-wide-field images that PixInsight's built-in ImageSolver cannot so
 ## Features
 
 - **Two solve modes**: astrometry.net API (default) or local solve-field
-- **Flexible tiling**: From 1x1 (single image) to 12x8, any grid pattern
+- **Image preview with grid overlay**: Real-time tile split visualization with STF stretch (None/Linked/Unlinked)
+- **Flexible tiling**: From 1x1 (single image) to 12x8, with one-click "Recommended" grid based on FOV
 - **High accuracy**: SIP distortion correction, WCSFitter control-point fitting
 - **Partial solve**: WCS can be computed even if some tiles fail
 - **Two-pass retry**: Failed tiles are retried using WCS hints from successful neighbors
 - **Overlap validation**: Automatic WCS consistency check across adjacent tiles
-- **Equipment DB**: Auto-detection of camera/lens (with model numbers), auto-fill of focal length and pixel pitch, recommended grid suggestions
+- **Equipment DB**: Auto-detection of camera/lens (with model numbers), auto-fill of focal length and pixel pitch
 - **Fisheye support**: Equisolid / equidistant / stereographic projections with per-tile scale correction
 - **Sesame name search**: Auto-fill RA/DEC from object names
 
@@ -77,7 +78,7 @@ API mode works out of the box with no additional installation. For Local mode se
 
 ![Main Dialog](docs/images/main-dialog.jpg)
 
-Selecting a camera auto-fills pixel pitch; selecting a lens auto-fills focal length. Pixel scale and recommended grid are calculated automatically. You can also enter focal length and pixel pitch manually for unlisted equipment. Equipment is auto-detected from FITS headers with model numbers displayed.
+The left panel shows a real-time image preview with grid overlay visualizing how tiles will be split. STF stretch modes (None/Linked/Unlinked) are available below the preview. The right panel contains all parameters: equipment selection (auto-detected from FITS headers), split settings with a "Recommended" button for one-click optimal grid, and coordinate hints with Sesame name search.
 
 ### Settings Dialog
 
@@ -92,17 +93,19 @@ Access from the "Settings..." button at the bottom-left. Switch between solve mo
 1. Open the target image in PixInsight
 2. Run **Script > Astrometry > SplitImageSolver**
 3. Click **Settings...** and enter your API key (first time only; saved automatically)
-4. Leave Grid at **1x1** and click "Solve"
-5. WCS is applied to the image upon completion
+4. Confirm the image preview on the left panel
+5. Leave Grid at **1x1 (Single)** and click "Solve"
+6. WCS is applied to the image upon completion
 
 ### Split Solve (Wide-Field)
 
 1. Open the target image in PixInsight
 2. Run **Script > Astrometry > SplitImageSolver**
 3. Select **Camera/Lens** (auto-detected from FITS headers when available)
-   - Focal length and pixel pitch are auto-filled; recommended grid is calculated
-4. Optionally enter an **object name** and click "Search" to fill RA/DEC
-5. Set Grid to the recommended size
+   - Focal length and pixel pitch are auto-filled
+4. Click **Recommended** to set the optimal grid based on FOV
+   - The preview updates in real-time showing the tile split overlay
+5. Optionally enter an **object name** and click "Search" to fill RA/DEC
 6. Click "Solve"
 
 ### Parameters
