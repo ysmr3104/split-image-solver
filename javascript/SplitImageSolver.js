@@ -646,10 +646,10 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
          var tileH = y1 - y0;
          if (tileW < 10 || tileH < 10) continue;
 
-         // Create a new ImageWindow for the tile
+         // Create a new ImageWindow for the tile (16-bit integer, matching Python uint16)
          var tileWin = new ImageWindow(tileW, tileH,
-            image.numberOfChannels, image.bitsPerSample,
-            image.sampleType === SampleType_Real, image.isColor,
+            image.numberOfChannels, 16,
+            false, image.isColor,
             "tile_" + col + "_" + row);
 
          // Copy pixel data from source using selectedRect
@@ -657,6 +657,53 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
          image.selectedRect = new Rect(x0, y0, x1, y1);
          tileWin.mainView.image.apply(image, ImageOp_Mov);
          image.resetSelections();
+         tileWin.mainView.endProcess();
+
+         // Convert to grayscale (luminance) for better source extraction
+         // (matching Python: 0.2126*R + 0.7152*G + 0.0722*B)
+         if (tileWin.mainView.image.isColor) {
+            var convToGray = new ConvertToGrayscale;
+            convToGray.executeOn(tileWin.mainView);
+         }
+
+         // Percentile stretch for better star detection by astrometry.net
+         // (matching Python: clip to percentile(0.5)-percentile(99.9), scale to 0-1)
+         // Build histogram by sampling pixels (every 4th pixel for speed)
+         var tileImg = tileWin.mainView.image;
+         var histSize = 65536;
+         var hist = new Array(histSize);
+         for (var hi = 0; hi < histSize; hi++) hist[hi] = 0;
+         var totalSamples = 0;
+         for (var sy = 0; sy < tileImg.height; sy += 4) {
+            for (var sx = 0; sx < tileImg.width; sx += 4) {
+               var sv = tileImg.sample(sx, sy);
+               var bin = Math.round(sv * (histSize - 1));
+               if (bin < 0) bin = 0;
+               if (bin >= histSize) bin = histSize - 1;
+               hist[bin]++;
+               totalSamples++;
+            }
+         }
+         // Compute percentile from histogram
+         var computePercentile = function(histogram, total, pct) {
+            var target = total * pct / 100.0;
+            var cumul = 0;
+            for (var pi = 0; pi < histogram.length; pi++) {
+               cumul += histogram[pi];
+               if (cumul >= target) return pi / (histogram.length - 1.0);
+            }
+            return 1.0;
+         };
+         var vmin = computePercentile(hist, totalSamples, 0.5);
+         var vmax = computePercentile(hist, totalSamples, 99.9);
+         if (vmax <= vmin) vmax = vmin + 0.001;
+         console.writeln("  Tile [" + col + "," + row + "] stretch: vmin=" +
+            vmin.toFixed(6) + " vmax=" + vmax.toFixed(6));
+         tileWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         // Rescale: (pixel - vmin) / (vmax - vmin), clipped to [0, 1]
+         tileImg.apply(vmin, ImageOp_Sub);
+         tileImg.apply(1.0 / (vmax - vmin), ImageOp_Mul);
+         tileImg.truncate(0, 1);
          tileWin.mainView.endProcess();
 
          // Downsample if tile is too large (long edge > 2000px)
@@ -684,6 +731,13 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
             wrt.writeImage(tileWin.mainView.image);
             wrt.close();
          }
+         // Log tile file info
+         var fInfo = new FileInfo(fitsPath);
+         console.writeln("  Tile [" + col + "," + row + "] saved: " +
+            tileWin.mainView.image.width + "x" + tileWin.mainView.image.height +
+            " ch=" + tileWin.mainView.image.numberOfChannels +
+            " bits=" + tileWin.mainView.image.bitsPerSample +
+            " size=" + Math.round(fInfo.size / 1024) + "KB");
 
          tileWin.forceClose();
 
@@ -936,10 +990,9 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 
    // Helper: build hint object for API
    //
-   // Note: Python version applies per-tile projection scale correction because it uses
-   // local solve-field with full-image coordinate system. The API version solves cropped
-   // tile images where TAN approximation is locally valid, so tile-internal pixel scale
-   // is approximately uniform (~center scale). No projection correction needed here.
+   // Apply projection scale correction (matching Python's _effective_pixel_scale_factor)
+   // so the API receives the correct effective arcsec/px for each tile position.
+   // Also compute dynamic scale_err margin based on distance from image center.
    var buildTileHints = function(tile, baseHints) {
       var tileHints = {};
       for (var key in baseHints) {
@@ -947,21 +1000,87 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
       }
 
       // Always use per-tile precomputed hints for center_ra/center_dec
-      // (computed from projection model — reliable for wide-field lenses)
       if (tile.hintRA !== undefined && tile.hintDEC !== undefined) {
          tileHints.center_ra = tile.hintRA;
          tileHints.center_dec = tile.hintDEC;
       }
 
-      // scale_est: use base scale as-is (no projection correction for API tile solves)
-      // scale_err: keep the user-specified value from baseHints (default 30%)
+      // Projection scale correction (Python equivalent)
+      // Use native optical scale for projection geometry (not resampled scale).
+      // Resampling changes pixel size but not the angular geometry of the lens.
+      var nativeScale = baseHints._nativeScale || baseHints.scale_est;
+      var baseScaleArcsec = baseHints.scale_est;
+      var projection = baseHints._projection || "rectilinear";
 
-      // Downsample scale adjustment
-      if (tile.scaleFactor < 1.0 && tileHints.scale_est) {
-         tileHints.scale_est = tileHints.scale_est / tile.scaleFactor;
+      if (baseScaleArcsec) {
+         var tileCX = tile.offsetX + tile.tileWidth / 2.0;
+         var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+         var imgCX = imageWidth / 2.0;
+         var imgCY = imageHeight / 2.0;
+
+         // Use native scale for angular distance calculation
+         var scaleRad = (nativeScale / 3600.0) * Math.PI / 180.0;
+         var rPixels = Math.sqrt(
+            (tileCX - imgCX) * (tileCX - imgCX) + (tileCY - imgCY) * (tileCY - imgCY)
+         );
+
+         // Angular distance from center (depends on projection type)
+         var rScaled = rPixels * scaleRad;
+         var theta;
+         switch (projection) {
+            case "equisolid":    theta = 2 * Math.asin(Math.min(rScaled / 2, 1)); break;
+            case "equidistant":  theta = rScaled; break;
+            case "stereographic": theta = 2 * Math.atan(rScaled / 2); break;
+            default:             theta = Math.atan(rScaled); break; // rectilinear (gnomonic)
+         }
+
+         // Effective pixel scale factor (Python: _effective_pixel_scale_factor)
+         var factor = 1.0;
+         if (theta > 0.001) {
+            switch (projection) {
+               case "rectilinear":
+                  var cosT = Math.cos(theta);
+                  factor = 1.0 / (cosT * cosT);
+                  break;
+               case "equisolid":
+                  factor = Math.sqrt(1.0 - Math.sin(theta / 2.0) * Math.sin(theta / 2.0)) /
+                           Math.cos(theta);
+                  break;
+               case "equidistant":
+                  factor = theta / Math.sin(theta);
+                  break;
+               case "stereographic":
+                  var cosHalf = Math.cos(theta / 2.0);
+                  factor = 1.0 / (cosHalf * cosHalf * Math.cos(theta));
+                  break;
+            }
+         }
+
+         // Apply projection factor to native scale (matching Python behavior).
+         // Python computes effective_scale from native sensor scale, not resampled.
+         // The tile image pixels correspond to the native optical geometry.
+         var effectiveScale = nativeScale * factor;
+
+         // Dynamic margin: Python's 0.2 + 0.3 * (r / max_r)
+         var maxR = Math.sqrt(imgCX * imgCX + imgCY * imgCY);
+         var rRatio = maxR > 0 ? rPixels / maxR : 0;
+         var margin = 0.2 + 0.3 * rRatio;
+
+         // Downsample scale adjustment
+         if (tile.scaleFactor < 1.0) {
+            effectiveScale = effectiveScale / tile.scaleFactor;
+         }
+
+         // Use scale_lower/scale_upper (matching Python's solve-field --scale-low/--scale-high)
+         tileHints.scale_lower = effectiveScale * (1.0 - margin);
+         tileHints.scale_upper = effectiveScale * (1.0 + margin);
+         // Remove scale_est/scale_err to avoid conflict
+         delete tileHints.scale_est;
+         delete tileHints.scale_err;
       }
 
       delete tileHints._projection;
+      delete tileHints._nativeScale;
       return tileHints;
    };
 
@@ -1008,9 +1127,48 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          var tileHints = buildTileHints(tile, hints);
          var medianScale = refinedInfo ? refinedInfo.medianScale : 0;
 
+         // Refine RA/DEC hints using nearest solved tile's WCS (Python 2nd pass equivalent)
+         // Only use WCS extrapolation when the target point falls within or near
+         // the solved tile's coverage area. TAN projection breaks down at large distances.
+         var expectedRaDec = null;
+         if (solvedTiles.length > 0) {
+            var tileCX = tile.offsetX + tile.tileWidth / 2.0;
+            var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+            var nearestDist2 = Infinity;
+            var nearestTile = null;
+            for (var si = 0; si < solvedTiles.length; si++) {
+               var st = solvedTiles[si];
+               var stCX = st.offsetX + st.tileWidth / 2.0;
+               var stCY = st.offsetY + st.tileHeight / 2.0;
+               var d2 = (tileCX - stCX) * (tileCX - stCX) + (tileCY - stCY) * (tileCY - stCY);
+               if (d2 < nearestDist2) {
+                  nearestDist2 = d2;
+                  nearestTile = st;
+               }
+            }
+            if (nearestTile && nearestTile.wcs) {
+               // Extrapolate RA/DEC from nearest solved tile's WCS (Python 2nd pass equivalent)
+               // Python does this without distance limit, using nearest solved tile regardless of distance
+               var refined = pixelToRaDecTD(nearestTile.wcs, tileCX, tileCY);
+               if (refined && isFinite(refined[0]) && isFinite(refined[1])) {
+                  var distPx = Math.sqrt(nearestDist2);
+                  tileHints.center_ra = refined[0];
+                  tileHints.center_dec = refined[1];
+                  // Widen scale range for WCS-extrapolated hints (Python 2nd pass: ±50%)
+                  if (tileHints.scale_lower && tileHints.scale_upper) {
+                     var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
+                     tileHints.scale_lower = midScale * 0.5;
+                     tileHints.scale_upper = midScale * 1.5;
+                  }
+                  expectedRaDec = refined;
+               }
+            }
+         }
+
          console.writeln("  " + prefix + " start (wave " + wave + ")" +
-            (tileHints.scale_est ? " scale_est=" + tileHints.scale_est.toFixed(1) + "\"/px ±" + (tileHints.scale_err || "?") + "%" : ""));
-         var expectedRaDec = null; // precomputed hints are too coarse for false-positive filtering
+            (tileHints.scale_lower ? " scale=[" + tileHints.scale_lower.toFixed(1) + "-" + tileHints.scale_upper.toFixed(1) + "]\"/px" : "") +
+            (expectedRaDec ? " refined_center=(" + tileHints.center_ra.toFixed(2) + "," + tileHints.center_dec.toFixed(2) +
+               ")(ref=[" + nearestTile.col + "," + nearestTile.row + "] dist=" + Math.round(Math.sqrt(nearestDist2)) + "px)" : ""));
 
          // Solve
          var solved = solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec);
@@ -1857,7 +2015,7 @@ function SplitSolverDialog() {
    this.radiusLabel.setFixedWidth(80);
 
    this.radiusEdit = new Edit(this);
-   this.radiusEdit.text = "15";
+   this.radiusEdit.text = "10";
    this.radiusEdit.setFixedWidth(50);
    this.radiusEdit.toolTip = "Search radius (degrees)";
 
@@ -1933,7 +2091,7 @@ function SplitSolverDialog() {
    this.overlapLabel.setFixedWidth(80);
 
    this.overlapEdit = new Edit(this);
-   this.overlapEdit.text = "200";
+   this.overlapEdit.text = "100";
    this.overlapEdit.setFixedWidth(60);
    this.overlapEdit.toolTip = "Overlap between tiles (px)";
 
@@ -1973,10 +2131,10 @@ function SplitSolverDialog() {
    this.sipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.sipCombo = new ComboBox(this);
-   this.sipCombo.addItem("2 (recommended)");
+   this.sipCombo.addItem("2");
    this.sipCombo.addItem("3");
-   this.sipCombo.addItem("4");
-   this.sipCombo.currentItem = 0;
+   this.sipCombo.addItem("4 (recommended)");
+   this.sipCombo.currentItem = 2;
    this.sipCombo.toolTip = "SIP distortion correction polynomial order (tweak_order)";
 
    this.timeoutLabel = new Label(this);
@@ -1984,7 +2142,7 @@ function SplitSolverDialog() {
    this.timeoutLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.timeoutEdit = new Edit(this);
-   this.timeoutEdit.text = "2";
+   this.timeoutEdit.text = "5";
    this.timeoutEdit.setFixedWidth(40);
    this.timeoutEdit.toolTip = "Per-tile solve timeout (minutes)";
 
@@ -2198,7 +2356,7 @@ SplitSolverDialog.prototype.doSolve = function() {
       hints.center_ra = ra;
       hints.center_dec = dec;
       var radius = parseFloat(this.radiusEdit.text);
-      hints.radius = (!isNaN(radius) && radius > 0) ? radius : 15;
+      hints.radius = (!isNaN(radius) && radius > 0) ? radius : 10;
    }
 
    // Projection type from lens selection
@@ -2211,12 +2369,28 @@ SplitSolverDialog.prototype.doSolve = function() {
    }
    hints._projection = projection;
 
+   // Store native (optical) pixel scale for projection correction in buildTileHints.
+   // scale_est may be corrected for resampled images, but projection geometry
+   // depends on the native optical scale.
+   if (this.equipDB) {
+      var camIdx2 = this.cameraCombo.currentItem - 1;
+      var lensIdx2 = this.lensCombo.currentItem - 1;
+      if (camIdx2 >= 0 && lensIdx2 >= 0 &&
+          camIdx2 < this.equipDB.cameras.length && lensIdx2 < this.equipDB.lenses.length) {
+         var cam2 = this.equipDB.cameras[camIdx2];
+         var lens2 = this.equipDB.lenses[lensIdx2];
+         if (cam2.pixel_pitch > 0 && lens2.focal_length > 0) {
+            hints._nativeScale = computePixelScale(cam2.pixel_pitch, lens2.focal_length);
+         }
+      }
+   }
+
    // Grid settings
    var gridPreset = this.gridPresets[this.gridCombo.currentItem];
    var gridX = gridPreset[0];
    var gridY = gridPreset[1];
    var isSplitMode = (gridX > 1 || gridY > 1);
-   var overlap = parseInt(this.overlapEdit.text) || 200;
+   var overlap = parseInt(this.overlapEdit.text) || 100;
 
    // Log all parameters
    var imageWidth = targetWindow.mainView.image.width;
@@ -2239,7 +2413,7 @@ SplitSolverDialog.prototype.doSolve = function() {
       console.writeln("  Object:      " + this.objectEdit.text.trim());
       console.writeln("  RA:          " + raToHMS(hints.center_ra) + " (" + hints.center_ra.toFixed(4) + "\u00b0)");
       console.writeln("  DEC:         " + decToDMS(hints.center_dec) + " (" + hints.center_dec.toFixed(4) + "\u00b0)");
-      console.writeln("  Radius:      " + (hints.radius || 15) + "\u00b0");
+      console.writeln("  Radius:      " + (hints.radius || 10) + "\u00b0");
    } else {
       console.writeln("  RA/DEC:      (not specified - blind solve)");
    }
@@ -2485,16 +2659,16 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       msg.execute();
    }
 
-   // Clean up tile temp files
-   try {
-      if (tiles) {
-         for (var i = 0; i < tiles.length; i++) {
-            if (tiles[i].filePath && File.exists(tiles[i].filePath)) {
-               File.remove(tiles[i].filePath);
-            }
-         }
-      }
-   } catch (e) {}
+   // Clean up tile temp files (temporarily disabled for debugging)
+   // try {
+   //    if (tiles) {
+   //       for (var i = 0; i < tiles.length; i++) {
+   //          if (tiles[i].filePath && File.exists(tiles[i].filePath)) {
+   //             File.remove(tiles[i].filePath);
+   //          }
+   //       }
+   //    }
+   // } catch (e) {}
 };
 
 //----------------------------------------------------------------------------

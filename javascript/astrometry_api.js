@@ -229,6 +229,7 @@ AstrometryClient.prototype.upload = function(filePath, hints) {
    if (hints) {
       var hintKeys = [
          "scale_units", "scale_est", "scale_err",
+         "scale_lower", "scale_upper",
          "center_ra", "center_dec", "radius",
          "downsample_factor", "tweak_order"
       ];
