@@ -28,11 +28,14 @@
 //   Linux:   "/opt/PixInsight/src/scripts/AdP/..."
 //   Windows: "C:/Program Files/PixInsight/src/scripts/AdP/..."
 
-#include "AdP/WCSmetadata.jsh"
-#include "AdP/AstronomicalCatalogs.jsh"
+// macOS absolute paths. Adjust for your platform if needed:
+//   Linux:   /opt/PixInsight/src/scripts/AdP/...
+//   Windows: C:/Program Files/PixInsight/src/scripts/AdP/...
+#include "/Applications/PixInsight/src/scripts/AdP/WCSmetadata.jsh"
+#include "/Applications/PixInsight/src/scripts/AdP/AstronomicalCatalogs.jsh"
 
 // Include ImageSolver in library mode (skips main(), UI, and redundant includes)
 #define USE_SOLVER_LIBRARY true
-#include "AdP/ImageSolver.js"
+#include "/Applications/PixInsight/src/scripts/AdP/ImageSolver.js"
 
 #endif // __IMAGESOLVER_BRIDGE_JSH
