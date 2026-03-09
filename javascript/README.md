@@ -1,191 +1,158 @@
 # Split Image Solver - PixInsight Script
 
-PixInsightから Split Image Solver を実行するためのJavaScriptスクリプトです。
-広角星空画像を分割プレートソルブし、統合したWCS情報を元画像に書き込みます。
+PixInsight 用の自動プレートソルブスクリプトです。
+astrometry.net API を使用して画像をソルブし、WCS 情報を適用します。
+広角画像のタイル分割ソルブにも対応しています。
 
-## 前提条件
+**Python 不要** — 純粋 PJSR（JavaScript）のみで動作します。
 
-### Python環境
+## 必要な環境
 
-以下がインストール済みであること:
+- **PixInsight 1.8.9 以降**
+- **astrometry.net API キー**（無料）: https://nova.astrometry.net/
 
-- Python 3.9以降
-- 必要パッケージ: `astropy`, `numpy`, `xisf`, `requests`
-- astrometry.net の `solve-field` がローカルにインストール済み
+ローカルの solve-field、Python、星カタログのインストールは不要です。
 
-```bash
-cd /path/to/split-image-solver
-pip install -r requirements.txt
-```
+## ファイル構成
 
-### astrometry.net + netpbm
+| ファイル | 説明 |
+|---------|------|
+| `SplitImageSolver.js` | メインスクリプト（UI + ソルブエンジン） |
+| `astrometry_api.js` | astrometry.net API クライアント |
+| `wcs_math.js` | WCS 数学ライブラリ（TAN 投影、SIP フィット等） |
+| `wcs_keywords.js` | FITS キーワードユーティリティ |
+| `equipment.json` | 機材データベース（カメラ・レンズ） |
 
-ローカルの `solve-field` コマンドが利用可能であること。
-macOSの場合:
-
-```bash
-brew install astrometry-net netpbm
-```
-
-- `netpbm` は `solve-field` が内部で使用する `pnmfile` コマンドを提供します（**必須**）
-- インデックスファイル（星カタログ）のダウンロードも必要です（下記参照）
-
-### インデックスファイル（星カタログ）
-
-`solve-field` がプレートソルブするには、撮影画像の FOV に合ったインデックスファイルが必要です。
-
-**セットアップ手順:**
-
-```bash
-# 1. astrometry.cfg でインデックスファイルの配置先を確認
-cat /opt/homebrew/etc/astrometry.cfg | grep addpath
-# 出力例: addpath /opt/homebrew/share/astrometry/data
-
-# 2. インデックスファイルをダウンロード（35mm レンズの例）
-cd /opt/homebrew/share/astrometry/data
-for i in $(seq 4110 4119); do
-  curl -O http://data.astrometry.net/4100/index-${i}.fits
-done
-
-# 3. ファイルが配置されたか確認
-ls /opt/homebrew/share/astrometry/data/index-41*.fits
-```
-
-焦点距離ごとの推奨インデックスについては [Astrometry.net セットアップガイド](../docs/ASTROMETRY_NET_SETUP.md) を参照してください。
+全ファイルが同一ディレクトリに配置されている必要があります。
+`SplitImageSolver.js` が `#include` で他の `.js` ファイルを読み込みます。
 
 ## インストール
 
-### 方法1: Script > Execute Script File
+### PixInsight リポジトリ経由（推奨）
 
-1. PixInsightを開く
-2. メニュー: **Script > Execute Script File...**
-3. `javascript/SplitImageSolver.js` を選択して実行
+1. **Resources > Updates > Manage Repositories**
+2. リポジトリ URL を追加
+3. **Check for Updates** → SplitImageSolver をインストール
 
-### 方法2: スクリプトディレクトリに配置（推奨）
+### 手動インストール
 
-1. `SplitImageSolver.js` を PixInsight のスクリプトディレクトリにコピー:
-   - macOS: `~/PixInsight/scripts/` または `/Applications/PixInsight/scripts/`
-   - Windows: `C:\Program Files\PixInsight\scripts\`
-   - Linux: `/opt/PixInsight/scripts/`
-2. PixInsightを再起動
-3. メニュー: **Script > Utilities > SplitImageSolver** から実行可能
-
-## 初回設定
-
-初めて実行すると、環境設定ダイアログが表示されます。
-
-### Python実行ファイル
-
-Pythonの実行パスを指定してください:
-
-| 環境 | 例 |
-|------|------|
-| venv使用時 | `/path/to/split-image-solver/.venv/bin/python` |
-| システムPython (macOS) | `/usr/local/bin/python3` |
-| Homebrew Python | `/opt/homebrew/bin/python3` |
-| Windows | `C:\Python311\python.exe` |
-
-### スクリプトディレクトリ
-
-`split-image-solver` リポジトリのルートディレクトリを指定してください:
+上記5ファイルを PixInsight のスクリプトディレクトリにコピー:
 
 ```
-/path/to/split-image-solver
+{PixInsight}/src/scripts/SplitImageSolver/
+├── SplitImageSolver.js
+├── astrometry_api.js
+├── wcs_math.js
+├── wcs_keywords.js
+└── equipment.json
 ```
 
-この設定はPixInsightの再起動後も保持されます。
+スクリプトディレクトリの場所:
+- macOS: `/Applications/PixInsight/src/scripts/SplitImageSolver/`
+- Windows: `C:\Program Files\PixInsight\src\scripts\SplitImageSolver\`
+- Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
+
+PixInsight を再起動後、**Script > Utilities > SplitImageSolver** から実行可能。
 
 ## 使い方
 
-1. PixInsightで対象画像（XISF/FITS）を開く
-2. 画像がディスクに保存されていることを確認（File > Save As）
-3. スクリプトを実行
-4. パラメータダイアログで設定を確認:
-   - **Grid**: 分割数（2x2, 3x3, 4x4）
-   - **Overlap**: タイル間のオーバーラップピクセル数
-   - **RA/DEC**: FITSヘッダーから自動取得（手動入力も可能）
-   - **Focal Length / Pixel Pitch**: 焦点距離（mm）とピクセルピッチ（μm）を入力
-5. 「Execute」をクリック
-6. Process Consoleにsolve-fieldのログがリアルタイム表示される
-7. 完了後、画像がWCS情報付きで再読み込みされる
+### 基本（単一画像ソルブ）
 
-## パラメータガイド
+1. PixInsight で対象画像を開く
+2. **Script > Utilities > SplitImageSolver** を実行
+3. **API Key** を入力（初回のみ、以降は自動保存）
+4. 「**Solve**」をクリック
 
-### Grid（分割数）
+### 高速ソルブ（ヒント付き）
 
-| 設定 | タイル数 | 推奨FOV |
-|------|---------|---------|
-| 2x2 | 4 | 〜30° |
-| 3x3 | 9 | 〜60°（推奨） |
-| 4x4 | 16 | 〜90° |
+RA/DEC やピクセルスケールのヒントを与えると、ソルブ速度が大幅に向上します。
 
-広角レンズ（35mm等）で全天撮影する場合は **3x3** が推奨です。
+1. **カメラ/レンズ** を選択 → ピクセルスケールが自動計算される
+2. **Object** に天体名（例: "M31", "Orion Nebula"）を入力し「**Search**」→ RA/DEC が自動入力される
+3. 「**Solve**」をクリック
 
-### Overlap（オーバーラップ）
+### 広角画像の分割ソルブ
 
-- デフォルト: 100px
-- タイル間で共有するピクセル数
-- 値が大きいほどWCS統合の精度検証が充実するが、ソルブ時間が増加
+1. カメラ/レンズを選択すると推奨グリッドが表示される
+2. **Grid** を推奨サイズに設定（例: 3x3）
+3. **Overlap** を設定（デフォルト 200px）
+4. 「**Solve**」をクリック
 
-### RA/DEC（座標ヒント）
+処理の流れ:
+- Pass 1: 全タイルをソルブ
+- Pass 2: 失敗タイルを成功タイルのヒントで自動再試行
+- オーバーラップ検証 → 異常タイルを除外
+- 全成功タイルの WCS を統合して元画像に適用
 
-- FITSキーワード `RA`, `DEC`, `OBJCTRA`, `OBJCTDEC` から自動取得
-- 未設定の場合、solve-fieldがブラインドソルブを試行（時間がかかる）
-- 手動入力する場合は度（degrees）単位
+## パラメータ詳細
 
-### Focal Length / Pixel Pitch
+### 機材設定
 
-- **Focal Length（焦点距離）**: レンズの焦点距離（mm 単位）。例: 35mm レンズなら `35`
-- **Pixel Pitch（ピクセルピッチ）**: カメラセンサーのピクセルサイズ（μm 単位）。例: Sony α7III なら `5.93`
-- FITS ヘッダーに `FOCALLEN` / `XPIXSZ` があれば自動取得されます
-- 内部でピクセルスケールを自動計算: `206.265 × PixelPitch / FocalLength` arcsec/pixel
-- 両方の値が入力されていないと Execute ボタンが有効になりません
+| パラメータ | 説明 |
+|-----------|------|
+| Camera | カメラ機種。FITS ヘッダーの INSTRUME から自動認識。選択するとピクセルピッチが自動入力される |
+| Lens | レンズ/鏡筒。FITS ヘッダーの FOCALLEN から近似マッチ。選択すると焦点距離と投影型が自動入力される |
+
+### ソルブ設定
+
+| パラメータ | 説明 | デフォルト |
+|-----------|------|-----------|
+| Scale | ピクセルスケール (arcsec/px)。カメラ/レンズ選択時は自動計算 | — |
+| Scale Error | スケール推定の誤差範囲 (%) | 30 |
+| Object | 天体名。Search ボタンで Sesame 検索 → RA/DEC 自動入力 | — |
+| RA | 画像中心の赤経 (HMS or degrees) | — |
+| DEC | 画像中心の赤緯 (DMS or degrees) | — |
+| Radius | 座標検索半径 (°) | 15 |
+
+### 分割設定
+
+| パラメータ | 説明 | デフォルト |
+|-----------|------|-----------|
+| Grid | 分割グリッド。1x1 = 単一画像モード | 1x1 |
+| Overlap | タイル間オーバーラップ (px) | 200 |
+| Downsample | ダウンサンプル設定（分割モードでは自動） | Auto |
+| SIP Order | SIP 歪み補正の多項式次数 | 2 |
+
+### グリッドサイズの目安
+
+| 対角 FOV | 推奨グリッド | 例 |
+|---------|------------|-----|
+| ～10° | 1x1 | 望遠鏡 |
+| ～30° | 2x2 | 200mm レンズ |
+| ～60° | 3x3 | 35-50mm レンズ |
+| ～90° | 4x4 | 24mm レンズ |
+| ～120° | 6x4 | 14-20mm レンズ |
+| 120°～ | 8x6 以上 | 魚眼レンズ |
 
 ## トラブルシューティング
 
-### "Process timed out after 30 minutes"
+### API ログイン失敗
 
-- 座標ヒント（RA/DEC）が正しいか確認
-- ピクセルスケールが大きくずれていないか確認
-- solve-fieldがインストールされ、パスが通っているか確認
+- API キーが正しいか確認: https://nova.astrometry.net/api_help
+- インターネット接続を確認
+- PixInsight の Process Console にエラー詳細が表示される
 
-### "No active image window"
+### ソルブに時間がかかる
 
-- 画像がPixInsightで開かれていることを確認
+- RA/DEC ヒントと Scale を入力するとソルブ速度が劇的に向上する
+- 天体名を入力して Search ボタンで座標を取得するのが最も簡単
 
-### "The active image has not been saved to disk"
+### ソルブ失敗
 
-- File > Save As でXISFまたはFITS形式で保存してから再実行
+- ピクセルスケールが大幅に間違っていないか確認
+- Scale Error を大きくする（30 → 50）
+- 分割モードの場合、タイルが小さすぎると星が少なくてソルブ失敗しやすい
 
-### Python環境エラー
+### 一部タイルがソルブできない
 
-- Settings ダイアログで正しいPythonパスを指定しているか確認
-- venv環境の場合、`.venv/bin/python`（macOS/Linux）を指定
-- 必要パッケージがインストール済みか確認: `pip install -r requirements.txt`
-
-### ソルブ失敗（0 tiles solved / All tile solves failed）
-
-**インデックスファイル関連（最も多い原因）:**
-
-1. `astrometry.cfg` の `addpath` を確認:
-   ```bash
-   cat /opt/homebrew/etc/astrometry.cfg | grep addpath
-   ```
-2. `addpath` が指すディレクトリにインデックスファイルがあるか確認:
-   ```bash
-   ls /opt/homebrew/share/astrometry/data/index-41*.fits
-   ```
-3. ファイルがなければ[セットアップガイド](../docs/ASTROMETRY_NET_SETUP.md)に従ってダウンロード
-
-**その他の原因:**
-
-- 画像のFOVに対してグリッドが細かすぎないか確認（タイルのFOVが小さすぎるとソルブ失敗しやすい）
-- RA/DEC ヒントを手動で入力してみる
-- `netpbm` がインストールされているか確認: `brew install netpbm`
+- 地上風景や雲を含むタイルはソルブできない（正常動作）
+- 2タイル以上成功すれば WCS 統合が可能
+- Pass 2 で自動的にリトライされる
 
 ## 技術仕様
 
-- **PJSR互換**: PixInsight 1.8.9以降
-- **通信方式**: ExternalProcess によるPythonプロセス呼び出し
-- **設定永続化**: PixInsight Settings API（GlobalSettings）
-- **JSON出力**: `--json-output` フラグにより構造化された結果を取得
+- **PJSR 互換**: PixInsight 1.8.9 以降（ES5 JavaScript）
+- **HTTP 通信**: ExternalProcess + curl（一時ファイル経由）
+- **API**: astrometry.net REST API（login → upload → poll → calibration → WCS）
+- **WCS フィット**: WCSFitter（CD 行列 + SIP 歪み補正）、制御点直接設定（SplineWorldTransformation）
+- **設定永続化**: PixInsight Settings API
