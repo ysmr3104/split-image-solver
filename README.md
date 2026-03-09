@@ -39,7 +39,7 @@ Local モードを利用する場合は「[Local モードのセットアップ]
 2. **Resources > Updates > Manage Repositories** を開く
 3. リポジトリ URL を追加:
    ```
-   https://raw.githubusercontent.com/ysmr3104/split-image-solver/main/repository/
+   https://ysmrastro.github.io/pixinsight-scripts/
    ```
 4. **Resources > Updates > Check for Updates** を実行
 5. SplitImageSolver をインストール

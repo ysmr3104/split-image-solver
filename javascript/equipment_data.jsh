@@ -518,6 +518,15 @@ var __equipmentData__ = {
     {"name": "Canon RF 28mm f/2.8 STM", "model": "RF 28mm f/2.8", "focal_length": 28, "projection": "rectilinear"},
     {"name": "Canon RF 35mm f/1.4 L VCM", "model": "RF 35mm f/1.4 L", "focal_length": 35, "projection": "rectilinear"},
     {"name": "Canon RF 35mm f/1.8 Macro IS STM", "model": "RF 35mm f/1.8 Macro", "focal_length": 35, "projection": "rectilinear"},
+    // ===== William Optics =====
+    {"name": "William Optics RedCat 41 f/4.9", "model": "RedCat 41", "focal_length": 200, "projection": "rectilinear"},
+    {"name": "William Optics RedCat 51 f/4.9", "model": "RedCat 51", "focal_length": 250, "projection": "rectilinear"},
+    {"name": "William Optics RedCat 61 f/4.9", "model": "RedCat 61", "focal_length": 300, "projection": "rectilinear"},
+    {"name": "William Optics RedCat 71 f/4.9", "model": "RedCat 71", "focal_length": 350, "projection": "rectilinear"},
+    // ===== Takahashi =====
+    {"name": "Takahashi FSQ-85EDP f/5.3", "model": "FSQ-85EDP", "focal_length": 450, "projection": "rectilinear"},
+    {"name": "Takahashi FSQ-106ED f/5.0", "model": "FSQ-106ED", "focal_length": 530, "projection": "rectilinear"},
+    {"name": "Takahashi FSQ-130ED f/5.0", "model": "FSQ-130ED", "focal_length": 650, "projection": "rectilinear"},
     // ===== Generic focal lengths =====
     {"name": "50mm", "focal_length": 50, "projection": "rectilinear"},
     {"name": "85mm", "focal_length": 85, "projection": "rectilinear"},
@@ -525,7 +534,7 @@ var __equipmentData__ = {
     {"name": "135mm", "focal_length": 135, "projection": "rectilinear"},
     {"name": "200mm", "focal_length": 200, "projection": "rectilinear"},
     // ===== Telescopes =====
-    {"name": "250mm (RedCat 51)", "focal_length": 250, "projection": "rectilinear"},
+    {"name": "250mm", "focal_length": 250, "projection": "rectilinear"},
     {"name": "300mm", "focal_length": 300, "projection": "rectilinear"},
     {"name": "400mm", "focal_length": 400, "projection": "rectilinear"},
     {"name": "500mm", "focal_length": 500, "projection": "rectilinear"},

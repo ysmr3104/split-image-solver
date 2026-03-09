@@ -51,7 +51,7 @@ Local モードを利用する場合は、追加で Python 3.8+ / solve-field / 
 1. **Resources > Updates > Manage Repositories**
 2. リポジトリ URL を追加:
    ```
-   https://raw.githubusercontent.com/ysmr3104/split-image-solver/main/repository/
+   https://ysmrastro.github.io/pixinsight-scripts/
    ```
 3. **Check for Updates** → SplitImageSolver をインストール
 

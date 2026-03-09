@@ -1863,7 +1863,6 @@ function SplitSolverDialog() {
    var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
    var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
-   var savedScale = Settings.read(SETTINGS_KEY + "/pixelScale", DataType_Double);
    var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType_String);
    var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
 
@@ -2039,70 +2038,37 @@ function SplitSolverDialog() {
    var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
    var imageHeight = targetWindow.isNull ? 0 : targetWindow.mainView.image.height;
 
-   // ---- Pixel scale (defined early for updateScaleAndFov) ----
-   this.scaleLabel = new Label(this);
-   this.scaleLabel.text = "Scale:";
-   this.scaleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.scaleLabel.setFixedWidth(120);
+   // ---- Focal Length ----
+   this.focalLengthLabel = new Label(this);
+   this.focalLengthLabel.text = "Focal length:";
+   this.focalLengthLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.focalLengthLabel.setFixedWidth(120);
 
-   this.scaleEdit = new Edit(this);
-   this.scaleEdit.text = (savedScale && savedScale > 0) ? savedScale.toFixed(3) : "";
-   this.scaleEdit.setFixedWidth(100);
-   this.scaleEdit.toolTip = "Pixel scale (arcsec/px). Leave blank for blind solve";
+   this.focalLengthEdit = new Edit(this);
+   this.focalLengthEdit.setFixedWidth(100);
+   this.focalLengthEdit.toolTip = "Focal length in mm";
 
-   this.scaleUnitLabel = new Label(this);
-   this.scaleUnitLabel.text = "arcsec/px (optional)";
+   this.focalLengthUnitLabel = new Label(this);
+   this.focalLengthUnitLabel.text = "mm";
 
-   // Update scale and FOV when camera/lens selection changes
-   var updateScaleAndFov = function() {
-      var camIdx = self.cameraCombo.currentItem - 1; // -1 for "(select)"
-      var lensIdx = self.lensCombo.currentItem - 1;
-      if (!equipDB) return;
+   // ---- Pixel Pitch ----
+   this.pixelPitchLabel = new Label(this);
+   this.pixelPitchLabel.text = "Pixel pitch:";
+   this.pixelPitchLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.pixelPitchLabel.setFixedWidth(120);
 
-      if (camIdx >= 0 && camIdx < equipDB.cameras.length &&
-          lensIdx >= 0 && lensIdx < equipDB.lenses.length) {
-         var cam = equipDB.cameras[camIdx];
-         var lens = equipDB.lenses[lensIdx];
-         if (cam.pixel_pitch > 0 && lens.focal_length > 0) {
-            var nativeScale = computePixelScale(cam.pixel_pitch, lens.focal_length);
+   this.pixelPitchEdit = new Edit(this);
+   this.pixelPitchEdit.setFixedWidth(100);
+   this.pixelPitchEdit.toolTip = "Pixel pitch (pixel size) in micrometers";
 
-            // Correct for resampled images (e.g., drizzle/stacking)
-            // If actual image is larger than native sensor, pixels are smaller
-            var ps = nativeScale;
-            var scaleNote = "";
-            if (imageWidth > 0 && cam.sensor_width > 0 && imageWidth !== cam.sensor_width) {
-               var resampleRatio = cam.sensor_width / imageWidth;
-               ps = nativeScale * resampleRatio;
-               scaleNote = " (native: " + nativeScale.toFixed(3) + ", image: " +
-                  imageWidth + "x" + imageHeight + " vs sensor: " +
-                  cam.sensor_width + "x" + cam.sensor_height + ")";
-               console.writeln("Scale corrected for resampled image: " +
-                  nativeScale.toFixed(3) + " -> " + ps.toFixed(3) + " arcsec/px" + scaleNote);
-            }
-            self.scaleEdit.text = ps.toFixed(3);
+   this.pixelPitchUnitLabel = new Label(this);
+   this.pixelPitchUnitLabel.text = "\u00B5m";
 
-            // Use actual image dimensions for FOV and grid recommendation
-            var sW = imageWidth > 0 ? imageWidth : cam.sensor_width;
-            var sH = imageHeight > 0 ? imageHeight : cam.sensor_height;
-            var diagFov = computeDiagonalFov(sW, sH, ps);
-            var rec = recommendGrid(diagFov, sW, sH);
-            self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
-               diagFov.toFixed(1) + "\u00b0 | Recommended: " + rec.cols + "x" + rec.rows;
+   // ---- Scale info (computed, read-only display) ----
+   this.scaleInfoLabel = new Label(this);
+   this.scaleInfoLabel.text = "";
 
-            // Auto-select recommended grid
-            var presetIdx = findGridPresetIndex(self.gridPresets, rec.cols, rec.rows);
-            if (presetIdx >= 0) {
-               self.gridCombo.currentItem = presetIdx;
-            }
-         }
-      } else {
-         self.fovInfoLabel.text = "";
-      }
-   };
-
-   this.cameraCombo.onItemSelected = function() { updateScaleAndFov(); };
-   this.lensCombo.onItemSelected = function() { updateScaleAndFov(); };
-
+   // ---- Scale Error ----
    this.scaleErrorLabel = new Label(this);
    this.scaleErrorLabel.text = "Error:";
    this.scaleErrorLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -2115,16 +2081,109 @@ function SplitSolverDialog() {
    this.scaleErrorUnitLabel = new Label(this);
    this.scaleErrorUnitLabel.text = "%";
 
-   var scaleSizer = new HorizontalSizer;
-   scaleSizer.spacing = 6;
-   scaleSizer.add(this.scaleLabel);
-   scaleSizer.add(this.scaleEdit);
-   scaleSizer.add(this.scaleUnitLabel);
-   scaleSizer.addSpacing(12);
-   scaleSizer.add(this.scaleErrorLabel);
-   scaleSizer.add(this.scaleErrorEdit);
-   scaleSizer.add(this.scaleErrorUnitLabel);
-   scaleSizer.addStretch();
+   // Update scale and FOV from focal length and pixel pitch
+   var updateScaleAndFov = function() {
+      var fl = parseFloat(self.focalLengthEdit.text);
+      var pp = parseFloat(self.pixelPitchEdit.text);
+
+      if (!isNaN(fl) && fl > 0 && !isNaN(pp) && pp > 0) {
+         var nativeScale = computePixelScale(pp, fl);
+
+         // Correct for resampled images (e.g., drizzle/stacking)
+         var ps = nativeScale;
+         var camIdx = self.cameraCombo.currentItem - 1;
+         if (equipDB && camIdx >= 0 && camIdx < equipDB.cameras.length) {
+            var cam = equipDB.cameras[camIdx];
+            if (imageWidth > 0 && cam.sensor_width > 0 && imageWidth !== cam.sensor_width) {
+               var resampleRatio = cam.sensor_width / imageWidth;
+               ps = nativeScale * resampleRatio;
+               console.writeln("Scale corrected for resampled image: " +
+                  nativeScale.toFixed(3) + " -> " + ps.toFixed(3) + " arcsec/px" +
+                  " (image: " + imageWidth + "x" + imageHeight +
+                  " vs sensor: " + cam.sensor_width + "x" + cam.sensor_height + ")");
+            }
+         }
+
+         self.scaleInfoLabel.text = format("(%.3f arcsec/px)", ps);
+
+         // Use actual image dimensions for FOV and grid recommendation
+         var sW = imageWidth;
+         var sH = imageHeight;
+         if (equipDB && camIdx >= 0 && camIdx < equipDB.cameras.length) {
+            var cam2 = equipDB.cameras[camIdx];
+            if (sW <= 0) sW = cam2.sensor_width;
+            if (sH <= 0) sH = cam2.sensor_height;
+         }
+         if (sW > 0 && sH > 0) {
+            var diagFov = computeDiagonalFov(sW, sH, ps);
+            var rec = recommendGrid(diagFov, sW, sH);
+            self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
+               diagFov.toFixed(1) + "\u00b0 | Recommended: " + rec.cols + "x" + rec.rows;
+
+            // Auto-select recommended grid
+            var presetIdx = findGridPresetIndex(self.gridPresets, rec.cols, rec.rows);
+            if (presetIdx >= 0) {
+               self.gridCombo.currentItem = presetIdx;
+            }
+         } else {
+            self.fovInfoLabel.text = "";
+         }
+      } else {
+         self.scaleInfoLabel.text = "";
+         self.fovInfoLabel.text = "";
+      }
+   };
+
+   // Camera selection: auto-fill pixel pitch
+   this.cameraCombo.onItemSelected = function() {
+      var camIdx = self.cameraCombo.currentItem - 1;
+      if (equipDB && camIdx >= 0 && camIdx < equipDB.cameras.length) {
+         var cam = equipDB.cameras[camIdx];
+         if (cam.pixel_pitch > 0) {
+            self.pixelPitchEdit.text = cam.pixel_pitch.toString();
+         }
+      } else {
+         self.pixelPitchEdit.text = "";
+      }
+      updateScaleAndFov();
+   };
+
+   // Lens selection: auto-fill focal length
+   this.lensCombo.onItemSelected = function() {
+      var lensIdx = self.lensCombo.currentItem - 1;
+      if (equipDB && lensIdx >= 0 && lensIdx < equipDB.lenses.length) {
+         var lens = equipDB.lenses[lensIdx];
+         if (lens.focal_length > 0) {
+            self.focalLengthEdit.text = lens.focal_length.toString();
+         }
+      } else {
+         self.focalLengthEdit.text = "";
+      }
+      updateScaleAndFov();
+   };
+
+   this.focalLengthEdit.onTextUpdated = function() { updateScaleAndFov(); };
+   this.pixelPitchEdit.onTextUpdated = function() { updateScaleAndFov(); };
+
+   var focalSizer = new HorizontalSizer;
+   focalSizer.spacing = 6;
+   focalSizer.add(this.focalLengthLabel);
+   focalSizer.add(this.focalLengthEdit);
+   focalSizer.add(this.focalLengthUnitLabel);
+   focalSizer.addSpacing(12);
+   focalSizer.add(this.scaleInfoLabel);
+   focalSizer.addStretch();
+
+   var pitchSizer = new HorizontalSizer;
+   pitchSizer.spacing = 6;
+   pitchSizer.add(this.pixelPitchLabel);
+   pitchSizer.add(this.pixelPitchEdit);
+   pitchSizer.add(this.pixelPitchUnitLabel);
+   pitchSizer.addSpacing(12);
+   pitchSizer.add(this.scaleErrorLabel);
+   pitchSizer.add(this.scaleErrorEdit);
+   pitchSizer.add(this.scaleErrorUnitLabel);
+   pitchSizer.addStretch();
 
    // ---- Object name search ----
    this.objectLabel = new Label(this);
@@ -2276,8 +2335,21 @@ function SplitSolverDialog() {
       [2, 1], [3, 2], [4, 3], [6, 4], [8, 6], [8, 8], [12, 8]
    ];
 
-   // Trigger initial scale/FOV update if both camera and lens are pre-selected
-   if (this.cameraCombo.currentItem > 0 && this.lensCombo.currentItem > 0) {
+   // Pre-fill focal length / pixel pitch from selected camera/lens
+   if (this.cameraCombo.currentItem > 0 && equipDB) {
+      var initCam = equipDB.cameras[this.cameraCombo.currentItem - 1];
+      if (initCam && initCam.pixel_pitch > 0) {
+         this.pixelPitchEdit.text = initCam.pixel_pitch.toString();
+      }
+   }
+   if (this.lensCombo.currentItem > 0 && equipDB) {
+      var initLens = equipDB.lenses[this.lensCombo.currentItem - 1];
+      if (initLens && initLens.focal_length > 0) {
+         this.focalLengthEdit.text = initLens.focal_length.toString();
+      }
+   }
+   // Trigger initial scale/FOV update
+   if (this.focalLengthEdit.text.length > 0 || this.pixelPitchEdit.text.length > 0) {
       updateScaleAndFov();
    }
 
@@ -2428,6 +2500,7 @@ function SplitSolverDialog() {
       self.sipCombo.enabled = isApi;
       self.timeoutEdit.enabled = isApi;
       self.radiusEdit.enabled = isApi;
+      self.scaleErrorEdit.enabled = isApi;
       // Labels
       self.downsampleLabel.enabled = isApi;
       self.sipLabel.enabled = isApi;
@@ -2435,6 +2508,8 @@ function SplitSolverDialog() {
       self.timeoutUnitLabel.enabled = isApi;
       self.radiusLabel.enabled = isApi;
       self.radiusUnitLabel.enabled = isApi;
+      self.scaleErrorLabel.enabled = isApi;
+      self.scaleErrorUnitLabel.enabled = isApi;
    };
 
    this.settingsButton.onClick = function() {
@@ -2480,7 +2555,8 @@ function SplitSolverDialog() {
    equipGroup.sizer.spacing = 4;
    equipGroup.sizer.add(cameraSizer);
    equipGroup.sizer.add(lensSizer);
-   equipGroup.sizer.add(scaleSizer);
+   equipGroup.sizer.add(focalSizer);
+   equipGroup.sizer.add(pitchSizer);
 
    // ---- GroupBox: Split Settings ----
    var splitGroup = new GroupBox(this);
@@ -2582,18 +2658,30 @@ SplitSolverDialog.prototype.doSolve = function() {
    if (this.downsampleCombo.currentItem === 1) hints.downsample_factor = 2;
    else if (this.downsampleCombo.currentItem === 2) hints.downsample_factor = 4;
 
-   // Scale
-   var scaleText = this.scaleEdit.text.trim();
-   if (scaleText.length > 0) {
-      var scale = parseFloat(scaleText);
-      if (!isNaN(scale) && scale > 0) {
-         hints.scale_units = "arcsecperpix";
-         hints.scale_est = scale;
-         var errText = this.scaleErrorEdit.text.trim();
-         var errPct = parseFloat(errText);
-         hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
-         Settings.write(SETTINGS_KEY + "/pixelScale", DataType_Double, scale);
+   // Scale (computed from focal length and pixel pitch)
+   var fl = parseFloat(this.focalLengthEdit.text);
+   var pp = parseFloat(this.pixelPitchEdit.text);
+   if (!isNaN(fl) && fl > 0 && !isNaN(pp) && pp > 0) {
+      var nativeScale = computePixelScale(pp, fl);
+      var scale = nativeScale;
+
+      // Correct for resampled images
+      var camIdxScale = this.cameraCombo.currentItem - 1;
+      if (this.equipDB && camIdxScale >= 0 && camIdxScale < this.equipDB.cameras.length) {
+         var camScale = this.equipDB.cameras[camIdxScale];
+         var imgW = targetWindow.mainView.image.width;
+         if (imgW > 0 && camScale.sensor_width > 0 && imgW !== camScale.sensor_width) {
+            scale = nativeScale * (camScale.sensor_width / imgW);
+         }
       }
+
+      hints.scale_units = "arcsecperpix";
+      hints.scale_est = scale;
+      hints._nativeScale = nativeScale;
+      var errText = this.scaleErrorEdit.text.trim();
+      var errPct = parseFloat(errText);
+      hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
+      Settings.write(SETTINGS_KEY + "/pixelScale", DataType_Double, scale);
    }
 
    // Save camera/lens selection
@@ -2628,21 +2716,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    }
    hints._projection = projection;
 
-   // Store native (optical) pixel scale for projection correction in buildTileHints.
-   // scale_est may be corrected for resampled images, but projection geometry
-   // depends on the native optical scale.
-   if (this.equipDB) {
-      var camIdx2 = this.cameraCombo.currentItem - 1;
-      var lensIdx2 = this.lensCombo.currentItem - 1;
-      if (camIdx2 >= 0 && lensIdx2 >= 0 &&
-          camIdx2 < this.equipDB.cameras.length && lensIdx2 < this.equipDB.lenses.length) {
-         var cam2 = this.equipDB.cameras[camIdx2];
-         var lens2 = this.equipDB.lenses[lensIdx2];
-         if (cam2.pixel_pitch > 0 && lens2.focal_length > 0) {
-            hints._nativeScale = computePixelScale(cam2.pixel_pitch, lens2.focal_length);
-         }
-      }
-   }
+   // _nativeScale is already set above from focal length / pixel pitch
 
    // Grid settings
    var gridPreset = this.gridPresets[this.gridCombo.currentItem];
@@ -3035,18 +3109,16 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       args.push("--dec");
       args.push(hints.center_dec.toString());
    }
-   if (hints.scale_est) {
-      // Derive focal length and pixel pitch from scale if available
-      var camIdx = this.cameraCombo.currentItem - 1;
-      var lensIdx = this.lensCombo.currentItem - 1;
-      if (this.equipDB && camIdx >= 0 && camIdx < this.equipDB.cameras.length) {
-         args.push("--pixel-pitch");
-         args.push(this.equipDB.cameras[camIdx].pixel_pitch.toString());
-      }
-      if (this.equipDB && lensIdx >= 0 && lensIdx < this.equipDB.lenses.length) {
-         args.push("--focal-length");
-         args.push(this.equipDB.lenses[lensIdx].focal_length.toString());
-      }
+   // Pass focal length and pixel pitch from UI input fields
+   var localFl = parseFloat(this.focalLengthEdit.text);
+   var localPp = parseFloat(this.pixelPitchEdit.text);
+   if (!isNaN(localPp) && localPp > 0) {
+      args.push("--pixel-pitch");
+      args.push(localPp.toString());
+   }
+   if (!isNaN(localFl) && localFl > 0) {
+      args.push("--focal-length");
+      args.push(localFl.toString());
    }
    if (hints._projection && hints._projection !== "rectilinear") {
       args.push("--lens-type");
