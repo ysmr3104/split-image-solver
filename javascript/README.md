@@ -30,6 +30,20 @@ Local モードを利用する場合は、追加で Python 3.8+ / solve-field / 
 全ファイルが同一ディレクトリに配置されている必要があります。
 `SplitImageSolver.js` が `#include` で他のファイルを読み込みます。
 
+## スクリーンショット
+
+### メインダイアログ
+
+![メインダイアログ](../docs/images/main-dialog.jpg)
+
+機材選択でピクセルスケールと推奨グリッドを自動計算。FITS ヘッダーからカメラ・レンズを自動認識し、型番も表示されます。
+
+### Settings ダイアログ
+
+![Settings ダイアログ](../docs/images/settings-dialog.jpg)
+
+ソルブモード（API / Local）の切り替え、API キー、Python 環境の設定を行います。
+
 ## インストール
 
 ### PixInsight リポジトリ経由（推奨）
@@ -59,13 +73,13 @@ Local モードを利用する場合は、追加で Python 3.8+ / solve-field / 
 - Windows: `C:\Program Files\PixInsight\src\scripts\SplitImageSolver\`
 - Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
 
-PixInsight を再起動後、**Script > Utilities > SplitImageSolver** から実行可能。
+PixInsight を再起動後、**Script > Astrometry > SplitImageSolver** から実行可能。
 
 ## 使い方
 
 ### 初期設定
 
-1. **Script > Utilities > SplitImageSolver** を実行
+1. **Script > Astrometry > SplitImageSolver** を実行
 2. 左下の **Settings...** ボタンをクリック
 3. **Solve Mode** を選択:
    - **API (astrometry.net)**: API キーを入力（デフォルト）
@@ -77,7 +91,7 @@ PixInsight を再起動後、**Script > Utilities > SplitImageSolver** から実
 ### 基本（単一画像ソルブ）
 
 1. PixInsight で対象画像を開く
-2. **Script > Utilities > SplitImageSolver** を実行
+2. **Script > Astrometry > SplitImageSolver** を実行
 3. 「**Solve**」をクリック
 
 ### 高速ソルブ（ヒント付き）

@@ -66,14 +66,28 @@ Local モードを利用する場合は「[Local モードのセットアップ]
    - Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
 
 3. PixInsight を再起動
-4. **Script > Utilities > SplitImageSolver** から実行可能
+4. **Script > Astrometry > SplitImageSolver** から実行可能
+
+## スクリーンショット
+
+### メインダイアログ
+
+![メインダイアログ](docs/images/main-dialog.jpg)
+
+機材（カメラ・レンズ）を選択するとピクセルスケールと推奨グリッドが自動計算されます。FITS ヘッダーから機材を自動認識し、型番も表示されます。天体名を入力して Search ボタンで RA/DEC を取得できます。
+
+### Settings ダイアログ
+
+![Settings ダイアログ](docs/images/settings-dialog.jpg)
+
+左下の「Settings...」ボタンから開きます。ソルブモード（API / Local）の切り替え、API キー、Python 環境の設定を行います。どちらのモードの設定値も常に記憶されます。
 
 ## 使い方
 
 ### クイックスタート（単一画像ソルブ）
 
 1. PixInsight で対象画像を開く
-2. **Script > Utilities > SplitImageSolver** を実行
+2. **Script > Astrometry > SplitImageSolver** を実行
 3. 左下の **Settings...** ボタンで API キーを入力（初回のみ、以降は自動保存）
 4. Grid を **1x1** のまま「Solve」をクリック
 5. 完了後、画像に WCS が適用される
@@ -81,7 +95,7 @@ Local モードを利用する場合は「[Local モードのセットアップ]
 ### 分割ソルブ（広角画像）
 
 1. PixInsight で対象画像を開く
-2. **Script > Utilities > SplitImageSolver** を実行
+2. **Script > Astrometry > SplitImageSolver** を実行
 3. **カメラ/レンズ** を選択（FITS ヘッダーから自動認識される場合あり）
    - ピクセルスケールと推奨グリッドが自動計算される
 4. 必要に応じて **天体名** を入力し「Search」で RA/DEC を取得
@@ -176,7 +190,7 @@ sudo apt install astrometry.net astrometry-data-tycho2
 
 ### 4. PixInsight での設定
 
-1. **Script > Utilities > SplitImageSolver** を実行
+1. **Script > Astrometry > SplitImageSolver** を実行
 2. 左下の **Settings...** ボタンをクリック
 3. **Solve Mode** を「Local (solve-field)」に変更
 4. **Local Settings** セクションで以下を設定:
