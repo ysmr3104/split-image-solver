@@ -20,6 +20,11 @@
 #define STAR_CSV_FILE (File.systemTempDirectory + format("/stars-%03d.csv", CoreApplication.instance))
 #endif
 
+// SETTINGS_MODULE is required by AstronomicalCatalogs.jsh (Catalog base class)
+#ifndef SETTINGS_MODULE
+#define SETTINGS_MODULE "SPLITSOLVER"
+#endif
+
 // Include AdP dependencies.
 // These paths resolve via PixInsight's standard scripts include path.
 //
