@@ -1,6 +1,6 @@
-#feature-id    SplitImageSolver : Utilities > SplitImageSolver
-#feature-info  Automatic plate solver using astrometry.net API: single-image or \
-   split-tile solve with WCS application for PixInsight.
+#feature-id    SplitImageSolver : Astrometry > SplitImageSolver
+#feature-info  Automatic plate solver using astrometry.net API or local solve-field: \
+   single-image or split-tile solve with WCS application for PixInsight.
 
 //----------------------------------------------------------------------------
 // SplitImageSolver.js - PixInsight JavaScript Runtime (PJSR) Script
@@ -11,7 +11,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "0.2.0"
+#define VERSION "1.0.0"
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -38,6 +38,11 @@
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
 //============================================================================
+
+// Quote a file path for shell execution (handles spaces and special characters)
+function quotePath(path) {
+   return "'" + path.replace(/'/g, "'\\''") + "'";
+}
 
 // Convert RA (degrees) to "HH MM SS.ss" format
 function raToHMS(raDeg) {
@@ -1634,6 +1639,217 @@ function findGridPresetIndex(presets, cols, rows) {
 
 var SETTINGS_KEY = "SplitImageSolver";
 
+//============================================================================
+// Settings Dialog
+//============================================================================
+
+function SolverSettingsDialog(parent) {
+   this.__base__ = Dialog;
+   this.__base__();
+
+   this.windowTitle = "Settings";
+
+   var d = this;
+
+   // Load saved settings
+   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType_String);
+   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
+   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
+   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
+
+   this._solveMode = savedMode || "api";
+   this._apiKey = savedApiKey || "";
+   this._pythonPath = savedPythonPath || "";
+   this._scriptDir = savedScriptDir || "";
+
+   // ---- Solve Mode ----
+   var modeGroup = new GroupBox(this);
+   modeGroup.title = "Solve Mode";
+
+   var modeLabel = new Label(modeGroup);
+   modeLabel.text = "Mode:";
+   modeLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   modeLabel.setFixedWidth(120);
+
+   this.modeCombo = new ComboBox(modeGroup);
+   this.modeCombo.addItem("API (astrometry.net)");
+   this.modeCombo.addItem("Local (solve-field)");
+   this.modeCombo.currentItem = (this._solveMode === "local") ? 1 : 0;
+   this.modeCombo.toolTip = "API: astrometry.net API (Python不要)\nLocal: ローカル solve-field (Python必須)";
+
+   var modeSizer = new HorizontalSizer;
+   modeSizer.spacing = 4;
+   modeSizer.add(modeLabel);
+   modeSizer.add(this.modeCombo, 100);
+
+   modeGroup.sizer = new VerticalSizer;
+   modeGroup.sizer.margin = 6;
+   modeGroup.sizer.spacing = 4;
+   modeGroup.sizer.add(modeSizer);
+
+   // ---- API Settings ----
+   var apiGroup = new GroupBox(this);
+   apiGroup.title = "API Settings";
+
+   var apiKeyLabel = new Label(apiGroup);
+   apiKeyLabel.text = "API Key:";
+   apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   apiKeyLabel.setFixedWidth(120);
+
+   this.apiKeyEdit = new Edit(apiGroup);
+   this.apiKeyEdit.text = this._apiKey;
+   this.apiKeyEdit.passwordMode = true;
+   this.apiKeyEdit.setMinWidth(300);
+   this.apiKeyEdit.toolTip = "Your nova.astrometry.net API key";
+
+   var apiKeySizer = new HorizontalSizer;
+   apiKeySizer.spacing = 4;
+   apiKeySizer.add(apiKeyLabel);
+   apiKeySizer.add(this.apiKeyEdit, 100);
+
+   this.showKeyCheck = new CheckBox(apiGroup);
+   this.showKeyCheck.text = "Show key";
+   this.showKeyCheck.checked = false;
+   this.showKeyCheck.onCheck = function(checked) {
+      d.apiKeyEdit.passwordMode = !checked;
+   };
+
+   var apiInfoLabel = new Label(apiGroup);
+   apiInfoLabel.text = "Get a free API key at nova.astrometry.net";
+
+   apiGroup.sizer = new VerticalSizer;
+   apiGroup.sizer.margin = 6;
+   apiGroup.sizer.spacing = 4;
+   apiGroup.sizer.add(apiKeySizer);
+   apiGroup.sizer.add(this.showKeyCheck);
+   apiGroup.sizer.add(apiInfoLabel);
+
+   // ---- Local Settings ----
+   var localGroup = new GroupBox(this);
+   localGroup.title = "Local Settings";
+
+   var pythonLabel = new Label(localGroup);
+   pythonLabel.text = "Python:";
+   pythonLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   pythonLabel.setFixedWidth(120);
+
+   this.pythonEdit = new Edit(localGroup);
+   this.pythonEdit.text = this._pythonPath;
+   this.pythonEdit.toolTip = "Path to Python executable (e.g., /usr/local/bin/python3 or .venv/bin/python3)";
+
+   this.pythonBrowse = new ToolButton(localGroup);
+   this.pythonBrowse.icon = this.scaledResource(":/browser/select-file.png");
+   this.pythonBrowse.setScaledFixedSize(24, 24);
+   this.pythonBrowse.toolTip = "Browse for Python executable";
+   this.pythonBrowse.onClick = function() {
+      var ofd = new OpenFileDialog;
+      ofd.caption = "Select Python Executable";
+      if (d.pythonEdit.text.length > 0) {
+         ofd.initialPath = d.pythonEdit.text;
+      }
+      if (ofd.execute()) {
+         d.pythonEdit.text = ofd.fileName;
+      }
+   };
+
+   var pythonSizer = new HorizontalSizer;
+   pythonSizer.spacing = 4;
+   pythonSizer.add(pythonLabel);
+   pythonSizer.add(this.pythonEdit, 100);
+   pythonSizer.add(this.pythonBrowse);
+
+   var scriptDirLabel = new Label(localGroup);
+   scriptDirLabel.text = "Script directory:";
+   scriptDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   scriptDirLabel.setFixedWidth(120);
+
+   this.scriptDirEdit = new Edit(localGroup);
+   this.scriptDirEdit.text = this._scriptDir;
+   this.scriptDirEdit.toolTip = "Path to split-image-solver repository directory";
+
+   this.scriptDirBrowse = new ToolButton(localGroup);
+   this.scriptDirBrowse.icon = this.scaledResource(":/browser/select-file.png");
+   this.scriptDirBrowse.setScaledFixedSize(24, 24);
+   this.scriptDirBrowse.toolTip = "Browse for script directory";
+   this.scriptDirBrowse.onClick = function() {
+      var gdd = new GetDirectoryDialog;
+      gdd.caption = "Select Script Directory";
+      if (d.scriptDirEdit.text.length > 0) {
+         gdd.initialPath = d.scriptDirEdit.text;
+      }
+      if (gdd.execute()) {
+         d.scriptDirEdit.text = gdd.directory;
+      }
+   };
+
+   var scriptDirSizer = new HorizontalSizer;
+   scriptDirSizer.spacing = 4;
+   scriptDirSizer.add(scriptDirLabel);
+   scriptDirSizer.add(this.scriptDirEdit, 100);
+   scriptDirSizer.add(this.scriptDirBrowse);
+
+   localGroup.sizer = new VerticalSizer;
+   localGroup.sizer.margin = 6;
+   localGroup.sizer.spacing = 4;
+   localGroup.sizer.add(pythonSizer);
+   localGroup.sizer.add(scriptDirSizer);
+
+   // ---- Buttons ----
+   var okButton = new PushButton(this);
+   okButton.text = "OK";
+   okButton.icon = this.scaledResource(":/icons/ok.png");
+   okButton.onClick = function() { d.ok(); };
+
+   var cancelButton = new PushButton(this);
+   cancelButton.text = "Cancel";
+   cancelButton.icon = this.scaledResource(":/icons/cancel.png");
+   cancelButton.onClick = function() { d.cancel(); };
+
+   var btnSizer = new HorizontalSizer;
+   btnSizer.addStretch();
+   btnSizer.spacing = 8;
+   btnSizer.add(okButton);
+   btnSizer.add(cancelButton);
+
+   // ---- Layout ----
+   this.sizer = new VerticalSizer;
+   this.sizer.margin = 12;
+   this.sizer.spacing = 8;
+   this.sizer.add(modeGroup);
+   this.sizer.add(apiGroup);
+   this.sizer.add(localGroup);
+   this.sizer.addSpacing(4);
+   this.sizer.add(btnSizer);
+
+   this.adjustToContents();
+}
+
+SolverSettingsDialog.prototype = new Dialog;
+
+// Save all settings and return values as object
+SolverSettingsDialog.prototype.getSettings = function() {
+   var mode = (this.modeCombo.currentItem === 1) ? "local" : "api";
+   var apiKey = this.apiKeyEdit.text.trim();
+   var pythonPath = this.pythonEdit.text.trim();
+   var scriptDir = this.scriptDirEdit.text.trim();
+
+   Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
+   Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
+   Settings.write(SETTINGS_KEY + "/pythonPath", DataType_String, pythonPath);
+   Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
+
+   return {
+      solveMode: mode,
+      apiKey: apiKey,
+      pythonPath: pythonPath,
+      scriptDir: scriptDir
+   };
+};
+
+//============================================================================
+// Main Dialog
+//============================================================================
+
 function SplitSolverDialog() {
    this.__base__ = Dialog;
    this.__base__();
@@ -1643,8 +1859,18 @@ function SplitSolverDialog() {
    var self = this;
 
    // Load saved settings
+   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType_String);
    var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
+   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
+   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
    var savedScale = Settings.read(SETTINGS_KEY + "/pixelScale", DataType_Double);
+   var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType_String);
+   var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
+
+   this._solveMode = savedMode || "api";
+   this._apiKey = savedApiKey || "";
+   this._pythonPath = savedPythonPath || "";
+   this._scriptDir = savedScriptDir || "";
 
    // ---- Target image ----
    var targetWindow = ImageWindow.activeWindow;
@@ -1652,91 +1878,31 @@ function SplitSolverDialog() {
    this.targetLabel = new Label(this);
    this.targetLabel.text = "Target:";
    this.targetLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.targetLabel.setFixedWidth(80);
+   this.targetLabel.setFixedWidth(120);
 
    this.targetEdit = new Edit(this);
    this.targetEdit.readOnly = true;
    this.targetEdit.text = targetWindow.isNull ? "(No active image)" : targetWindow.mainView.id;
 
    var targetSizer = new HorizontalSizer;
-   targetSizer.spacing = 6;
+   targetSizer.spacing = 8;
    targetSizer.add(this.targetLabel);
    targetSizer.add(this.targetEdit, 100);
 
-   // ---- API key (stored internally, shown as status) ----
-   this._apiKey = savedApiKey || "";
+   // Solve mode status label
+   this.modeStatusLabel = new Label(this);
+   this.modeStatusLabel.text = "Mode:";
+   this.modeStatusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.modeStatusLabel.setFixedWidth(120);
 
-   this.apiKeyLabel = new Label(this);
-   this.apiKeyLabel.text = "API Key:";
-   this.apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.apiKeyLabel.setFixedWidth(80);
+   this.modeStatusValue = new Label(this);
+   this.modeStatusValue.text = (this._solveMode === "local") ? "Local (solve-field)" : "API (astrometry.net)";
+   this.modeStatusValue.textAlignment = TextAlign_Left | TextAlign_VertCenter;
 
-   this.apiKeyStatus = new Label(this);
-   this.apiKeyStatus.text = this._apiKey.length > 0 ? "Configured" : "Not set";
-   this.apiKeyStatus.textAlignment = TextAlign_Left | TextAlign_VertCenter;
-
-   this.apiKeySettingsButton = new ToolButton(this);
-   this.apiKeySettingsButton.icon = this.scaledResource(":/icons/wrench.png");
-   this.apiKeySettingsButton.setScaledFixedSize(24, 24);
-   this.apiKeySettingsButton.toolTip = "Configure API key";
-   this.apiKeySettingsButton.onClick = function() {
-      var d = new Dialog;
-      d.windowTitle = "API Key Settings";
-
-      var infoLabel = new Label(d);
-      infoLabel.text = "Enter your astrometry.net API key.\nGet one free at nova.astrometry.net";
-      infoLabel.useRichText = false;
-
-      var keyEdit = new Edit(d);
-      keyEdit.text = self._apiKey;
-      keyEdit.passwordMode = true;
-      keyEdit.setMinWidth(300);
-      keyEdit.toolTip = "Your nova.astrometry.net API key";
-
-      var showCheck = new CheckBox(d);
-      showCheck.text = "Show key";
-      showCheck.checked = false;
-      showCheck.onCheck = function(checked) {
-         keyEdit.passwordMode = !checked;
-      };
-
-      var okButton = new PushButton(d);
-      okButton.text = "OK";
-      okButton.icon = d.scaledResource(":/icons/ok.png");
-      okButton.onClick = function() { d.ok(); };
-
-      var cancelButton = new PushButton(d);
-      cancelButton.text = "Cancel";
-      cancelButton.icon = d.scaledResource(":/icons/cancel.png");
-      cancelButton.onClick = function() { d.cancel(); };
-
-      var btnSizer = new HorizontalSizer;
-      btnSizer.addStretch();
-      btnSizer.spacing = 6;
-      btnSizer.add(okButton);
-      btnSizer.add(cancelButton);
-
-      d.sizer = new VerticalSizer;
-      d.sizer.margin = 12;
-      d.sizer.spacing = 8;
-      d.sizer.add(infoLabel);
-      d.sizer.add(keyEdit);
-      d.sizer.add(showCheck);
-      d.sizer.addSpacing(4);
-      d.sizer.add(btnSizer);
-
-      if (d.execute()) {
-         var newKey = keyEdit.text.trim();
-         self._apiKey = newKey;
-         Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, newKey);
-         self.apiKeyStatus.text = newKey.length > 0 ? "Configured" : "Not set";
-      }
-   };
-
-   var apiKeySizer = new HorizontalSizer;
-   apiKeySizer.spacing = 6;
-   apiKeySizer.add(this.apiKeyLabel);
-   apiKeySizer.add(this.apiKeyStatus, 100);
+   var modeStatusSizer = new HorizontalSizer;
+   modeStatusSizer.spacing = 8;
+   modeStatusSizer.add(this.modeStatusLabel);
+   modeStatusSizer.add(this.modeStatusValue, 100);
 
    // ---- Equipment (Camera + Lens) ----
    var equipDB = loadEquipmentDB();
@@ -1745,13 +1911,17 @@ function SplitSolverDialog() {
    this.cameraLabel = new Label(this);
    this.cameraLabel.text = "Camera:";
    this.cameraLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.cameraLabel.setFixedWidth(80);
+   this.cameraLabel.setFixedWidth(120);
 
    this.cameraCombo = new ComboBox(this);
    this.cameraCombo.addItem("(Select)");
    if (equipDB && equipDB.cameras) {
       for (var ci = 0; ci < equipDB.cameras.length; ci++) {
-         this.cameraCombo.addItem(equipDB.cameras[ci].name);
+         var camEntry = equipDB.cameras[ci];
+         var camDisplay = camEntry.instrume
+            ? camEntry.name + " (" + camEntry.instrume + ")"
+            : camEntry.name;
+         this.cameraCombo.addItem(camDisplay);
       }
    }
    this.cameraCombo.currentItem = 0;
@@ -1782,16 +1952,31 @@ function SplitSolverDialog() {
       }
    }
 
+   // Fallback: restore last used camera from Settings
+   if (this.cameraCombo.currentItem === 0 && savedCamera && savedCamera.length > 0 && equipDB && equipDB.cameras) {
+      for (var sci = 0; sci < equipDB.cameras.length; sci++) {
+         if (equipDB.cameras[sci].name === savedCamera) {
+            this.cameraCombo.currentItem = sci + 1;
+            console.writeln("Restored camera from settings: " + savedCamera);
+            break;
+         }
+      }
+   }
+
    this.lensLabel = new Label(this);
    this.lensLabel.text = "Lens:";
    this.lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.lensLabel.setFixedWidth(80);
+   this.lensLabel.setFixedWidth(120);
 
    this.lensCombo = new ComboBox(this);
    this.lensCombo.addItem("(Select)");
    if (equipDB && equipDB.lenses) {
       for (var li = 0; li < equipDB.lenses.length; li++) {
-         this.lensCombo.addItem(equipDB.lenses[li].name);
+         var lensEntry = equipDB.lenses[li];
+         var lensDisplay = lensEntry.model
+            ? lensEntry.model + " (" + lensEntry.name + ")"
+            : lensEntry.name;
+         this.lensCombo.addItem(lensDisplay);
       }
    }
    this.lensCombo.currentItem = 0;
@@ -1824,6 +2009,17 @@ function SplitSolverDialog() {
       }
    }
 
+   // Fallback: restore last used lens from Settings
+   if (this.lensCombo.currentItem === 0 && savedLens && savedLens.length > 0 && equipDB && equipDB.lenses) {
+      for (var sli = 0; sli < equipDB.lenses.length; sli++) {
+         if (equipDB.lenses[sli].name === savedLens) {
+            this.lensCombo.currentItem = sli + 1;
+            console.writeln("Restored lens from settings: " + savedLens);
+            break;
+         }
+      }
+   }
+
    var cameraSizer = new HorizontalSizer;
    cameraSizer.spacing = 6;
    cameraSizer.add(this.cameraLabel);
@@ -1842,6 +2038,20 @@ function SplitSolverDialog() {
    // Need imageWidth/imageHeight for scale correction when image is resampled
    var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
    var imageHeight = targetWindow.isNull ? 0 : targetWindow.mainView.image.height;
+
+   // ---- Pixel scale (defined early for updateScaleAndFov) ----
+   this.scaleLabel = new Label(this);
+   this.scaleLabel.text = "Scale:";
+   this.scaleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.scaleLabel.setFixedWidth(120);
+
+   this.scaleEdit = new Edit(this);
+   this.scaleEdit.text = (savedScale && savedScale > 0) ? savedScale.toFixed(3) : "";
+   this.scaleEdit.setFixedWidth(100);
+   this.scaleEdit.toolTip = "Pixel scale (arcsec/px). Leave blank for blind solve";
+
+   this.scaleUnitLabel = new Label(this);
+   this.scaleUnitLabel.text = "arcsec/px (optional)";
 
    // Update scale and FOV when camera/lens selection changes
    var updateScaleAndFov = function() {
@@ -1893,25 +2103,6 @@ function SplitSolverDialog() {
    this.cameraCombo.onItemSelected = function() { updateScaleAndFov(); };
    this.lensCombo.onItemSelected = function() { updateScaleAndFov(); };
 
-   // Trigger initial update if both auto-detected
-   if (this.cameraCombo.currentItem > 0 && this.lensCombo.currentItem > 0) {
-      updateScaleAndFov();
-   }
-
-   // ---- Pixel scale ----
-   this.scaleLabel = new Label(this);
-   this.scaleLabel.text = "Scale:";
-   this.scaleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.scaleLabel.setFixedWidth(80);
-
-   this.scaleEdit = new Edit(this);
-   this.scaleEdit.text = (savedScale && savedScale > 0) ? savedScale.toFixed(3) : "";
-   this.scaleEdit.setFixedWidth(100);
-   this.scaleEdit.toolTip = "Pixel scale (arcsec/px). Leave blank for blind solve";
-
-   this.scaleUnitLabel = new Label(this);
-   this.scaleUnitLabel.text = "arcsec/px (optional)";
-
    this.scaleErrorLabel = new Label(this);
    this.scaleErrorLabel.text = "Error:";
    this.scaleErrorLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
@@ -1939,7 +2130,7 @@ function SplitSolverDialog() {
    this.objectLabel = new Label(this);
    this.objectLabel.text = "Object:";
    this.objectLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.objectLabel.setFixedWidth(80);
+   this.objectLabel.setFixedWidth(120);
 
    this.objectEdit = new Edit(this);
    this.objectEdit.setMinWidth(150);
@@ -1974,7 +2165,7 @@ function SplitSolverDialog() {
    this.raLabel = new Label(this);
    this.raLabel.text = "RA:";
    this.raLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.raLabel.setFixedWidth(80);
+   this.raLabel.setFixedWidth(120);
 
    this.raEdit = new Edit(this);
    this.raEdit.setFixedWidth(150);
@@ -1993,7 +2184,7 @@ function SplitSolverDialog() {
    this.decLabel = new Label(this);
    this.decLabel.text = "DEC:";
    this.decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.decLabel.setFixedWidth(80);
+   this.decLabel.setFixedWidth(120);
 
    this.decEdit = new Edit(this);
    this.decEdit.setFixedWidth(150);
@@ -2012,7 +2203,7 @@ function SplitSolverDialog() {
    this.radiusLabel = new Label(this);
    this.radiusLabel.text = "Radius:";
    this.radiusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.radiusLabel.setFixedWidth(80);
+   this.radiusLabel.setFixedWidth(120);
 
    this.radiusEdit = new Edit(this);
    this.radiusEdit.text = "10";
@@ -2062,7 +2253,7 @@ function SplitSolverDialog() {
    this.gridLabel = new Label(this);
    this.gridLabel.text = "Grid:";
    this.gridLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.gridLabel.setFixedWidth(80);
+   this.gridLabel.setFixedWidth(120);
 
    this.gridCombo = new ComboBox(this);
    this.gridCombo.addItem("1x1 (Single)");
@@ -2085,10 +2276,15 @@ function SplitSolverDialog() {
       [2, 1], [3, 2], [4, 3], [6, 4], [8, 6], [8, 8], [12, 8]
    ];
 
+   // Trigger initial scale/FOV update if both camera and lens are pre-selected
+   if (this.cameraCombo.currentItem > 0 && this.lensCombo.currentItem > 0) {
+      updateScaleAndFov();
+   }
+
    this.overlapLabel = new Label(this);
    this.overlapLabel.text = "Overlap:";
    this.overlapLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.overlapLabel.setFixedWidth(80);
+   this.overlapLabel.setFixedWidth(120);
 
    this.overlapEdit = new Edit(this);
    this.overlapEdit.text = "100";
@@ -2116,7 +2312,7 @@ function SplitSolverDialog() {
    this.downsampleLabel = new Label(this);
    this.downsampleLabel.text = "Downsample:";
    this.downsampleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.downsampleLabel.setFixedWidth(80);
+   this.downsampleLabel.setFixedWidth(120);
 
    this.downsampleCombo = new ComboBox(this);
    this.downsampleCombo.addItem("Auto");
@@ -2142,7 +2338,7 @@ function SplitSolverDialog() {
    this.timeoutLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
 
    this.timeoutEdit = new Edit(this);
-   this.timeoutEdit.text = "5";
+   this.timeoutEdit.text = "1";
    this.timeoutEdit.setFixedWidth(40);
    this.timeoutEdit.toolTip = "Per-tile solve timeout (minutes)";
 
@@ -2219,9 +2415,48 @@ function SplitSolverDialog() {
       }
    };
 
+   // ---- Settings button (opens SettingsDialog) ----
+   this.settingsButton = new PushButton(this);
+   this.settingsButton.text = "Settings...";
+   this.settingsButton.icon = this.scaledResource(":/icons/wrench.png");
+   this.settingsButton.toolTip = "Configure solve mode, API key, Python environment";
+   // Update UI enabled state based on solve mode
+   var updateModeUI = function() {
+      var isApi = (self._solveMode !== "local");
+      // API-only controls
+      self.downsampleCombo.enabled = isApi;
+      self.sipCombo.enabled = isApi;
+      self.timeoutEdit.enabled = isApi;
+      self.radiusEdit.enabled = isApi;
+      // Labels
+      self.downsampleLabel.enabled = isApi;
+      self.sipLabel.enabled = isApi;
+      self.timeoutLabel.enabled = isApi;
+      self.timeoutUnitLabel.enabled = isApi;
+      self.radiusLabel.enabled = isApi;
+      self.radiusUnitLabel.enabled = isApi;
+   };
+
+   this.settingsButton.onClick = function() {
+      var dlg = new SolverSettingsDialog(self);
+      if (dlg.execute()) {
+         var s = dlg.getSettings();
+         self._solveMode = s.solveMode;
+         self._apiKey = s.apiKey;
+         self._pythonPath = s.pythonPath;
+         self._scriptDir = s.scriptDir;
+         self.modeStatusValue.text = (s.solveMode === "local")
+            ? "Local (solve-field)" : "API (astrometry.net)";
+         updateModeUI();
+      }
+   };
+
+   // Apply initial mode state
+   updateModeUI();
+
    var buttonSizer = new HorizontalSizer;
-   buttonSizer.spacing = 6;
-   buttonSizer.add(this.apiKeySettingsButton);
+   buttonSizer.spacing = 8;
+   buttonSizer.add(this.settingsButton);
    buttonSizer.addStretch();
    buttonSizer.add(this.solveButton);
    buttonSizer.add(this.skipButton);
@@ -2235,7 +2470,7 @@ function SplitSolverDialog() {
    imageGroup.sizer.margin = 6;
    imageGroup.sizer.spacing = 4;
    imageGroup.sizer.add(targetSizer);
-   imageGroup.sizer.add(apiKeySizer);
+   imageGroup.sizer.add(modeStatusSizer);
 
    // ---- GroupBox: Equipment ----
    var equipGroup = new GroupBox(this);
@@ -2271,7 +2506,7 @@ function SplitSolverDialog() {
    // ---- Layout ----
    this.sizer = new VerticalSizer;
    this.sizer.margin = 8;
-   this.sizer.spacing = 6;
+   this.sizer.spacing = 8;
    this.sizer.add(imageGroup);
    this.sizer.add(equipGroup);
    this.sizer.add(splitGroup);
@@ -2317,11 +2552,23 @@ SplitSolverDialog.prototype.doSolve = function() {
       return;
    }
 
+   // Mode-specific validation
+   var solveMode = this._solveMode || "api";
    var apiKey = this._apiKey.trim();
-   if (apiKey.length === 0) {
-      var msg = new MessageBox("Please configure your API key first.\nClick the wrench icon next to 'API Key'.", TITLE, StdIcon_Error, StdButton_Ok);
-      msg.execute();
-      return;
+
+   if (solveMode === "api") {
+      if (apiKey.length === 0) {
+         var msg = new MessageBox("API キーが設定されていません。\nSettings から API キーを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         msg.execute();
+         return;
+      }
+   } else {
+      // Local mode validation
+      if (this._pythonPath.length === 0 || this._scriptDir.length === 0) {
+         var msg = new MessageBox("Local モードの設定が不完全です。\nSettings から Python パスとスクリプトディレクトリを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         msg.execute();
+         return;
+      }
    }
 
    var timeoutMin = parseFloat(this.timeoutEdit.text);
@@ -2347,6 +2594,18 @@ SplitSolverDialog.prototype.doSolve = function() {
          hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
          Settings.write(SETTINGS_KEY + "/pixelScale", DataType_Double, scale);
       }
+   }
+
+   // Save camera/lens selection
+   var camSaveIdx = this.cameraCombo.currentItem - 1;
+   var lensSaveIdx = this.lensCombo.currentItem - 1;
+   if (this.equipDB) {
+      var camName = (camSaveIdx >= 0 && camSaveIdx < this.equipDB.cameras.length)
+         ? this.equipDB.cameras[camSaveIdx].name : "";
+      var lensName = (lensSaveIdx >= 0 && lensSaveIdx < this.equipDB.lenses.length)
+         ? this.equipDB.lenses[lensSaveIdx].name : "";
+      Settings.write(SETTINGS_KEY + "/camera", DataType_String, camName);
+      Settings.write(SETTINGS_KEY + "/lens", DataType_String, lensName);
    }
 
    // RA/DEC hints
@@ -2400,6 +2659,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    console.writeln("========================================");
    console.writeln("Solve Parameters");
    console.writeln("========================================");
+   console.writeln("  Solve mode:  " + (solveMode === "local" ? "Local (solve-field)" : "API (astrometry.net)"));
    console.writeln("  Target:      " + targetWindow.mainView.id + " (" + imageWidth + "x" + imageHeight + ")");
    console.writeln("  Camera:      " + this.cameraCombo.itemText(this.cameraCombo.currentItem));
    console.writeln("  Lens:        " + this.lensCombo.itemText(this.lensCombo.currentItem));
@@ -2441,14 +2701,16 @@ SplitSolverDialog.prototype.doSolve = function() {
    processEvents();
 
    try {
-      if (isSplitMode) {
+      if (solveMode === "local") {
+         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+      } else if (isSplitMode) {
          this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs);
       } else {
          this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs);
       }
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
-      if (errMsg.indexOf("Abort") >= 0) {
+      if (errMsg.indexOf("Abort") >= 0 || errMsg.indexOf("aborted by user") >= 0) {
          console.writeln("Solve aborted by user.");
          this.progressLabel.text = "Aborted.";
       } else {
@@ -2717,6 +2979,379 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
          TITLE, StdIcon_Information, StdButton_Ok);
       msg.execute();
    }
+};
+
+//----------------------------------------------------------------------------
+// Local solve (Python backend)
+//----------------------------------------------------------------------------
+SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight) {
+   var self = this;
+   var pythonPath = this._pythonPath;
+   var scriptDir = this._scriptDir;
+   var scriptPath = scriptDir + "/python/main.py";
+
+   // Save current view to temporary XISF
+   var tmpInput = File.systemTempDirectory + "/split_solver_input.xisf";
+   var tmpOutput = File.systemTempDirectory + "/split_solver_output.xisf";
+   var resultFile = File.systemTempDirectory + "/split_solver_result.json";
+
+   console.writeln("Saving current view to temporary file...");
+   this.progressLabel.text = "Saving image...";
+   processEvents();
+
+   if (File.exists(tmpInput)) try { File.remove(tmpInput); } catch (e) {}
+   if (File.exists(resultFile)) try { File.remove(resultFile); } catch (e) {}
+
+   var xisfFormat = new FileFormat("XISF", false, true);
+   var writer = new FileFormatInstance(xisfFormat);
+   if (!writer.create(tmpInput))
+      throw new Error("Failed to create temp file: " + tmpInput);
+   writer.keywords = targetWindow.keywords;
+   var imgDesc = new ImageDescription;
+   imgDesc.bitsPerSample = 32;
+   imgDesc.ieeefpSampleFormat = true;
+   if (!writer.setOptions(imgDesc))
+      throw new Error("Failed to set image options for temp file");
+   if (!writer.writeImage(targetWindow.mainView.image))
+      throw new Error("Failed to write image data to temp file");
+   writer.close();
+   console.writeln("Saved: " + tmpInput);
+
+   // Build command arguments
+   var grid = gridX + "x" + gridY;
+   var args = [
+      pythonPath, scriptPath,
+      "--input", tmpInput,
+      "--output", tmpOutput,
+      "--grid", grid,
+      "--overlap", overlap.toString(),
+      "--json-output",
+      "--result-file", resultFile
+   ];
+
+   if (hints.center_ra !== undefined && hints.center_dec !== undefined) {
+      args.push("--ra");
+      args.push(hints.center_ra.toString());
+      args.push("--dec");
+      args.push(hints.center_dec.toString());
+   }
+   if (hints.scale_est) {
+      // Derive focal length and pixel pitch from scale if available
+      var camIdx = this.cameraCombo.currentItem - 1;
+      var lensIdx = this.lensCombo.currentItem - 1;
+      if (this.equipDB && camIdx >= 0 && camIdx < this.equipDB.cameras.length) {
+         args.push("--pixel-pitch");
+         args.push(this.equipDB.cameras[camIdx].pixel_pitch.toString());
+      }
+      if (this.equipDB && lensIdx >= 0 && lensIdx < this.equipDB.lenses.length) {
+         args.push("--focal-length");
+         args.push(this.equipDB.lenses[lensIdx].focal_length.toString());
+      }
+   }
+   if (hints._projection && hints._projection !== "rectilinear") {
+      args.push("--lens-type");
+      args.push(hints._projection);
+   }
+
+   // Build shell command with proper PATH
+   var cmdParts = [];
+   for (var i = 0; i < args.length; i++) {
+      cmdParts.push(quotePath(args[i]));
+   }
+
+   var pythonDir = File.extractDirectory(pythonPath);
+   var pathPrefix = "export PATH="
+      + quotePath(pythonDir)
+      + ":/opt/homebrew/bin:/usr/local/bin:$PATH; ";
+
+   var stdoutFile = File.systemTempDirectory + "/split_solver_stdout.log";
+   var stderrFile = File.systemTempDirectory + "/split_solver_stderr.log";
+   var shellCmd = pathPrefix + cmdParts.join(" ")
+      + " > " + quotePath(stdoutFile)
+      + " 2> " + quotePath(stderrFile);
+
+   console.writeln("Executing Python solver...");
+   console.writeln("Command: " + shellCmd);
+   this.progressLabel.text = "Running Python solver...";
+   processEvents();
+
+   var P = new ExternalProcess;
+   P.workingDirectory = scriptDir;
+   P.start("/bin/sh", ["-c", shellCmd]);
+
+   // Poll for completion with abort support
+   var timeoutMs = 30 * 60 * 1000;
+   var pollIntervalMs = 500;
+   var elapsed = 0;
+   var aborted = false;
+   var lastStderrSize = 0;
+
+   while (elapsed < timeoutMs) {
+      if (P.waitForFinished(pollIntervalMs)) {
+         break;
+      }
+      processEvents();
+
+      if (self._abortRequested || console.abortRequested) {
+         console.writeln("");
+         console.warningln("<b>Abort requested. Killing process...</b>");
+         P.kill();
+         aborted = true;
+         break;
+      }
+
+      // Show stderr output in real-time
+      try {
+         if (File.exists(stderrFile)) {
+            var currentStderr = File.readTextFile(stderrFile);
+            if (currentStderr.length > lastStderrSize) {
+               var newOutput = currentStderr.substring(lastStderrSize).trim();
+               if (newOutput.length > 0) {
+                  var newLines = newOutput.split("\n");
+                  for (var li = 0; li < newLines.length; li++) {
+                     console.writeln("[PYTHON] " + newLines[li]);
+                  }
+                  console.flush();
+                  // Update progress with last line
+                  self.progressLabel.text = newLines[newLines.length - 1];
+                  processEvents();
+               }
+               lastStderrSize = currentStderr.length;
+            }
+         }
+      } catch (e) {
+         // Ignore file read errors during write
+      }
+
+      elapsed += pollIntervalMs;
+   }
+
+   if (aborted) {
+      try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
+      try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
+      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+      throw new Error("Process aborted by user");
+   }
+
+   if (elapsed >= timeoutMs && !P.waitForFinished(0)) {
+      P.kill();
+      try { if (File.exists(stdoutFile)) File.remove(stdoutFile); } catch (e) {}
+      try { if (File.exists(stderrFile)) File.remove(stderrFile); } catch (e) {}
+      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+      throw new Error("Process timed out after 30 minutes");
+   }
+
+   // Read output from temp files
+   var stdout = "";
+   var stderr = "";
+   try {
+      if (File.exists(stdoutFile)) {
+         stdout = File.readTextFile(stdoutFile).trim();
+         File.remove(stdoutFile);
+      }
+   } catch (e) {}
+   try {
+      if (File.exists(stderrFile)) {
+         stderr = File.readTextFile(stderrFile).trim();
+         File.remove(stderrFile);
+      }
+   } catch (e) {}
+
+   // Show remaining stderr
+   if (stderr.length > lastStderrSize) {
+      var remainingStderr = stderr.substring(lastStderrSize).trim();
+      if (remainingStderr.length > 0) {
+         var stderrLines = remainingStderr.split("\n");
+         for (var si = 0; si < stderrLines.length; si++) {
+            console.writeln("[PYTHON] " + stderrLines[si]);
+         }
+      }
+   }
+
+   if (P.exitCode !== 0) {
+      console.warningln("Process exited with code: " + P.exitCode);
+      if (stdout.length > 0) {
+         try {
+            var errResult = JSON.parse(stdout);
+            if (errResult.error) {
+               try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+               try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+               throw new Error("Solver failed: " + errResult.error);
+            }
+         } catch (e) {
+            if (e.message.indexOf("Solver failed") === 0) throw e;
+         }
+      }
+      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+      throw new Error("Solver process exited with code " + P.exitCode);
+   }
+
+   // Parse result JSON (result-file first, stdout fallback)
+   var result = null;
+
+   if (File.exists(resultFile)) {
+      try {
+         var resultJson = File.readTextFile(resultFile).trim();
+         result = JSON.parse(resultJson);
+      } catch (e) {
+         console.warningln("Failed to parse result file: " + e.message);
+      }
+      try { File.remove(resultFile); } catch (e) {}
+   }
+
+   if (!result && stdout.length > 0) {
+      var lines = stdout.split("\n");
+      for (var j = lines.length - 1; j >= 0; j--) {
+         var line = lines[j].trim();
+         if (line.length > 0 && line.charAt(0) === '{') {
+            try {
+               result = JSON.parse(line);
+               break;
+            } catch (e) {
+               continue;
+            }
+         }
+      }
+   }
+
+   if (!result || !result.success) {
+      try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+      try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+      throw new Error("Solver completed but reported failure");
+   }
+
+   // Display results
+   console.writeln("");
+   console.writeln("    .       *           .       *       .           *");
+   console.writeln("        .       .   *       .       .       *");
+   console.writeln("  +=========================================+");
+   console.writeln("  |                                         |");
+   console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
+   console.writeln("  |                                         |");
+   console.writeln("  +=========================================+");
+   console.writeln("        *       .           *       .       .");
+   console.writeln("    .       .       *   .       *       .       *");
+   console.writeln("");
+
+   if (result.equipment) {
+      try {
+         var eq = result.equipment;
+         var eqLines = [];
+         if (eq.camera) eqLines.push("Camera: " + eq.camera);
+         if (eq.lens) eqLines.push("Lens: " + eq.lens);
+         if (eq.focal_length_mm) eqLines.push("FL: " + eq.focal_length_mm + "mm");
+         if (eq.pixel_pitch_um) eqLines.push("Pitch: " + eq.pixel_pitch_um + "um");
+         if (eqLines.length > 0) {
+            console.writeln("<b>Equipment:</b> " + eqLines.join(" | "));
+         }
+      } catch (e1) {}
+   }
+
+   try {
+      var summary = "<b>Result:</b> "
+         + result.tiles_solved + "/" + result.tiles_total + " tiles solved";
+      if (result.wcs) {
+         summary += ", CRVAL=(" + result.wcs.crval1.toFixed(4)
+            + ", " + result.wcs.crval2.toFixed(4) + ")";
+         if (result.wcs.pixel_scale) {
+            summary += ", " + result.wcs.pixel_scale.toFixed(2) + "\"/px";
+         }
+      }
+      console.writeln(summary);
+   } catch (e2) {
+      console.writeln("<b>Result:</b> Solver completed");
+   }
+
+   // Tile grid display
+   if (result.tile_grid && result.grid) {
+      try {
+         var rows = result.grid.rows;
+         var cols = result.grid.cols;
+         var tileGrid = result.tile_grid;
+         var header = "     ";
+         for (var c = 0; c < cols; c++) { header += " " + c; }
+         console.writeln("");
+         console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
+         console.writeln(header);
+         for (var r = 0; r < rows; r++) {
+            var gridLine = "  " + r + "  ";
+            for (var gc = 0; gc < cols; gc++) {
+               gridLine += (tileGrid[r][gc] === "O") ? " O" : " .";
+            }
+            console.writeln(gridLine);
+         }
+         console.writeln("  (O=solved, .=failed)");
+      } catch (e3) {}
+   }
+
+   // Coordinate display
+   if (result.coordinates) {
+      try {
+         var coords = result.coordinates;
+         console.writeln("");
+         console.writeln("<b>Image coordinates:</b>");
+         if (coords.center)
+            console.writeln("  Center ........ RA: " + raToHMS(coords.center.ra_deg) + "  Dec: " + decToDMS(coords.center.dec_deg));
+         if (coords.top_left)
+            console.writeln("  Top-Left ...... RA: " + raToHMS(coords.top_left.ra_deg) + "  Dec: " + decToDMS(coords.top_left.dec_deg));
+         if (coords.top_right)
+            console.writeln("  Top-Right ..... RA: " + raToHMS(coords.top_right.ra_deg) + "  Dec: " + decToDMS(coords.top_right.dec_deg));
+         if (coords.bottom_left)
+            console.writeln("  Bottom-Left ... RA: " + raToHMS(coords.bottom_left.ra_deg) + "  Dec: " + decToDMS(coords.bottom_left.dec_deg));
+         if (coords.bottom_right)
+            console.writeln("  Bottom-Right .. RA: " + raToHMS(coords.bottom_right.ra_deg) + "  Dec: " + decToDMS(coords.bottom_right.dec_deg));
+         var fovParts = [];
+         if (coords.width_fov_deg)
+            fovParts.push(coords.width_fov_deg.toFixed(2) + " x " + coords.height_fov_deg.toFixed(2));
+         if (coords.diagonal_fov_deg)
+            fovParts.push("diagonal " + coords.diagonal_fov_deg.toFixed(2));
+         if (fovParts.length > 0)
+            console.writeln("  Field of view . " + fovParts.join(", ") + " deg");
+         if (result.wcs && result.wcs.pixel_scale)
+            console.writeln("  Pixel scale ... " + result.wcs.pixel_scale.toFixed(2) + " arcsec/px");
+      } catch (e4) {}
+   }
+
+   // Apply WCS to active window
+   this.progressLabel.text = "Applying WCS...";
+   processEvents();
+   console.writeln("");
+   console.writeln("<b>Applying WCS keywords to active window...</b>");
+
+   if (result.wcs_keywords) {
+      var existingKw = targetWindow.keywords;
+      var cleanedKw = [];
+      for (var ki = 0; ki < existingKw.length; ki++) {
+         if (!isWCSKeyword(existingKw[ki].name)) {
+            cleanedKw.push(existingKw[ki]);
+         }
+      }
+
+      var wcsKeys = result.wcs_keywords;
+      var addedCount = 0;
+      for (var key in wcsKeys) {
+         if (wcsKeys.hasOwnProperty(key)) {
+            cleanedKw.push(makeFITSKeyword(key, wcsKeys[key]));
+            addedCount++;
+         }
+      }
+
+      targetWindow.keywords = cleanedKw;
+      console.writeln(format("Added %d WCS keywords.", addedCount));
+      targetWindow.regenerateAstrometricSolution();
+      console.writeln("Astrometric solution applied.");
+      this.progressLabel.text = format("Solved! %d/%d tiles", result.tiles_solved, result.tiles_total);
+   } else {
+      console.warningln("No WCS keywords in result.");
+      this.progressLabel.text = "Solved (no WCS keywords to apply)";
+   }
+
+   // Cleanup
+   try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
+   try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
 };
 
 //============================================================================
