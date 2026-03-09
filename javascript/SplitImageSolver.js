@@ -882,6 +882,29 @@ function extractWcsFromWindow(window) {
    return wcs;
 }
 
+// Extract WCS values directly from ImageSolver's metadata object.
+// Uses metadata.GetWCSvalues() which returns CRPIX/CD in FITS F-coordinates.
+// This is more reliable than reading FITS keywords back from the window,
+// as SaveKeywords may not have flushed to window.keywords yet.
+function extractWcsFromMetadata(metadata) {
+   try {
+      var wcs = metadata.GetWCSvalues();
+      return {
+         crval1: wcs.crval1,
+         crval2: wcs.crval2,
+         crpix1: wcs.crpix1,
+         crpix2: wcs.crpix2,
+         cd1_1:  wcs.cd1_1,
+         cd1_2:  wcs.cd1_2,
+         cd2_1:  wcs.cd2_1,
+         cd2_2:  wcs.cd2_2
+      };
+   } catch (e) {
+      console.writeln("ERROR: extractWcsFromMetadata failed: " + e.toString());
+      return null;
+   }
+}
+
 // Convert ImageSolver WCS (FITS F-coordinates, bottom-up) to top-down convention
 // used by astrometry.net / our tile pipeline (pixelToRaDecTD).
 //
@@ -1001,8 +1024,8 @@ function solveSingleTileIS(tile, tileHints, medianScale, expectedRaDec) {
          return false;
       }
 
-      // Extract WCS from solved window keywords
-      var isWcs = extractWcsFromWindow(tileWindow);
+      // Extract WCS directly from solver metadata (more reliable than reading keywords back)
+      var isWcs = extractWcsFromMetadata(solver.metadata);
       tileWindow.forceClose();
 
       if (!isWcs || isWcs.crval1 === undefined) {
@@ -3886,7 +3909,7 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       this.progressLabel.text = "Extracting WCS...";
       processEvents();
 
-      var isWcs = extractWcsFromWindow(targetWindow);
+      var isWcs = extractWcsFromMetadata(solver.metadata);
       if (!isWcs || isWcs.crval1 === undefined) {
          throw "Failed to extract WCS from solved image.";
       }
