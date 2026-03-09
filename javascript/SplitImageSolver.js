@@ -3381,6 +3381,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 // Single image solve (original Phase 1 flow)
 //----------------------------------------------------------------------------
 SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs) {
+   var self = this;
    // Save image to temporary FITS
    var tmpFits = File.systemTempDirectory + "/split_solver_upload.fits";
    console.writeln("Saving temporary FITS: " + tmpFits);
