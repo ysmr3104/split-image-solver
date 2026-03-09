@@ -1,59 +1,60 @@
 # Split Image Solver
 
-広角星野写真を分割してプレートソルブし、統合したWCS座標情報を元画像に適用する PixInsight スクリプトです。
+[日本語版はこちら](README.ja.md)
 
-PixInsight の ImageSolver では対応できない超広角な範囲の星空画像に対応します。
+A PixInsight script that splits wide-field astrophotos into tiles, plate-solves each tile, and merges the individual WCS solutions into a unified WCS for the entire image.
 
-> **Note**: 超広角（魚眼等）の場合、画像周辺部の WCS 精度が低下することがあります。より高精度な WCS が必要な場合は、手動で星を指定してフィッティングする [Manual Image Solver](https://github.com/ysmr3104/manual-image-solver) の利用もご検討ください。
+Handles ultra-wide-field images that PixInsight's built-in ImageSolver cannot solve.
 
-## 特徴
+> **Note**: For ultra-wide-field images (e.g., fisheye lenses), WCS accuracy may degrade near the edges. If you need higher precision, consider using [Manual Image Solver](https://github.com/ysmr3104/manual-image-solver), which lets you manually identify stars for fitting.
 
-- **2つのソルブモード**: astrometry.net API（デフォルト）またはローカル solve-field を選択可能
-- **柔軟な分割**: 1x1（単一画像）から 12x8 まで、任意のグリッドパターンで画像を分割
-- **高精度**: SIP 歪み補正対応、WCSFitter による制御点フィット
-- **部分ソルブ対応**: 一部のタイルのソルブに失敗しても、成功したタイルから WCS を全体に適用
-- **2パスリトライ**: 失敗タイルを隣接成功タイルの WCS ヒントで自動再試行
-- **オーバーラップ検証**: 隣接タイルの重複領域で WCS 整合性を自動チェック
-- **機材 DB**: カメラ/レンズの自動認識（型番表示対応）、焦点距離・ピクセルピッチ自動入力、推奨グリッド提案
-- **魚眼レンズ対応**: equisolid/equidistant/stereographic 投影に対応、タイルごとのスケール補正
-- **Sesame 天体名検索**: 天体名から RA/DEC を自動入力
+## Features
 
-## ソルブモード
+- **Two solve modes**: astrometry.net API (default) or local solve-field
+- **Flexible tiling**: From 1x1 (single image) to 12x8, any grid pattern
+- **High accuracy**: SIP distortion correction, WCSFitter control-point fitting
+- **Partial solve**: WCS can be computed even if some tiles fail
+- **Two-pass retry**: Failed tiles are retried using WCS hints from successful neighbors
+- **Overlap validation**: Automatic WCS consistency check across adjacent tiles
+- **Equipment DB**: Auto-detection of camera/lens (with model numbers), auto-fill of focal length and pixel pitch, recommended grid suggestions
+- **Fisheye support**: Equisolid / equidistant / stereographic projections with per-tile scale correction
+- **Sesame name search**: Auto-fill RA/DEC from object names
 
-| モード | 説明 | 必要な環境 |
-|--------|------|-----------|
-| **API** (デフォルト) | astrometry.net API でソルブ | API キーのみ（Python 不要） |
-| **Local** | ローカル solve-field でソルブ | Python + solve-field + 星カタログ |
+## Solve Modes
 
-API モードは追加インストール不要ですぐに利用できます。
-Local モードを利用する場合は「[Local モードのセットアップ](#local-モードのセットアップ)」を参照してください。
+| Mode | Description | Requirements |
+|------|-------------|-------------|
+| **API** (default) | Solve via astrometry.net API | API key only (no Python) |
+| **Local** | Solve via local solve-field | Python + solve-field + star catalogs |
 
-## 必要な環境
+API mode works out of the box with no additional installation. For Local mode setup, see [docs/setup.md](docs/setup.md).
 
-- **PixInsight 1.8.9 以降**
-- **astrometry.net API キー**（無料、API モード用）: https://nova.astrometry.net/ でアカウント作成後取得
+## Requirements
 
-## インストール
+- **PixInsight 1.8.9+**
+- **astrometry.net API key** (free, for API mode): https://nova.astrometry.net/
 
-### 方法1: PixInsight リポジトリ（推奨）
+## Installation
 
-1. PixInsight を開く
-2. **Resources > Updates > Manage Repositories** を開く
-3. リポジトリ URL を追加:
+### Option 1: PixInsight Repository (recommended)
+
+1. Open PixInsight
+2. Go to **Resources > Updates > Manage Repositories**
+3. Add repository URL:
    ```
    https://ysmrastro.github.io/pixinsight-scripts/
    ```
-4. **Resources > Updates > Check for Updates** を実行
-5. SplitImageSolver をインストール
+4. Run **Resources > Updates > Check for Updates**
+5. Install SplitImageSolver
 
-### 方法2: 手動インストール
+### Option 2: Manual Installation
 
-1. リポジトリをクローンまたはダウンロード:
+1. Clone or download:
    ```bash
    git clone https://github.com/ysmr3104/split-image-solver.git
    ```
 
-2. `javascript/` 内の以下のファイルを PixInsight スクリプトディレクトリにコピー:
+2. Copy the following files from `javascript/` to the PixInsight scripts directory:
    ```
    SplitImageSolver.js
    astrometry_api.js
@@ -62,210 +63,110 @@ Local モードを利用する場合は「[Local モードのセットアップ]
    equipment_data.jsh
    ```
 
-   スクリプトディレクトリの場所:
+   Script directory locations:
    - macOS: `/Applications/PixInsight/src/scripts/SplitImageSolver/`
    - Windows: `C:\Program Files\PixInsight\src\scripts\SplitImageSolver\`
    - Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
 
-3. PixInsight を再起動
-4. **Script > Astrometry > SplitImageSolver** から実行可能
+3. Restart PixInsight
+4. Run from **Script > Astrometry > SplitImageSolver**
 
-## スクリーンショット
+## Screenshots
 
-### メインダイアログ
+### Main Dialog
 
-![メインダイアログ](docs/images/main-dialog.jpg)
+![Main Dialog](docs/images/main-dialog.jpg)
 
-カメラを選択するとピクセルピッチが、レンズを選択すると焦点距離が自動入力され、ピクセルスケールと推奨グリッドが自動計算されます。機材 DB にないカメラ・レンズでも焦点距離とピクセルピッチを手入力できます。FITS ヘッダーから機材を自動認識し、型番も表示されます。
+Selecting a camera auto-fills pixel pitch; selecting a lens auto-fills focal length. Pixel scale and recommended grid are calculated automatically. You can also enter focal length and pixel pitch manually for unlisted equipment. Equipment is auto-detected from FITS headers with model numbers displayed.
 
-### Settings ダイアログ
+### Settings Dialog
 
-![Settings ダイアログ](docs/images/settings-dialog.jpg)
+![Settings Dialog](docs/images/settings-dialog.jpg)
 
-左下の「Settings...」ボタンから開きます。ソルブモード（API / Local）の切り替え、API キー、Python 環境の設定を行います。どちらのモードの設定値も常に記憶されます。
+Access from the "Settings..." button at the bottom-left. Switch between solve modes (API / Local), configure API key, and set Python environment. Settings for both modes are always preserved.
 
-## 使い方
+## Usage
 
-### クイックスタート（単一画像ソルブ）
+### Quick Start (Single Image)
 
-1. PixInsight で対象画像を開く
-2. **Script > Astrometry > SplitImageSolver** を実行
-3. 左下の **Settings...** ボタンで API キーを入力（初回のみ、以降は自動保存）
-4. Grid を **1x1** のまま「Solve」をクリック
-5. 完了後、画像に WCS が適用される
+1. Open the target image in PixInsight
+2. Run **Script > Astrometry > SplitImageSolver**
+3. Click **Settings...** and enter your API key (first time only; saved automatically)
+4. Leave Grid at **1x1** and click "Solve"
+5. WCS is applied to the image upon completion
 
-### 分割ソルブ（広角画像）
+### Split Solve (Wide-Field)
 
-1. PixInsight で対象画像を開く
-2. **Script > Astrometry > SplitImageSolver** を実行
-3. **カメラ/レンズ** を選択（FITS ヘッダーから自動認識される場合あり）
-   - 焦点距離・ピクセルピッチが自動入力され、推奨グリッドが自動計算される
-4. 必要に応じて **天体名** を入力し「Search」で RA/DEC を取得
-5. Grid を推奨サイズに設定
-6. 「Solve」をクリック
+1. Open the target image in PixInsight
+2. Run **Script > Astrometry > SplitImageSolver**
+3. Select **Camera/Lens** (auto-detected from FITS headers when available)
+   - Focal length and pixel pitch are auto-filled; recommended grid is calculated
+4. Optionally enter an **object name** and click "Search" to fill RA/DEC
+5. Set Grid to the recommended size
+6. Click "Solve"
 
-### パラメータ
+### Parameters
 
-| パラメータ | 説明 | デフォルト | モード |
-|-----------|------|-----------|--------|
-| Camera | カメラ機種（ピクセルピッチ自動入力） | 自動認識 | 共通 |
-| Lens | レンズ/鏡筒（焦点距離自動入力） | 自動認識 | 共通 |
-| Focal length | 焦点距離 (mm)。カメラ/レンズ未選択時は手入力 | 自動入力 | 共通 |
-| Pixel pitch | ピクセルピッチ (μm)。カメラ未選択時は手入力 | 自動入力 | 共通 |
-| Scale Error | スケール誤差 (%) | 30 | API |
-| Object | 天体名（Sesame 検索） | — | 共通 |
-| RA / DEC | 画像中心座標 | — | 共通 |
-| Radius | 検索半径 (°) | 10 | API |
-| Grid | 分割グリッド (ColsxRows) | 1x1 | 共通 |
-| Overlap | タイル間オーバーラップ (px) | 100 | 共通 |
-| Downsample | ダウンサンプル設定 | Auto | API |
-| SIP Order | SIP 歪み補正の次数 | 4 | API |
-| Timeout | タイルあたりのタイムアウト (分) | 1 | API |
+| Parameter | Description | Default | Mode |
+|-----------|-------------|---------|------|
+| Camera | Camera model (auto-fills pixel pitch) | Auto-detect | Both |
+| Lens | Lens/telescope (auto-fills focal length) | Auto-detect | Both |
+| Focal length | Focal length (mm). Manual input when equipment not in DB | Auto-fill | Both |
+| Pixel pitch | Pixel pitch (μm). Manual input when camera not in DB | Auto-fill | Both |
+| Scale Error | Scale estimation error (%) | 30 | API |
+| Object | Object name (Sesame search) | — | Both |
+| RA / DEC | Image center coordinates | — | Both |
+| Radius | Search radius (°) | 10 | API |
+| Grid | Split grid (ColsxRows) | 1x1 | Both |
+| Overlap | Tile overlap (px) | 100 | Both |
+| Downsample | Downsample setting | Auto | API |
+| SIP Order | SIP distortion correction order | 4 | API |
+| Timeout | Per-tile timeout (min) | 1 | API |
 
-「API」と記載の項目は Local モード時にグレーアウトされます（Python 側が自動処理）。
+Parameters marked "API" are grayed out in Local mode (handled automatically by Python).
 
-## 処理フロー
+## Technical Details
 
-### API モード — 単一画像（1x1）
+See [docs/architecture.md](docs/architecture.md) for project structure, processing pipeline, and coding conventions.
 
-1. 画像を FITS に書き出し → API にアップロード
-2. astrometry.net でプレートソルブ
-3. WCS FITS ファイルをダウンロード → WCS パラメータを解析
-4. WCSFitter で CD 行列 + SIP フィット
-5. FITS キーワード + 制御点を画像に適用
+## Troubleshooting
 
-### API モード — 分割ソルブ（NxM）
+### API Login Failure
 
-1. 画像をオーバーラップ付き NxM タイルに分割
-2. 各タイルをダウンサンプル（長辺 2000px 以下）して API にアップロード
-3. **Pass 1**: 全タイルをソルブ
-4. **Pass 2**: 失敗タイルを成功タイルの WCS ヒントで再試行
-5. **オーバーラップ検証**: 隣接タイルの WCS 整合性チェック、異常タイルを除外
-6. 全成功タイルの WCS から制御点を収集 → WCSFitter で統合 WCS を生成
-7. 統合 WCS を元画像に適用
+- Verify your API key: https://nova.astrometry.net/api_help
+- Check internet connection
 
-### Local モード
+### Solve Takes Too Long / Fails
 
-1. 画像を XISF に一時保存（FITS メタデータ含む）
-2. Python `main.py` を実行（グリッド分割・ソルブ・WCS 統合を一括処理）
-3. 結果 JSON から WCS キーワードを取得
-4. FITS キーワードを画像に直接適用 + アストロメトリックソリューション再生成
+- **Enter RA/DEC hints**: Enter an object name and click Search to get coordinates — dramatically speeds up solving
+- **Enter focal length / pixel pitch**: Select camera/lens or enter manually
+- **Adjust grid**: Tiles that are too small may not contain enough stars
 
-## Local モードのセットアップ
+### Some Tiles Fail to Solve
 
-Local モードを利用するには、以下の追加セットアップが必要です。
+- Tiles containing landscape or clouds cannot be solved (expected behavior)
+- WCS merge is possible with 2+ successful tiles
+- Failed tiles are automatically retried in Pass 2
 
-### 1. 必要なソフトウェア
+### Low WCS Accuracy
 
-- **Python 3.8 以降**（astropy, scipy, numpy が必要）
-- **astrometry.net solve-field** + 星カタログ（数 GB）
+- Increase overlap (100 → 200px)
+- Increase SIP Order (2 → 4)
+- Use a finer grid
 
-### 2. Python 環境の構築
+### Local Mode: Python Not Found
 
-```bash
-# リポジトリをクローン
-git clone https://github.com/ysmr3104/split-image-solver.git
-cd split-image-solver
+- Verify the Python path in Settings
+- For .venv, enter the full path: `/path/to/.venv/bin/python3`
+- Verify solve-field is installed and in PATH
 
-# Python 仮想環境を作成・有効化
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 依存パッケージをインストール
-pip install astropy scipy numpy
-```
-
-### 3. solve-field のインストール
-
-#### macOS (Homebrew)
-
-```bash
-brew install astrometry-net
-```
-
-#### Linux (Ubuntu/Debian)
-
-```bash
-sudo apt install astrometry.net astrometry-data-tycho2
-```
-
-星カタログ（index ファイル）のダウンロードも必要です。詳細は [astrometry.net のドキュメント](http://astrometry.net/doc/readme.html) を参照してください。
-
-### 4. PixInsight での設定
-
-1. **Script > Astrometry > SplitImageSolver** を実行
-2. 左下の **Settings...** ボタンをクリック
-3. **Solve Mode** を「Local (solve-field)」に変更
-4. **Local Settings** セクションで以下を設定:
-   - **Python**: Python 実行ファイルのパス（例: `/path/to/split-image-solver/.venv/bin/python3`）
-     - .venv 内の Python は Finder から見えない場合があるため、直接パスを入力してください
-   - **Script directory**: split-image-solver リポジトリのパス（例: `/path/to/split-image-solver`）
-5. 「OK」をクリック
-
-設定は永続化されるため、次回以降は自動的に Local モードで起動します。
-API モードに戻したい場合は Settings で Mode を切り替えるだけです。
-
-### 注意事項
-
-- Local モード選択時、Downsample / SIP Order / Timeout / Radius はグレーアウトされます（Python 側が自動処理するため）
-- Focal length / Pixel pitch は両モードで使用可能です（機材 DB にないカメラ・レンズの場合に手入力できます）
-- どちらのモードを選択していても、API キーと Python 環境の設定値はそれぞれ記憶されます
-
-## プロジェクト構造
-
-```
-split-image-solver/
-├── javascript/
-│   ├── SplitImageSolver.js    # メインスクリプト（UI + エンジン）
-│   ├── astrometry_api.js      # astrometry.net API クライアント
-│   ├── wcs_math.js            # WCS 数学ライブラリ
-│   ├── wcs_keywords.js        # FITS キーワードユーティリティ
-│   └── equipment_data.jsh     # 機材データベース（カメラ・レンズ）
-├── python/                    # Local モード用 Python 実装
-├── build-split-release.sh     # リリースビルドスクリプト
-├── repository/                # PixInsight リポジトリ配布パッケージ
-├── tests/                     # テスト
-└── docs/                      # ドキュメント
-```
-
-## トラブルシューティング
-
-### API ログインに失敗
-
-- API キーが正しいか確認: https://nova.astrometry.net/api_help
-- インターネット接続を確認
-
-### ソルブに時間がかかる / 失敗する
-
-- **RA/DEC ヒントを入力**: 天体名を入力して Search ボタンで座標を取得すると、ソルブ速度が大幅に向上
-- **焦点距離・ピクセルピッチを入力**: カメラ/レンズを選択するか、手動で入力
-- **グリッドを調整**: タイルが小さすぎると星が少なくてソルブ失敗しやすい
-
-### 一部タイルがソルブできない
-
-- 地上風景や雲を含むタイルはソルブできません（正常動作）
-- 2タイル以上成功すれば WCS 統合が可能です
-- Pass 2 リトライで自動的に再試行されます
-
-### WCS 精度が低い
-
-- オーバーラップを増やす（100 → 200px）
-- SIP Order を上げる（2 → 4）
-- グリッドを細かくする
-
-### Local モードで Python が見つからない
-
-- Settings の Python パスが正しいか確認
-- .venv を使用している場合、`/path/to/.venv/bin/python3` を直接入力
-- solve-field がインストールされ、PATH に含まれているか確認
-
-## ライセンス
+## License
 
 MIT License
 
-## 参考資料
+## References
 
-- [Astrometry.net](https://astrometry.net/) — プレートソルバー
-- [Astrometry.net API](https://nova.astrometry.net/api_help) — API ドキュメント
-- [PixInsight](https://pixinsight.com/) — 天体画像処理ソフトウェア
-- [FITS WCS Standard](https://fits.gsfc.nasa.gov/fits_wcs.html) — FITS WCS 規格
+- [Astrometry.net](https://astrometry.net/) — Plate solver
+- [Astrometry.net API](https://nova.astrometry.net/api_help) — API documentation
+- [PixInsight](https://pixinsight.com/) — Astronomical image processing software
+- [FITS WCS Standard](https://fits.gsfc.nasa.gov/fits_wcs.html) — FITS WCS specification
