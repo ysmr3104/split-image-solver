@@ -273,6 +273,47 @@ function pixelToRaDec(wcs, px, py, imageHeight) {
    return tanDeproject([wcs.crval1, wcs.crval2], [xi, eta]);
 }
 
+function pixelToRaDecTD(wcs, px, py) {
+   var u = (px + 1.0) - wcs.crpix1;
+   var v = (py + 1.0) - wcs.crpix2;
+   var up = u, vp = v;
+   if (wcs.sip) {
+      up = u + evalSipPolynomial(wcs.sip.a, u, v);
+      vp = v + evalSipPolynomial(wcs.sip.b, u, v);
+   }
+   var xi  = wcs.cd1_1 * up + wcs.cd1_2 * vp;
+   var eta = wcs.cd2_1 * up + wcs.cd2_2 * vp;
+   return tanDeproject([wcs.crval1, wcs.crval2], [xi, eta]);
+}
+
+// ImageSolver WCS conversion: IS (FITS F-coords) → top-down convention
+function convertISwcsToTD(isWcs, tileHeight) {
+   return {
+      crval1: isWcs.crval1,
+      crval2: isWcs.crval2,
+      crpix1: isWcs.crpix1 + 1,
+      crpix2: tileHeight + 1 - isWcs.crpix2,
+      cd1_1:  isWcs.cd1_1,
+      cd1_2:  -(isWcs.cd1_2 || 0),
+      cd2_1:  isWcs.cd2_1,
+      cd2_2:  -(isWcs.cd2_2 || 0)
+   };
+}
+
+// ImageSolver WCS conversion: IS → bottom-up convention
+function convertISwcsToBU(isWcs) {
+   return {
+      crval1: isWcs.crval1,
+      crval2: isWcs.crval2,
+      crpix1: isWcs.crpix1 + 1,
+      crpix2: isWcs.crpix2,
+      cd: [[isWcs.cd1_1 || 0, isWcs.cd1_2 || 0],
+           [isWcs.cd2_1 || 0, isWcs.cd2_2 || 0]],
+      sip: null,
+      sipMode: null
+   };
+}
+
 function angularSeparation(rd1, rd2) {
    var ra1 = rd1[0] * Math.PI / 180;
    var dec1 = rd1[1] * Math.PI / 180;
@@ -857,6 +898,110 @@ test("機材計算: ASI585MC + 8mm Fisheye → 超広角", function() {
    // 60° < fov < 90° → 6x4
    assertEqual(grid.cols, 6, "6x4 for wide angle");
    assertEqual(grid.rows, 4, "6x4 rows");
+});
+
+//============================================================================
+// ImageSolver WCS conversion tests
+//============================================================================
+
+test("convertISwcsToTD: ImageSolver WCS → top-down conversion", function() {
+   // ImageSolver returns CRPIX in FITS F-coordinates (0-based x, bottom-up y)
+   // For a 100x100 image with reference at center:
+   // IS: crpix1 = 49.0 (F_x = px), crpix2 = 51.0 (F_y = height - py = 100 - 49)
+   var isWcs = {
+      crval1: 180.0,
+      crval2: 45.0,
+      crpix1: 49.0,
+      crpix2: 51.0,
+      cd1_1: -0.001,
+      cd1_2: 0.0002,
+      cd2_1: 0.0003,
+      cd2_2: 0.001
+   };
+   var tileHeight = 100;
+   var td = convertISwcsToTD(isWcs, tileHeight);
+
+   assertEqual(td.crval1, 180.0, "crval1 preserved");
+   assertEqual(td.crval2, 45.0, "crval2 preserved");
+   assertEqual(td.crpix1, 50.0, "crpix1 = IS + 1");
+   assertEqual(td.crpix2, 50.0, "crpix2 = height + 1 - IS");
+   assertEqual(td.cd1_1, -0.001, "cd1_1 unchanged");
+   assertEqual(td.cd1_2, -0.0002, "cd1_2 negated", 1e-10);
+   assertEqual(td.cd2_1, 0.0003, "cd2_1 unchanged");
+   assertEqual(td.cd2_2, -0.001, "cd2_2 negated", 1e-10);
+
+   // Verify: pixelToRaDecTD at center pixel (49,49) should give reference point
+   var raDec = pixelToRaDecTD(td, 49, 49);
+   assertEqual(raDec[0], 180.0, "center pixel RA via TD", 0.01);
+   assertEqual(raDec[1], 45.0, "center pixel Dec via TD", 0.01);
+});
+
+test("convertISwcsToBU: ImageSolver WCS → bottom-up conversion", function() {
+   var isWcs = {
+      crval1: 180.0,
+      crval2: 45.0,
+      crpix1: 49.0,
+      crpix2: 51.0,
+      cd1_1: -0.001,
+      cd1_2: 0.0002,
+      cd2_1: 0.0003,
+      cd2_2: 0.001
+   };
+   var bu = convertISwcsToBU(isWcs);
+
+   assertEqual(bu.crval1, 180.0, "crval1 preserved");
+   assertEqual(bu.crval2, 45.0, "crval2 preserved");
+   assertEqual(bu.crpix1, 50.0, "crpix1 = IS + 1");
+   assertEqual(bu.crpix2, 51.0, "crpix2 unchanged (both BU)");
+   assertEqual(bu.cd[0][0], -0.001, "cd1_1 unchanged");
+   assertEqual(bu.cd[0][1], 0.0002, "cd1_2 unchanged", 1e-10);
+   assertEqual(bu.cd[1][0], 0.0003, "cd2_1 unchanged");
+   assertEqual(bu.cd[1][1], 0.001, "cd2_2 unchanged", 1e-10);
+   assertEqual(bu.sip, null, "no SIP");
+
+   // Verify: pixelToRaDec at center pixel (49,49) with height=100 should give reference
+   var wcsObj = {
+      crval1: bu.crval1, crval2: bu.crval2,
+      crpix1: bu.crpix1, crpix2: bu.crpix2,
+      cd1_1: bu.cd[0][0], cd1_2: bu.cd[0][1],
+      cd2_1: bu.cd[1][0], cd2_2: bu.cd[1][1]
+   };
+   var raDec = pixelToRaDec(wcsObj, 49, 49, 100);
+   assertEqual(raDec[0], 180.0, "center pixel RA via BU", 0.01);
+   assertEqual(raDec[1], 45.0, "center pixel Dec via BU", 0.01);
+});
+
+test("convertISwcsToTD + convertToWcsResult: round-trip consistency", function() {
+   // Verify that IS→TD→BU gives the same result as IS→BU for the same pixel
+   var isWcs = {
+      crval1: 120.5,
+      crval2: -30.2,
+      crpix1: 200.0,
+      crpix2: 150.0,
+      cd1_1: -0.0005,
+      cd1_2: -0.0001,
+      cd2_1: -0.0001,
+      cd2_2: 0.0005
+   };
+   var height = 300;
+
+   // Path 1: IS → TD
+   var td = convertISwcsToTD(isWcs, height);
+   // Path 2: IS → BU
+   var bu = convertISwcsToBU(isWcs);
+
+   // Check pixel (100, 100) gives same RA/Dec via both paths
+   var raDecTD = pixelToRaDecTD(td, 100, 100);
+   var wcsObj = {
+      crval1: bu.crval1, crval2: bu.crval2,
+      crpix1: bu.crpix1, crpix2: bu.crpix2,
+      cd1_1: bu.cd[0][0], cd1_2: bu.cd[0][1],
+      cd2_1: bu.cd[1][0], cd2_2: bu.cd[1][1]
+   };
+   var raDecBU = pixelToRaDec(wcsObj, 100, 100, height);
+
+   assertEqual(raDecTD[0], raDecBU[0], "RA consistent between TD and BU paths", 1e-8);
+   assertEqual(raDecTD[1], raDecBU[1], "Dec consistent between TD and BU paths", 1e-8);
 });
 
 //============================================================================
