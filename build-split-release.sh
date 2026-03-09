@@ -12,7 +12,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERSION="0.2.0"
+MAIN_SCRIPT="${SCRIPT_DIR}/javascript/SplitImageSolver.js"
+VERSION=$(grep '#define VERSION' "$MAIN_SCRIPT" | sed 's/.*"\(.*\)".*/\1/')
 PACKAGE_NAME="SplitImageSolver"
 ZIP_NAME="${PACKAGE_NAME}-${VERSION}.zip"
 REPO_DIR="${SCRIPT_DIR}/repository"
@@ -58,7 +59,7 @@ cat > "${REPO_DIR}/updates-split.xri" << XMLEOF
 <xri version="1.0">
    <description>
       <title>Split Image Solver</title>
-      <brief_description>Automatic plate solver using astrometry.net API for PixInsight</brief_description>
+      <brief_description>Automatic plate solver using astrometry.net API or local solve-field for PixInsight</brief_description>
    </description>
    <platform os="all" arch="noarch" version="1.8.9:9.9.9">
       <package fileName="${ZIP_NAME}"
@@ -67,7 +68,7 @@ cat > "${REPO_DIR}/updates-split.xri" << XMLEOF
                releaseDate="${RELEASE_DATE}">
          <title>Split Image Solver</title>
          <description>
-            <p>Automatic plate solver using astrometry.net API. Upload image, solve, and apply WCS to the active image.</p>
+            <p>Automatic plate solver using astrometry.net API or local solve-field. Supports single-image and split-tile solve with WCS application.</p>
          </description>
       </package>
    </platform>

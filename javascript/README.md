@@ -1,158 +1,61 @@
 # Split Image Solver - PixInsight Script
 
-PixInsight 用の自動プレートソルブスクリプトです。
-astrometry.net API を使用して画像をソルブし、WCS 情報を適用します。
-広角画像のタイル分割ソルブにも対応しています。
+Automatic plate solver for PixInsight using astrometry.net API or local solve-field.
+Supports single-image and split-tile solving for wide-field astrophotos.
 
-**Python 不要** — 純粋 PJSR（JavaScript）のみで動作します。
+For full documentation, see the [project README](../README.md) ([日本語](../README.ja.md)).
 
-## 必要な環境
+## Files
 
-- **PixInsight 1.8.9 以降**
-- **astrometry.net API キー**（無料）: https://nova.astrometry.net/
+| File | Description |
+|------|-------------|
+| `SplitImageSolver.js` | Main script (UI + solve engine) |
+| `astrometry_api.js` | astrometry.net API client |
+| `wcs_math.js` | WCS math library (TAN projection, SIP fitting, etc.) |
+| `wcs_keywords.js` | FITS keyword utilities |
+| `equipment_data.jsh` | Equipment database (cameras + lenses) |
 
-ローカルの solve-field、Python、星カタログのインストールは不要です。
+All files must be placed in the same directory. `SplitImageSolver.js` loads the others via `#include`.
 
-## ファイル構成
+## Screenshots
 
-| ファイル | 説明 |
-|---------|------|
-| `SplitImageSolver.js` | メインスクリプト（UI + ソルブエンジン） |
-| `astrometry_api.js` | astrometry.net API クライアント |
-| `wcs_math.js` | WCS 数学ライブラリ（TAN 投影、SIP フィット等） |
-| `wcs_keywords.js` | FITS キーワードユーティリティ |
-| `equipment.json` | 機材データベース（カメラ・レンズ） |
+### Main Dialog
 
-全ファイルが同一ディレクトリに配置されている必要があります。
-`SplitImageSolver.js` が `#include` で他の `.js` ファイルを読み込みます。
+![Main Dialog](../docs/images/main-dialog.jpg)
 
-## インストール
+### Settings Dialog
 
-### PixInsight リポジトリ経由（推奨）
+![Settings Dialog](../docs/images/settings-dialog.jpg)
+
+## Quick Install
+
+### Via PixInsight Repository (recommended)
 
 1. **Resources > Updates > Manage Repositories**
-2. リポジトリ URL を追加
-3. **Check for Updates** → SplitImageSolver をインストール
+2. Add URL: `https://ysmrastro.github.io/pixinsight-scripts/`
+3. **Check for Updates** → Install SplitImageSolver
 
-### 手動インストール
+### Manual
 
-上記5ファイルを PixInsight のスクリプトディレクトリにコピー:
+Copy all 5 files to the PixInsight scripts directory:
 
 ```
 {PixInsight}/src/scripts/SplitImageSolver/
-├── SplitImageSolver.js
-├── astrometry_api.js
-├── wcs_math.js
-├── wcs_keywords.js
-└── equipment.json
 ```
 
-スクリプトディレクトリの場所:
 - macOS: `/Applications/PixInsight/src/scripts/SplitImageSolver/`
 - Windows: `C:\Program Files\PixInsight\src\scripts\SplitImageSolver\`
 - Linux: `/opt/PixInsight/src/scripts/SplitImageSolver/`
 
-PixInsight を再起動後、**Script > Utilities > SplitImageSolver** から実行可能。
+After restart: **Script > Astrometry > SplitImageSolver**
 
-## 使い方
+## Grid Size Guidelines
 
-### 基本（単一画像ソルブ）
-
-1. PixInsight で対象画像を開く
-2. **Script > Utilities > SplitImageSolver** を実行
-3. **API Key** を入力（初回のみ、以降は自動保存）
-4. 「**Solve**」をクリック
-
-### 高速ソルブ（ヒント付き）
-
-RA/DEC やピクセルスケールのヒントを与えると、ソルブ速度が大幅に向上します。
-
-1. **カメラ/レンズ** を選択 → ピクセルスケールが自動計算される
-2. **Object** に天体名（例: "M31", "Orion Nebula"）を入力し「**Search**」→ RA/DEC が自動入力される
-3. 「**Solve**」をクリック
-
-### 広角画像の分割ソルブ
-
-1. カメラ/レンズを選択すると推奨グリッドが表示される
-2. **Grid** を推奨サイズに設定（例: 3x3）
-3. **Overlap** を設定（デフォルト 200px）
-4. 「**Solve**」をクリック
-
-処理の流れ:
-- Pass 1: 全タイルをソルブ
-- Pass 2: 失敗タイルを成功タイルのヒントで自動再試行
-- オーバーラップ検証 → 異常タイルを除外
-- 全成功タイルの WCS を統合して元画像に適用
-
-## パラメータ詳細
-
-### 機材設定
-
-| パラメータ | 説明 |
-|-----------|------|
-| Camera | カメラ機種。FITS ヘッダーの INSTRUME から自動認識。選択するとピクセルピッチが自動入力される |
-| Lens | レンズ/鏡筒。FITS ヘッダーの FOCALLEN から近似マッチ。選択すると焦点距離と投影型が自動入力される |
-
-### ソルブ設定
-
-| パラメータ | 説明 | デフォルト |
-|-----------|------|-----------|
-| Scale | ピクセルスケール (arcsec/px)。カメラ/レンズ選択時は自動計算 | — |
-| Scale Error | スケール推定の誤差範囲 (%) | 30 |
-| Object | 天体名。Search ボタンで Sesame 検索 → RA/DEC 自動入力 | — |
-| RA | 画像中心の赤経 (HMS or degrees) | — |
-| DEC | 画像中心の赤緯 (DMS or degrees) | — |
-| Radius | 座標検索半径 (°) | 15 |
-
-### 分割設定
-
-| パラメータ | 説明 | デフォルト |
-|-----------|------|-----------|
-| Grid | 分割グリッド。1x1 = 単一画像モード | 1x1 |
-| Overlap | タイル間オーバーラップ (px) | 200 |
-| Downsample | ダウンサンプル設定（分割モードでは自動） | Auto |
-| SIP Order | SIP 歪み補正の多項式次数 | 2 |
-
-### グリッドサイズの目安
-
-| 対角 FOV | 推奨グリッド | 例 |
-|---------|------------|-----|
-| ～10° | 1x1 | 望遠鏡 |
-| ～30° | 2x2 | 200mm レンズ |
-| ～60° | 3x3 | 35-50mm レンズ |
-| ～90° | 4x4 | 24mm レンズ |
-| ～120° | 6x4 | 14-20mm レンズ |
-| 120°～ | 8x6 以上 | 魚眼レンズ |
-
-## トラブルシューティング
-
-### API ログイン失敗
-
-- API キーが正しいか確認: https://nova.astrometry.net/api_help
-- インターネット接続を確認
-- PixInsight の Process Console にエラー詳細が表示される
-
-### ソルブに時間がかかる
-
-- RA/DEC ヒントと Scale を入力するとソルブ速度が劇的に向上する
-- 天体名を入力して Search ボタンで座標を取得するのが最も簡単
-
-### ソルブ失敗
-
-- ピクセルスケールが大幅に間違っていないか確認
-- Scale Error を大きくする（30 → 50）
-- 分割モードの場合、タイルが小さすぎると星が少なくてソルブ失敗しやすい
-
-### 一部タイルがソルブできない
-
-- 地上風景や雲を含むタイルはソルブできない（正常動作）
-- 2タイル以上成功すれば WCS 統合が可能
-- Pass 2 で自動的にリトライされる
-
-## 技術仕様
-
-- **PJSR 互換**: PixInsight 1.8.9 以降（ES5 JavaScript）
-- **HTTP 通信**: ExternalProcess + curl（一時ファイル経由）
-- **API**: astrometry.net REST API（login → upload → poll → calibration → WCS）
-- **WCS フィット**: WCSFitter（CD 行列 + SIP 歪み補正）、制御点直接設定（SplineWorldTransformation）
-- **設定永続化**: PixInsight Settings API
+| Diagonal FOV | Recommended Grid | Example |
+|-------------|-----------------|---------|
+| ~10° | 1x1 | Telescope |
+| ~30° | 2x2 | 200mm lens |
+| ~60° | 3x3 | 35-50mm lens |
+| ~90° | 4x4 | 24mm lens |
+| ~120° | 6x4 | 14-20mm lens |
+| 120°+ | 8x6+ | Fisheye lens |
