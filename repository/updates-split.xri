@@ -6,7 +6,7 @@
    </description>
    <platform os="all" arch="noarch" version="1.8.9:9.9.9">
       <package fileName="SplitImageSolver-1.0.0.zip"
-               sha1="41b259f48fff6768fbb5c36f41193379d2119e05"
+               sha1="963757eab11c4862a5219aa32216822f920d7a04"
                type="script"
                releaseDate="20260309">
          <title>Split Image Solver</title>
