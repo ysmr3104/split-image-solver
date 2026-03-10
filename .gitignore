@@ -93,5 +93,8 @@ HANDOVER.md
 # Build
 .build-tmp-split/
 
+# AdP symlink (local development only)
+AdP
+
 # WCS JSON output
 *.wcs.json

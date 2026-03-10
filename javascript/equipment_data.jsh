@@ -473,6 +473,36 @@ var __equipmentData__ = {
       "sensor_width": 4144,
       "sensor_height": 2822
     },
+    // ===== ZWO Seestar =====
+    {
+      "name": "ZWO Seestar S50 (IMX462)",
+      "instrume": "Seestar S50",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1936,
+      "sensor_height": 1096
+    },
+    {
+      "name": "ZWO Seestar S30 (IMX662)",
+      "instrume": "Seestar S30",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
+    // ===== DWARFLAB =====
+    {
+      "name": "DWARFLAB DWARF 3 (IMX678)",
+      "instrume": "DWARF 3",
+      "pixel_pitch": 2.00,
+      "sensor_width": 3856,
+      "sensor_height": 2180
+    },
+    {
+      "name": "DWARFLAB DWARF mini (IMX662)",
+      "instrume": "DWARF mini",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
     // ===== Custom =====
     {
       "name": "Custom",
@@ -527,6 +557,12 @@ var __equipmentData__ = {
     {"name": "Takahashi FSQ-85EDP f/5.3", "model": "FSQ-85EDP", "focal_length": 450, "projection": "rectilinear"},
     {"name": "Takahashi FSQ-106ED f/5.0", "model": "FSQ-106ED", "focal_length": 530, "projection": "rectilinear"},
     {"name": "Takahashi FSQ-130ED f/5.0", "model": "FSQ-130ED", "focal_length": 650, "projection": "rectilinear"},
+    // ===== ZWO Seestar =====
+    {"name": "ZWO Seestar S50 (250mm f/5.0)", "model": "Seestar S50", "focal_length": 250, "projection": "rectilinear"},
+    {"name": "ZWO Seestar S30 (150mm f/5.0)", "model": "Seestar S30", "focal_length": 150, "projection": "rectilinear"},
+    // ===== DWARFLAB =====
+    {"name": "DWARFLAB DWARF 3 (150mm f/4.3)", "model": "DWARF 3", "focal_length": 150, "projection": "rectilinear"},
+    {"name": "DWARFLAB DWARF mini (150mm f/5.0)", "model": "DWARF mini", "focal_length": 150, "projection": "rectilinear"},
     // ===== Generic focal lengths =====
     {"name": "50mm", "focal_length": 50, "projection": "rectilinear"},
     {"name": "85mm", "focal_length": 85, "projection": "rectilinear"},

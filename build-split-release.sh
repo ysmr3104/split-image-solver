@@ -13,7 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN_SCRIPT="${SCRIPT_DIR}/javascript/SplitImageSolver.js"
-VERSION=$(grep '#define VERSION' "$MAIN_SCRIPT" | sed 's/.*"\(.*\)".*/\1/')
+VERSION=$(grep '#define VERSION ' "$MAIN_SCRIPT" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 PACKAGE_NAME="SplitImageSolver"
 ZIP_NAME="${PACKAGE_NAME}-${VERSION}.zip"
 REPO_DIR="${SCRIPT_DIR}/repository"
@@ -34,6 +34,7 @@ cp "${SCRIPT_DIR}/javascript/astrometry_api.js"   "${TMPDIR_BASE}/src/scripts/${
 cp "${SCRIPT_DIR}/javascript/wcs_math.js"          "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/wcs_keywords.js"      "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/equipment_data.jsh"   "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
+cp "${SCRIPT_DIR}/javascript/imagesolver_bridge.jsh" "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 
 echo "ファイルをコピーしました:"
 ls -la "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"

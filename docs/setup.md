@@ -150,8 +150,9 @@ Settings are persisted. The script will automatically start in Local mode on sub
 ## Notes
 
 - In Local mode, Downsample / SIP Order / Timeout / Radius / Scale Error are grayed out (handled automatically by Python)
-- Focal length / Pixel pitch are available in both modes (for manual input when equipment is not in the DB)
-- Settings for both modes (API key and Python environment) are always preserved regardless of which mode is selected
+- In ImageSolver mode, Grid is restricted to Single (1x1) only. Split solving is not supported because individual tiles from wide-angle images cannot be reliably solved by the built-in ImageSolver
+- Focal length / Pixel pitch are available in all modes (for manual input when equipment is not in the DB)
+- Settings for all modes (API key, Python environment) are always preserved regardless of which mode is selected
 
 ## Troubleshooting
 

@@ -75,7 +75,7 @@ class ImageSplitter:
         グリッドパターンを解析
 
         Args:
-            pattern: "NxM" 形式の文字列
+            pattern: "ColsxRows" 形式の文字列 (例: "8x6" = 8列×6行)
 
         Returns:
             Tuple[int, int]: (rows, cols)
@@ -85,8 +85,8 @@ class ImageSplitter:
             if len(parts) != 2:
                 raise ValueError
 
-            rows = int(parts[0])
-            cols = int(parts[1])
+            cols = int(parts[0])
+            rows = int(parts[1])
 
             if rows < 1 or cols < 1:
                 raise ValueError
