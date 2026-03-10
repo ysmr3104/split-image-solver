@@ -11,8 +11,8 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "0.1.0"
-#define VERSION_SUFFIX " (alpha)"
+#define VERSION "1.0.0"
+#define VERSION_SUFFIX ""
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -4473,6 +4473,12 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       args.push(hints._projection);
    }
 
+   // Skip edges
+   if (skipEdges && (skipEdges.top > 0 || skipEdges.bottom > 0 || skipEdges.left > 0 || skipEdges.right > 0)) {
+      args.push("--skip-edges");
+      args.push(skipEdges.top + "," + skipEdges.bottom + "," + skipEdges.left + "," + skipEdges.right);
+   }
+
    // Build shell command with proper PATH
    var cmdParts = [];
    for (var i = 0; i < args.length; i++) {
@@ -4700,11 +4706,12 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          for (var r = 0; r < rows; r++) {
             var gridLine = "  " + r + "  ";
             for (var gc = 0; gc < cols; gc++) {
-               gridLine += (tileGrid[r][gc] === "O") ? " O" : " .";
+               var cell = tileGrid[r][gc];
+               gridLine += (cell === "O") ? " O" : (cell === "-") ? " -" : " .";
             }
             console.writeln(gridLine);
          }
-         console.writeln("  (O=solved, .=failed)");
+         console.writeln("  (O=solved, .=failed, -=skipped)");
       } catch (e3) {}
    }
 

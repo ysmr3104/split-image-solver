@@ -75,13 +75,18 @@ def _parse_grid(grid_str: str):
     return rows, cols
 
 
-def _build_tile_grid(grid_rows, grid_cols, split_files, solve_results):
+def _build_tile_grid(grid_rows, grid_cols, split_files, solve_results,
+                     skipped_indices=None):
     """タイル成否の2Dグリッドを生成
 
     Returns:
-        List[List[str]]: 各セルが "O"(成功) / "X"(失敗) の2Dリスト
+        List[List[str]]: 各セルが "O"(成功) / "X"(失敗) / "-"(スキップ) の2Dリスト
     """
     grid = [["X"] * grid_cols for _ in range(grid_rows)]
+    if skipped_indices:
+        for row, col in skipped_indices:
+            if 0 <= row < grid_rows and 0 <= col < grid_cols:
+                grid[row][col] = "-"
     for sf in split_files:
         row, col = sf["region"]["index"]
         path = str(sf["file_path"])
@@ -289,6 +294,12 @@ def main():
         help="一時ファイルディレクトリ [デフォルト: システム一時ディレクトリ]",
     )
     parser.add_argument("--keep-temp", action="store_true", help="一時ファイルを保持")
+    parser.add_argument(
+        "--skip-edges",
+        type=str,
+        default=None,
+        help="スキップするエッジタイル数 T,B,L,R (例: '0,3,0,0' = 下3行スキップ)",
+    )
 
     # ログ設定
     parser.add_argument(
@@ -533,6 +544,38 @@ def main():
             return 1
 
         logger.info(f"Image split into {len(split_files)} tiles")
+
+        # Skip edges: スキップ対象タイルを除外
+        skipped_indices = set()
+        if args.skip_edges:
+            try:
+                parts = args.skip_edges.split(",")
+                skip_top = int(parts[0])
+                skip_bottom = int(parts[1])
+                skip_left = int(parts[2])
+                skip_right = int(parts[3])
+            except (IndexError, ValueError):
+                skip_top = skip_bottom = skip_left = skip_right = 0
+                logger.warning(f"Invalid --skip-edges format: {args.skip_edges}, ignoring")
+
+            grid_rows, grid_cols = _parse_grid(args.grid)
+            for sf in split_files:
+                row, col = sf["region"]["index"]
+                if (row < skip_top or row >= grid_rows - skip_bottom or
+                        col < skip_left or col >= grid_cols - skip_right):
+                    skipped_indices.add((row, col))
+
+            if skipped_indices:
+                original_count = len(split_files)
+                split_files = [
+                    sf for sf in split_files
+                    if sf["region"]["index"] not in skipped_indices
+                ]
+                logger.info(
+                    f"Skip edges (T:{skip_top} B:{skip_bottom} L:{skip_left} R:{skip_right}): "
+                    f"{original_count - len(split_files)} tiles skipped, "
+                    f"{len(split_files)} tiles to solve"
+                )
 
         # Step 3: 各分割画像をプレートソルブ
         logger.info(f"\n[Step 3/6] Plate solving tiles with astrometry_local...")
@@ -1024,7 +1067,8 @@ def main():
             # タイル成否グリッドを生成
             grid_rows, grid_cols = _parse_grid(args.grid)
             tile_grid = _build_tile_grid(
-                grid_rows, grid_cols, split_files, solve_results
+                grid_rows, grid_cols, split_files, solve_results,
+                skipped_indices=skipped_indices
             )
 
             # 機材情報
