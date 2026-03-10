@@ -4691,6 +4691,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          var rows = result.grid.rows;
          var cols = result.grid.cols;
          var tileGrid = result.tile_grid;
+         // grid[row][col]: row=Y (top→bottom), col=X (left→right)
          var header = "     ";
          for (var c = 0; c < cols; c++) { header += " " + c; }
          console.writeln("");
