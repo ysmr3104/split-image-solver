@@ -6,9 +6,9 @@
    </description>
    <platform os="all" arch="noarch" version="1.8.9:9.9.9">
       <package fileName="SplitImageSolver-1.0.0.zip"
-               sha1="963757eab11c4862a5219aa32216822f920d7a04"
+               sha1="d1ca5c37011290ec67287139d5732061050df350"
                type="script"
-               releaseDate="20260309">
+               releaseDate="20260310">
          <title>Split Image Solver</title>
          <description>
             <p>Automatic plate solver using astrometry.net API or local solve-field. Supports single-image and split-tile solve with WCS application.</p>
