@@ -298,7 +298,79 @@ function applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight) {
    cleanedKw.push(makeFITSKeyword("OBJCTDEC", decToDMS(imgCenter[1])));
 
    targetWindow.keywords = cleanedKw;
-   targetWindow.regenerateAstrometricSolution();
+
+   // Write PCL:AstrometricSolution properties required by SPFC and other tools.
+   // regenerateAstrometricSolution() rebuilds the internal solution from keywords,
+   // but some tools (e.g. SPFC) check these properties directly.
+   var view = targetWindow.mainView;
+   var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+
+   // Remove any existing SplineWorldTransformation properties from previous solutions.
+   // If left behind, regenerateAstrometricSolution() tries to rebuild the spline
+   // and fails with "Invalid length(s) of surface spline coefficient vector(s)".
+   var existingProps = view.properties;
+   for (var pi = 0; pi < existingProps.length; pi++) {
+      if (existingProps[pi].indexOf("SplineWorldTransformation") >= 0) {
+         view.deleteProperty(existingProps[pi]);
+      }
+   }
+   // Also remove the legacy property
+   view.deleteProperty("Transformation_ImageToProjection");
+   // Remove previous solution information
+   view.deleteProperty("PCL:AstrometricSolution:Information");
+
+   // Projection system (TAN = Gnomonic)
+   view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType_String8, attrs);
+
+   // Reference celestial coordinates (projection origin in degrees)
+   var refCelestial = new Vector([wcsResult.crval1, wcsResult.crval2]);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates", refCelestial, PropertyType_F64Vector, attrs);
+
+   // Reference image coordinates (I-coordinates: 0-based x, bottom-up y)
+   // Convert from our FITS BU convention (1-based) to I-coordinates (0-based)
+   var refImgX = wcsResult.crpix1 - 1;
+   var refImgY = wcsResult.crpix2;  // Already bottom-up in our convention
+   var refImage = new Vector([refImgX, refImgY]);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates", refImage, PropertyType_F64Vector, attrs);
+
+   // Linear transformation matrix (2x2, I-coordinates to gnomonic native coordinates)
+   // In I-coordinates (0-based x, bottom-up y), CD matrix maps directly
+   var ltMatrix = new Matrix(2, 2);
+   ltMatrix.at(0, 0, wcsResult.cd[0][0]);
+   ltMatrix.at(0, 1, wcsResult.cd[0][1]);
+   ltMatrix.at(1, 0, wcsResult.cd[1][0]);
+   ltMatrix.at(1, 1, wcsResult.cd[1][1]);
+   view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType_F64Matrix, attrs);
+
+   // Native coordinates of the reference point (standard for TAN: 0, 90)
+   var refNative = new Vector([0, 90]);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates", refNative, PropertyType_F64Vector, attrs);
+
+   // Celestial pole native coordinates
+   var plon = (wcsResult.crval2 < 90) ? 180 : 0;
+   var plat = 90;
+   var celestialPole = new Vector([plon, plat]);
+   view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates", celestialPole, PropertyType_F64Vector, attrs);
+
+   // Observation center coordinates
+   view.setPropertyValue("Observation:Center:RA", imgCenter[0], PropertyType_Float64, attrs);
+   view.setPropertyValue("Observation:Center:Dec", imgCenter[1], PropertyType_Float64, attrs);
+   view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType_String8, attrs);
+   view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType_Float64, attrs);
+
+   // Creation metadata
+   view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType_TimePoint, attrs);
+   var creatorApp = format("PixInsight %s%d.%d.%d",
+      CoreApplication.versionLE ? "LE " : "",
+      CoreApplication.versionMajor,
+      CoreApplication.versionMinor,
+      CoreApplication.versionRelease);
+   view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType_String, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType_String, attrs);
+
+   // NOTE: Do NOT call regenerateAstrometricSolution() here.
+   // It must be called AFTER setCustomControlPoints() writes spline control points,
+   // otherwise the spline coefficients will be inconsistent with the control points.
 }
 
 //----------------------------------------------------------------------------
@@ -1216,7 +1288,7 @@ function solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec) {
 //
 // Returns number of successfully solved tiles.
 //----------------------------------------------------------------------------
-function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback, tileSolverFn) {
+function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback, tileSolverFn, abortCheckFn, skipCheckFn) {
    var notify = progressCallback || function() {};
    var successCount = 0;
    var attemptCount = 0;
@@ -1371,13 +1443,15 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
       console.writeln("<b>Wave " + wave + ": " + currentWave.length + " tile(s)</b>");
 
       for (var wi = 0; wi < currentWave.length; wi++) {
-         // Check for abort
+         // Check for abort (works for all modes including ImageSolver where client is null)
          processEvents();
          if (console.abortRequested ||
-             (client && typeof client.abortCheck === "function" && client.abortCheck())) {
+             (client && typeof client.abortCheck === "function" && client.abortCheck()) ||
+             (typeof abortCheckFn === "function" && abortCheckFn())) {
             throw "Aborted by user";
          }
-         if (client && typeof client.skipCheck === "function" && client.skipCheck()) {
+         if ((client && typeof client.skipCheck === "function" && client.skipCheck()) ||
+             (typeof skipCheckFn === "function" && skipCheckFn())) {
             console.writeln("  [" + timestamp() + "] Skipping remaining tiles (user requested)");
             for (var rem = wi; rem < currentWave.length; rem++) {
                currentWave[rem].status = "skipped";
@@ -2762,6 +2836,21 @@ function SplitSolverDialog() {
    this.pixelPitchUnitLabel = new Label(this);
    this.pixelPitchUnitLabel.text = "\u00B5m";
 
+   // ---- Drizzle Scale ----
+   this.drizzleLabel = new Label(this);
+   this.drizzleLabel.text = "Drizzle:";
+   this.drizzleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.drizzleLabel.setFixedWidth(120);
+
+   this.drizzleCombo = new ComboBox(this);
+   this.drizzleCombo.addItem("None (1x)");
+   this.drizzleCombo.addItem("2x");
+   this.drizzleCombo.addItem("3x");
+   this.drizzleCombo.addItem("4x");
+   var savedDrizzle = Settings.read(SETTINGS_KEY + "/drizzleFactor", DataType_Int32);
+   this.drizzleCombo.currentItem = (savedDrizzle !== null && savedDrizzle >= 0 && savedDrizzle <= 3) ? savedDrizzle : 0;
+   this.drizzleCombo.toolTip = "Drizzle integration scale factor. Adjusts effective pixel pitch for plate solving.";
+
    // ---- Scale info (computed, read-only display) ----
    this.scaleInfoLabel = new Label(this);
    this.scaleInfoLabel.text = "";
@@ -2789,17 +2878,28 @@ function SplitSolverDialog() {
 
          // Correct for resampled images (e.g., drizzle/stacking)
          var ps = nativeScale;
+         var resampleApplied = false;
          var camIdx = self.cameraCombo.currentItem - 1;
          if (equipDB && camIdx >= 0 && camIdx < equipDB.cameras.length) {
             var cam = equipDB.cameras[camIdx];
             if (imageWidth > 0 && cam.sensor_width > 0 && imageWidth !== cam.sensor_width) {
                var resampleRatio = cam.sensor_width / imageWidth;
                ps = nativeScale * resampleRatio;
+               resampleApplied = true;
                console.writeln("Scale corrected for resampled image: " +
                   nativeScale.toFixed(3) + " -> " + ps.toFixed(3) + " arcsec/px" +
                   " (image: " + imageWidth + "x" + imageHeight +
                   " vs sensor: " + cam.sensor_width + "x" + cam.sensor_height + ")");
             }
+         }
+
+         // Apply drizzle scale factor only when resample correction was NOT applied.
+         // If resample correction is active, it already accounts for drizzle
+         // (sensor pixel count vs actual image pixel count includes drizzle scaling).
+         var drizzleFactors = [1, 2, 3, 4];
+         var drizzleFactor = drizzleFactors[self.drizzleCombo.currentItem] || 1;
+         if (drizzleFactor > 1 && !resampleApplied) {
+            ps = ps / drizzleFactor;
          }
 
          self.scaleInfoLabel.text = format("(%.3f arcsec/px)", ps);
@@ -2860,6 +2960,7 @@ function SplitSolverDialog() {
 
    this.focalLengthEdit.onTextUpdated = function() { updateScaleAndFov(); };
    this.pixelPitchEdit.onTextUpdated = function() { updateScaleAndFov(); };
+   this.drizzleCombo.onItemSelected = function() { updateScaleAndFov(); };
 
    var focalSizer = new HorizontalSizer;
    focalSizer.spacing = 6;
@@ -2880,6 +2981,12 @@ function SplitSolverDialog() {
    pitchSizer.add(this.scaleErrorEdit);
    pitchSizer.add(this.scaleErrorUnitLabel);
    pitchSizer.addStretch();
+
+   var drizzleSizer = new HorizontalSizer;
+   drizzleSizer.spacing = 6;
+   drizzleSizer.add(this.drizzleLabel);
+   drizzleSizer.add(this.drizzleCombo);
+   drizzleSizer.addStretch();
 
    // ---- Object name search ----
    this.objectLabel = new Label(this);
@@ -3262,7 +3369,7 @@ function SplitSolverDialog() {
    // ---- Image Preview with Grid Overlay ----
    this.previewControl = new GridPreviewControl(this);
    this.previewControl.setMinSize(500, 500);
-   this._stretchMode = "linked";
+   this._stretchMode = "unlinked";
 
    // Create bitmap from active image
    if (!targetWindow.isNull) {
@@ -3378,6 +3485,7 @@ function SplitSolverDialog() {
    equipGroup.sizer.add(lensSizer);
    equipGroup.sizer.add(focalSizer);
    equipGroup.sizer.add(pitchSizer);
+   equipGroup.sizer.add(drizzleSizer);
 
    // ---- GroupBox: Split Settings ----
    var splitGroup = new GroupBox(this);
@@ -3514,13 +3622,22 @@ SplitSolverDialog.prototype.doSolve = function() {
       var scale = nativeScale;
 
       // Correct for resampled images
+      var resampleApplied = false;
       var camIdxScale = this.cameraCombo.currentItem - 1;
       if (this.equipDB && camIdxScale >= 0 && camIdxScale < this.equipDB.cameras.length) {
          var camScale = this.equipDB.cameras[camIdxScale];
          var imgW = targetWindow.mainView.image.width;
          if (imgW > 0 && camScale.sensor_width > 0 && imgW !== camScale.sensor_width) {
             scale = nativeScale * (camScale.sensor_width / imgW);
+            resampleApplied = true;
          }
+      }
+
+      // Apply drizzle factor only when resample correction was NOT applied
+      var drizzleFactors = [1, 2, 3, 4];
+      var drizzleFactor = drizzleFactors[this.drizzleCombo.currentItem] || 1;
+      if (drizzleFactor > 1 && !resampleApplied) {
+         scale = scale / drizzleFactor;
       }
 
       hints.scale_units = "arcsecperpix";
@@ -3543,6 +3660,7 @@ SplitSolverDialog.prototype.doSolve = function() {
       Settings.write(SETTINGS_KEY + "/camera", DataType_String, camName);
       Settings.write(SETTINGS_KEY + "/lens", DataType_String, lensName);
    }
+   Settings.write(SETTINGS_KEY + "/drizzleFactor", DataType_Int32, this.drizzleCombo.currentItem);
 
    // RA/DEC hints
    var ra = parseRAInput(this.raEdit.text);
@@ -3899,14 +4017,26 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
 
       // Solve
       this.progressLabel.text = "ImageSolver: detecting stars and matching catalog...";
+      this.progressLabel.toolTip = "ImageSolver is running. Use the console X button to abort.";
       processEvents();
 
       if (!solver.SolveImage(targetWindow)) {
+         // Check if abort was requested during SolveImage
+         if (this._abortRequested || console.abortRequested) {
+            throw "Aborted by user";
+         }
          throw "ImageSolver failed. Check console for details.";
+      }
+
+      // Check abort after solve completes
+      processEvents();
+      if (this._abortRequested || console.abortRequested) {
+         throw "Aborted by user";
       }
 
       // Extract WCS from the solved window
       this.progressLabel.text = "Extracting WCS...";
+      this.progressLabel.toolTip = "";
       processEvents();
 
       var isWcs = extractWcsFromMetadata(solver.metadata);
@@ -3934,9 +4064,32 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
          " scale=" + calibration.pixscale.toFixed(4) + " arcsec/px" +
          " rotation=" + calibration.orientation.toFixed(2) + " deg");
 
-      // Note: ImageSolver already wrote WCS to the window via SaveKeywords/SaveProperties.
-      // We apply our own WCS format for consistency with the rest of our pipeline.
-      this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, calibration);
+      // ImageSolver already wrote a complete astrometric solution via
+      // SaveKeywords/SaveProperties/regenerateAstrometricSolution.
+      // Do NOT overwrite it — SPFC and other tools depend on the full
+      // solution format that ImageSolver produces (including proper
+      // SplineWorldTransformation with computed coefficients).
+      // Just display the result coordinates.
+      console.writeln("");
+      console.writeln("<b>Applying WCS to image: " + targetWindow.mainView.id + "</b>");
+      console.writeln("  CRVAL = (" + isWcs.crval1.toFixed(6) + ", " + isWcs.crval2.toFixed(6) + ")");
+      console.writeln("  CRPIX = (" + isWcs.crpix1.toFixed(2) + ", " + isWcs.crpix2.toFixed(2) + ")");
+      console.writeln("  CD = [[" + (isWcs.cd1_1 || 0).toExponential(6) + ", " + (isWcs.cd1_2 || 0).toExponential(6) + "],");
+      console.writeln("        [" + (isWcs.cd2_1 || 0).toExponential(6) + ", " + (isWcs.cd2_2 || 0).toExponential(6) + "]]");
+
+      // Display image coordinates using IS WCS (F-coordinates → our BU convention)
+      var wcsObj = {
+         crval1: wcsResult.crval1, crval2: wcsResult.crval2,
+         crpix1: wcsResult.crpix1, crpix2: wcsResult.crpix2,
+         cd1_1: wcsResult.cd[0][0], cd1_2: wcsResult.cd[0][1],
+         cd2_1: wcsResult.cd[1][0], cd2_2: wcsResult.cd[1][1],
+         sip: wcsResult.sip
+      };
+      displayImageCoordinates(wcsObj, imageWidth, imageHeight);
+
+      this.progressLabel.text = "Solve completed successfully!";
+      console.writeln("");
+      console.writeln("Solve completed successfully!");
 
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
@@ -3985,7 +4138,9 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
             self.progressLabel.text = message;
             processEvents();
          },
-         solveSingleTileIS  // custom tile solver function
+         solveSingleTileIS,  // custom tile solver function
+         function() { return self._abortRequested; },  // abort check
+         function() { return self._skipToMerge; }       // skip check
       );
 
       if (successCount < 2) {
@@ -4052,10 +4207,14 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
       console.writeln("  RMS residual: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec");
    }
 
-   // Apply WCS
+   // Apply WCS: FITS keywords (including SIP distortion) + PCL properties.
+   // SplineWorldTransformation control points are NOT written here because
+   // regenerateAstrometricSolution() cannot properly compute spline coefficients
+   // from our control points, causing SPFC to fail. The SIP polynomial in FITS
+   // keywords provides sufficient distortion correction for SPCC/SPFC.
    targetWindow.mainView.beginProcess(UndoFlag_Keywords);
    applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight);
-   setCustomControlPoints(targetWindow, wcsResult, [], imageWidth, imageHeight, "off");
+   targetWindow.regenerateAstrometricSolution();
    targetWindow.mainView.endProcess();
 
    // Display coordinates
@@ -4441,6 +4600,48 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
 
       targetWindow.keywords = cleanedKw;
       console.writeln(format("Added %d WCS keywords.", addedCount));
+
+      // Write PCL:AstrometricSolution properties for SPFC compatibility
+      if (result.wcs && result.wcs.crval1 !== undefined) {
+         var view = targetWindow.mainView;
+         var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+         var rWcs = result.wcs;
+
+         view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType_String8, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates",
+            new Vector([rWcs.crval1, rWcs.crval2]), PropertyType_F64Vector, attrs);
+
+         var refImgX = rWcs.crpix1 - 1;
+         var refImgY = rWcs.crpix2;
+         view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates",
+            new Vector([refImgX, refImgY]), PropertyType_F64Vector, attrs);
+
+         var cd11 = wcsKeys["CD1_1"] || 0, cd12 = wcsKeys["CD1_2"] || 0;
+         var cd21 = wcsKeys["CD2_1"] || 0, cd22 = wcsKeys["CD2_2"] || 0;
+         var ltMatrix = new Matrix(2, 2);
+         ltMatrix.at(0, 0, cd11); ltMatrix.at(0, 1, cd12);
+         ltMatrix.at(1, 0, cd21); ltMatrix.at(1, 1, cd22);
+         view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType_F64Matrix, attrs);
+
+         view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates",
+            new Vector([0, 90]), PropertyType_F64Vector, attrs);
+         var plon = (rWcs.crval2 < 90) ? 180 : 0;
+         view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates",
+            new Vector([plon, 90]), PropertyType_F64Vector, attrs);
+
+         view.setPropertyValue("Observation:Center:RA", rWcs.crval1, PropertyType_Float64, attrs);
+         view.setPropertyValue("Observation:Center:Dec", rWcs.crval2, PropertyType_Float64, attrs);
+         view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType_String8, attrs);
+         view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType_Float64, attrs);
+
+         view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType_TimePoint, attrs);
+         var creatorApp = format("PixInsight %s%d.%d.%d",
+            CoreApplication.versionLE ? "LE " : "",
+            CoreApplication.versionMajor, CoreApplication.versionMinor, CoreApplication.versionRelease);
+         view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType_String, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType_String, attrs);
+      }
+
       targetWindow.regenerateAstrometricSolution();
       console.writeln("Astrometric solution applied.");
       this.progressLabel.text = format("Solved! %d/%d tiles", result.tiles_solved, result.tiles_total);
