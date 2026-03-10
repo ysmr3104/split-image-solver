@@ -2915,8 +2915,12 @@ function SplitSolverDialog() {
          if (sW > 0 && sH > 0) {
             var diagFov = computeDiagonalFov(sW, sH, ps);
             var rec = recommendGrid(diagFov, sW, sH);
-            self.fovInfoLabel.text = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
-               diagFov.toFixed(1) + "\u00b0 | Recommended: " + rec.cols + "x" + rec.rows;
+            var fovText = "Scale: " + ps.toFixed(3) + " arcsec/px | FOV: " +
+               diagFov.toFixed(1) + "\u00b0";
+            if (self._solveMode !== "imagesolver") {
+               fovText += " | Recommended: " + rec.cols + "x" + rec.rows;
+            }
+            self.fovInfoLabel.text = fovText;
 
             // Store recommended grid for "Recommended" button
             self._recommendedCols = rec.cols;
@@ -3193,6 +3197,17 @@ function SplitSolverDialog() {
    gridSizer.add(this.recommendButton);
    gridSizer.addStretch();
 
+   // Note label for ImageSolver mode (Single only)
+   this.gridNoteLabel = new Label(this);
+   this.gridNoteLabel.text = "* ImageSolver (built-in) supports Single mode only. Use API or Local for Split.";
+   this.gridNoteLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.gridNoteLabel.visible = false;
+
+   var gridNoteSizer = new HorizontalSizer;
+   gridNoteSizer.spacing = 6;
+   gridNoteSizer.addSpacing(120 + 6);
+   gridNoteSizer.add(this.gridNoteLabel, 100);
+
    var fovSizer = new HorizontalSizer;
    fovSizer.spacing = 6;
    fovSizer.addSpacing(120 + 6); // Align with fields after label width
@@ -3337,6 +3352,25 @@ function SplitSolverDialog() {
       self.radiusUnitLabel.enabled = isApi;
       self.scaleErrorLabel.enabled = isApi;
       self.scaleErrorUnitLabel.enabled = isApi;
+      // ImageSolver: Single only (no split support)
+      if (isImageSolver) {
+         self.gridCombo.currentItem = 0; // Force "1x1 (Single)"
+         self.gridCombo.enabled = false;
+         self.recommendButton.visible = false;
+         self.gridNoteLabel.visible = true;
+         self.overlapEdit.enabled = false;
+         self.overlapLabel.enabled = false;
+         self.overlapUnitLabel.enabled = false;
+      } else {
+         self.gridCombo.enabled = true;
+         self.recommendButton.visible = true;
+         self.gridNoteLabel.visible = false;
+         self.overlapEdit.enabled = true;
+         self.overlapLabel.enabled = true;
+         self.overlapUnitLabel.enabled = true;
+      }
+      updateScaleAndFov();
+      if (typeof updatePreviewGrid === "function") updatePreviewGrid();
    };
 
    this.settingsButton.onClick = function() {
@@ -3494,6 +3528,7 @@ function SplitSolverDialog() {
    splitGroup.sizer.margin = 6;
    splitGroup.sizer.spacing = 4;
    splitGroup.sizer.add(gridSizer);
+   splitGroup.sizer.add(gridNoteSizer);
    splitGroup.sizer.add(fovSizer);
    splitGroup.sizer.add(overlapSizer);
    splitGroup.sizer.add(downsampleSizer);
