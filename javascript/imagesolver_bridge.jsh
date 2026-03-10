@@ -26,21 +26,13 @@
 #endif
 
 // Include AdP dependencies.
-// These paths resolve via PixInsight's standard scripts include path.
-//
-// If the includes fail, replace "AdP/..." with the full absolute path:
-//   macOS:   "/Applications/PixInsight/src/scripts/AdP/..."
-//   Linux:   "/opt/PixInsight/src/scripts/AdP/..."
-//   Windows: "C:/Program Files/PixInsight/src/scripts/AdP/..."
-
-// macOS absolute paths. Adjust for your platform if needed:
-//   Linux:   /opt/PixInsight/src/scripts/AdP/...
-//   Windows: C:/Program Files/PixInsight/src/scripts/AdP/...
-#include "/Applications/PixInsight/src/scripts/AdP/WCSmetadata.jsh"
-#include "/Applications/PixInsight/src/scripts/AdP/AstronomicalCatalogs.jsh"
+// Relative path from src/scripts/SplitImageSolver/ to src/scripts/AdP/.
+// Same pattern as BatchPreprocessing/BPP-Solver.js uses.
+#include "../AdP/WCSmetadata.jsh"
+#include "../AdP/AstronomicalCatalogs.jsh"
 
 // Include ImageSolver in library mode (skips main(), UI, and redundant includes)
 #define USE_SOLVER_LIBRARY true
-#include "/Applications/PixInsight/src/scripts/AdP/ImageSolver.js"
+#include "../AdP/ImageSolver.js"
 
 #endif // __IMAGESOLVER_BRIDGE_JSH

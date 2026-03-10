@@ -13,7 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MAIN_SCRIPT="${SCRIPT_DIR}/javascript/SplitImageSolver.js"
-VERSION=$(grep '#define VERSION' "$MAIN_SCRIPT" | sed 's/.*"\(.*\)".*/\1/')
+VERSION=$(grep '#define VERSION ' "$MAIN_SCRIPT" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 PACKAGE_NAME="SplitImageSolver"
 ZIP_NAME="${PACKAGE_NAME}-${VERSION}.zip"
 REPO_DIR="${SCRIPT_DIR}/repository"

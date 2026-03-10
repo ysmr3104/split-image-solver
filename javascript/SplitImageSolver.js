@@ -11,7 +11,8 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.0.0"
+#define VERSION "0.1.0"
+#define VERSION_SUFFIX " (alpha)"
 
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdIcon.jsh>
@@ -704,10 +705,16 @@ function convertToWcsResult(wcs, imageWidth, imageHeight) {
 //   { filePath, col, row, offsetX, offsetY, tileWidth, tileHeight,
 //     scaleFactor, origOffsetX, origOffsetY, origTileWidth, origTileHeight }
 //----------------------------------------------------------------------------
-function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
+function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
    var image = targetWindow.mainView.image;
    var imgW = image.width;
    var imgH = image.height;
+
+   // Edge skip: number of tile rows/cols to skip from each edge
+   var skipTop = (skipEdges && skipEdges.top) || 0;
+   var skipBottom = (skipEdges && skipEdges.bottom) || 0;
+   var skipLeft = (skipEdges && skipEdges.left) || 0;
+   var skipRight = (skipEdges && skipEdges.right) || 0;
 
    // Compute tile sizes (before overlap)
    var baseTileW = Math.floor(imgW / gridX);
@@ -718,6 +725,12 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap) {
 
    for (var row = 0; row < gridY; row++) {
       for (var col = 0; col < gridX; col++) {
+         // Skip edge tiles
+         if (row < skipTop || row >= gridY - skipBottom ||
+             col < skipLeft || col >= gridX - skipRight) {
+            console.writeln("  Tile [" + col + "," + row + "] skipped (edge exclusion)");
+            continue;
+         }
          // Tile region with overlap
          var x0 = col * baseTileW - overlap;
          var y0 = row * baseTileH - overlap;
@@ -2454,16 +2467,42 @@ function GridPreviewControl(parent) {
                }
             }
 
+            // Skip edge info
+            var sk = self.skipEdges || { top: 0, bottom: 0, left: 0, right: 0 };
+
+            // Draw skipped tile overlay (semi-transparent dark)
+            for (var r = 0; r < rows; r++) {
+               for (var c = 0; c < cols; c++) {
+                  var isSkipped = (r < sk.top || r >= rows - sk.bottom ||
+                                   c < sk.left || c >= cols - sk.right);
+                  if (isSkipped) {
+                     var rx0 = Math.round(c * stepX * toDisp) - self.scrollX;
+                     var ry0 = Math.round(r * stepY * toDisp) - self.scrollY;
+                     var rx1 = Math.round((c * stepX + tileW) * toDisp) - self.scrollX;
+                     var ry1 = Math.round((r * stepY + tileH) * toDisp) - self.scrollY;
+                     g.fillRect(new Rect(rx0, ry0, rx1, ry1), new Brush(0x88000000));
+                  }
+               }
+            }
+
             // Tile labels
             g.pen = new Pen(0xCCFFFF00);
             g.font = new Font("Helvetica", 10);
             for (var r = 0; r < rows; r++) {
                for (var c = 0; c < cols; c++) {
+                  var isSkipped2 = (r < sk.top || r >= rows - sk.bottom ||
+                                    c < sk.left || c >= cols - sk.right);
                   var tx = c * stepX + tileW / 2;
                   var ty = r * stepY + tileH / 2;
                   var lx = Math.round(tx * toDisp) - self.scrollX - 8;
                   var ly = Math.round(ty * toDisp) - self.scrollY - 6;
-                  g.drawText(lx, ly, "" + (r * cols + c + 1));
+                  if (isSkipped2) {
+                     g.pen = new Pen(0x66FF6666);
+                     g.drawText(lx, ly, "skip");
+                     g.pen = new Pen(0xCCFFFF00);
+                  } else {
+                     g.drawText(lx, ly, "" + (r * cols + c + 1));
+                  }
                }
             }
          }
@@ -2611,10 +2650,11 @@ GridPreviewControl.prototype.setBitmap = function(bmp, bmpScale, imgW, imgH) {
    this.fitToWindow();
 };
 
-GridPreviewControl.prototype.setGrid = function(cols, rows, overlapPx) {
+GridPreviewControl.prototype.setGrid = function(cols, rows, overlapPx, skipEdges) {
    this.gridCols = cols;
    this.gridRows = rows;
    this.overlapPx = overlapPx;
+   this.skipEdges = skipEdges || { top: 0, bottom: 0, left: 0, right: 0 };
    this.viewport.update();
 };
 
@@ -2626,7 +2666,7 @@ function SplitSolverDialog() {
    this.__base__ = Dialog;
    this.__base__();
 
-   this.windowTitle = TITLE + " v" + VERSION;
+   this.windowTitle = TITLE + " v" + VERSION + VERSION_SUFFIX;
 
    var self = this;
 
@@ -3220,6 +3260,66 @@ function SplitSolverDialog() {
    overlapSizer.add(this.overlapUnitLabel);
    overlapSizer.addStretch();
 
+   // ---- Skip Edge Tiles ----
+   this.skipLabel = new Label(this);
+   this.skipLabel.text = "Skip edges:";
+   this.skipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.skipLabel.setFixedWidth(120);
+
+   this.skipTopSpin = new SpinBox(this);
+   this.skipTopSpin.minValue = 0;
+   this.skipTopSpin.maxValue = 10;
+   this.skipTopSpin.value = 0;
+   this.skipTopSpin.setFixedWidth(50);
+   this.skipTopSpin.toolTip = "Number of tile rows to skip from the top edge";
+   this.skipTopSpin.onValueUpdated = function() { updatePreviewGrid(); };
+
+   this.skipBottomSpin = new SpinBox(this);
+   this.skipBottomSpin.minValue = 0;
+   this.skipBottomSpin.maxValue = 10;
+   this.skipBottomSpin.value = 0;
+   this.skipBottomSpin.setFixedWidth(50);
+   this.skipBottomSpin.toolTip = "Number of tile rows to skip from the bottom edge";
+   this.skipBottomSpin.onValueUpdated = function() { updatePreviewGrid(); };
+
+   this.skipLeftSpin = new SpinBox(this);
+   this.skipLeftSpin.minValue = 0;
+   this.skipLeftSpin.maxValue = 10;
+   this.skipLeftSpin.value = 0;
+   this.skipLeftSpin.setFixedWidth(50);
+   this.skipLeftSpin.toolTip = "Number of tile columns to skip from the left edge";
+   this.skipLeftSpin.onValueUpdated = function() { updatePreviewGrid(); };
+
+   this.skipRightSpin = new SpinBox(this);
+   this.skipRightSpin.minValue = 0;
+   this.skipRightSpin.maxValue = 10;
+   this.skipRightSpin.value = 0;
+   this.skipRightSpin.setFixedWidth(50);
+   this.skipRightSpin.toolTip = "Number of tile columns to skip from the right edge";
+   this.skipRightSpin.onValueUpdated = function() { updatePreviewGrid(); };
+
+   var skipTopLabel = new Label(this);
+   skipTopLabel.text = "T:";
+   var skipBottomLabel = new Label(this);
+   skipBottomLabel.text = "B:";
+   var skipLeftLabel = new Label(this);
+   skipLeftLabel.text = "L:";
+   var skipRightLabel = new Label(this);
+   skipRightLabel.text = "R:";
+
+   var skipSizer = new HorizontalSizer;
+   skipSizer.spacing = 4;
+   skipSizer.add(this.skipLabel);
+   skipSizer.add(skipTopLabel);
+   skipSizer.add(this.skipTopSpin);
+   skipSizer.add(skipBottomLabel);
+   skipSizer.add(this.skipBottomSpin);
+   skipSizer.add(skipLeftLabel);
+   skipSizer.add(this.skipLeftSpin);
+   skipSizer.add(skipRightLabel);
+   skipSizer.add(this.skipRightSpin);
+   skipSizer.addStretch();
+
    // ---- Downsample ----
    this.downsampleLabel = new Label(this);
    this.downsampleLabel.text = "Downsample:";
@@ -3361,6 +3461,11 @@ function SplitSolverDialog() {
          self.overlapEdit.enabled = false;
          self.overlapLabel.enabled = false;
          self.overlapUnitLabel.enabled = false;
+         self.skipLabel.enabled = false;
+         self.skipTopSpin.enabled = false;
+         self.skipBottomSpin.enabled = false;
+         self.skipLeftSpin.enabled = false;
+         self.skipRightSpin.enabled = false;
       } else {
          self.gridCombo.enabled = true;
          self.recommendButton.visible = true;
@@ -3368,6 +3473,11 @@ function SplitSolverDialog() {
          self.overlapEdit.enabled = true;
          self.overlapLabel.enabled = true;
          self.overlapUnitLabel.enabled = true;
+         self.skipLabel.enabled = true;
+         self.skipTopSpin.enabled = true;
+         self.skipBottomSpin.enabled = true;
+         self.skipLeftSpin.enabled = true;
+         self.skipRightSpin.enabled = true;
       }
       updateScaleAndFov();
       if (typeof updatePreviewGrid === "function") updatePreviewGrid();
@@ -3486,7 +3596,13 @@ function SplitSolverDialog() {
       var cols = preset ? preset[0] : 1;
       var rows = preset ? preset[1] : 1;
       var overlap = parseInt(self.overlapEdit.text) || 100;
-      self.previewControl.setGrid(cols, rows, overlap);
+      var skipEdges = {
+         top: self.skipTopSpin.value,
+         bottom: self.skipBottomSpin.value,
+         left: self.skipLeftSpin.value,
+         right: self.skipRightSpin.value
+      };
+      self.previewControl.setGrid(cols, rows, overlap, skipEdges);
    };
 
    // Wire grid/overlap changes to update preview
@@ -3531,6 +3647,7 @@ function SplitSolverDialog() {
    splitGroup.sizer.add(gridNoteSizer);
    splitGroup.sizer.add(fovSizer);
    splitGroup.sizer.add(overlapSizer);
+   splitGroup.sizer.add(skipSizer);
    splitGroup.sizer.add(downsampleSizer);
 
    // ---- GroupBox: Coordinate Hints ----
@@ -3725,6 +3842,12 @@ SplitSolverDialog.prototype.doSolve = function() {
    var gridY = gridPreset[1];
    var isSplitMode = (gridX > 1 || gridY > 1);
    var overlap = parseInt(this.overlapEdit.text) || 100;
+   var skipEdges = {
+      top: this.skipTopSpin.value,
+      bottom: this.skipBottomSpin.value,
+      left: this.skipLeftSpin.value,
+      right: this.skipRightSpin.value
+   };
 
    // Log all parameters
    var imageWidth = targetWindow.mainView.image.width;
@@ -3753,6 +3876,9 @@ SplitSolverDialog.prototype.doSolve = function() {
       console.writeln("  RA/DEC:      (not specified - blind solve)");
    }
    console.writeln("  Grid:        " + gridX + "x" + gridY + (isSplitMode ? " (overlap " + overlap + "px)" : " (single)"));
+   if (isSplitMode && (skipEdges.top > 0 || skipEdges.bottom > 0 || skipEdges.left > 0 || skipEdges.right > 0)) {
+      console.writeln("  Skip edges:  T:" + skipEdges.top + " B:" + skipEdges.bottom + " L:" + skipEdges.left + " R:" + skipEdges.right);
+   }
    console.writeln("  SIP Order:   " + hints.tweak_order);
    if (hints.downsample_factor) {
       console.writeln("  Downsample:  " + hints.downsample_factor + "x");
@@ -3777,15 +3903,15 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    try {
       if (solveMode === "local") {
-         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
       } else if (solveMode === "imagesolver") {
          if (isSplitMode) {
-            this.doSplitSolveIS(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight);
+            this.doSplitSolveIS(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
          } else {
             this.doSingleSolveIS(targetWindow, hints, imageWidth, imageHeight);
          }
       } else if (isSplitMode) {
-         this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs);
+         this.doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs, skipEdges);
       } else {
          this.doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs);
       }
@@ -3909,7 +4035,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 //----------------------------------------------------------------------------
 // Split image solve (Phase 2: tile splitting + multi-solve + WCS merge)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs) {
+SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs, skipEdges) {
    var self = this;
    var tiles = [];
 
@@ -3920,7 +4046,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
-      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap);
+      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
       // Compute per-tile RA/DEC hints from image center and tile positions
@@ -4138,7 +4264,7 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
 //----------------------------------------------------------------------------
 // Split image solve using ImageSolver (built-in)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight) {
+SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
    var tiles = [];
 
@@ -4149,7 +4275,7 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
-      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap);
+      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
       // Compute per-tile RA/DEC hints
@@ -4280,7 +4406,7 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
 //----------------------------------------------------------------------------
 // Local solve (Python backend)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight) {
+SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
    var pythonPath = this._pythonPath;
    var scriptDir = this._scriptDir;
@@ -4637,17 +4763,31 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       console.writeln(format("Added %d WCS keywords.", addedCount));
 
       // Write PCL:AstrometricSolution properties for SPFC compatibility
-      if (result.wcs && result.wcs.crval1 !== undefined) {
+      // Local mode: wcs object has crval1/crval2 only; crpix/cd come from wcs_keywords
+      var pcrval1 = wcsKeys["CRVAL1"];
+      var pcrval2 = wcsKeys["CRVAL2"];
+      var pcrpix1 = wcsKeys["CRPIX1"];
+      var pcrpix2 = wcsKeys["CRPIX2"];
+      if (pcrval1 !== undefined && pcrpix1 !== undefined) {
          var view = targetWindow.mainView;
          var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
-         var rWcs = result.wcs;
+
+         // Remove existing SplineWorldTransformation properties
+         var existingProps = view.properties;
+         for (var pi = 0; pi < existingProps.length; pi++) {
+            if (existingProps[pi].indexOf("SplineWorldTransformation") >= 0) {
+               view.deleteProperty(existingProps[pi]);
+            }
+         }
+         view.deleteProperty("Transformation_ImageToProjection");
+         view.deleteProperty("PCL:AstrometricSolution:Information");
 
          view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType_String8, attrs);
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates",
-            new Vector([rWcs.crval1, rWcs.crval2]), PropertyType_F64Vector, attrs);
+            new Vector([pcrval1, pcrval2]), PropertyType_F64Vector, attrs);
 
-         var refImgX = rWcs.crpix1 - 1;
-         var refImgY = rWcs.crpix2;
+         var refImgX = pcrpix1 - 1;
+         var refImgY = pcrpix2;
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates",
             new Vector([refImgX, refImgY]), PropertyType_F64Vector, attrs);
 
@@ -4660,12 +4800,12 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
 
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates",
             new Vector([0, 90]), PropertyType_F64Vector, attrs);
-         var plon = (rWcs.crval2 < 90) ? 180 : 0;
+         var plon = (pcrval2 < 90) ? 180 : 0;
          view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates",
             new Vector([plon, 90]), PropertyType_F64Vector, attrs);
 
-         view.setPropertyValue("Observation:Center:RA", rWcs.crval1, PropertyType_Float64, attrs);
-         view.setPropertyValue("Observation:Center:Dec", rWcs.crval2, PropertyType_Float64, attrs);
+         view.setPropertyValue("Observation:Center:RA", pcrval1, PropertyType_Float64, attrs);
+         view.setPropertyValue("Observation:Center:Dec", pcrval2, PropertyType_Float64, attrs);
          view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType_String8, attrs);
          view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType_Float64, attrs);
 
@@ -4696,7 +4836,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
 
 function main() {
    console.show();
-   console.writeln("<b>" + TITLE + " v" + VERSION + "</b>");
+   console.writeln("<b>" + TITLE + " v" + VERSION + VERSION_SUFFIX + "</b>");
    console.writeln("---");
 
    var dialog = new SplitSolverDialog();

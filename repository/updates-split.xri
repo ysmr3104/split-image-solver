@@ -5,8 +5,8 @@
       <brief_description>Automatic plate solver using astrometry.net API or local solve-field for PixInsight</brief_description>
    </description>
    <platform os="all" arch="noarch" version="1.8.9:9.9.9">
-      <package fileName="SplitImageSolver-1.0.0.zip"
-               sha1="d1ca5c37011290ec67287139d5732061050df350"
+      <package fileName="SplitImageSolver-0.1.0.zip"
+               sha1="76e97b2484774f3685e3bfd77f4a620e602146b7"
                type="script"
                releaseDate="20260310">
          <title>Split Image Solver</title>
