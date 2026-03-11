@@ -4233,6 +4233,19 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
+      // 1b. Optionally copy tile FITS to a persistent debug directory for Node.js API tests
+      //     Set debugTileDir to a path to enable, e.g. "/Users/ysmr/Downloads/split_tiles_debug"
+      var debugTileDir = null; // <-- set path here to save tiles
+      if (debugTileDir) {
+         if (!File.exists(debugTileDir)) File.createDirectory(debugTileDir);
+         for (var dti = 0; dti < tiles.length; dti++) {
+            var src = tiles[dti].filePath;
+            var dst = debugTileDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
+            File.copyFile(dst, src);
+         }
+         console.writeln("Debug tiles saved to: " + debugTileDir + " (" + tiles.length + " files)");
+      }
+
       // 2. Compute per-tile RA/DEC hints
       if (hints.center_ra !== undefined && hints.center_dec !== undefined && hints.scale_est) {
          computeTileHints(tiles, hints.center_ra, hints.center_dec,
