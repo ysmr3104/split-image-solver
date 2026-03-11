@@ -104,8 +104,8 @@ function makeNodeStubs() {
     };
 
     return [
-        "var console_log = function(s){ process.stdout.write('[API] ' + s + '\\n'); };",
-        "var console = { writeln: console_log, warningln: console_log, show: function(){}, criticalln: console_log };",
+        "var console_log = function(s){ process.stdout.write('[API] ' + String(s) + '\\n'); };",
+        "var console = { writeln: console_log, warningln: console_log, show: function(){}, criticalln: console_log, log: console_log };",
         "var msleep = function(ms){ var end = Date.now()+ms; while(Date.now()<end){} };",
         "var processEvents = function(){};",
         "var VERSION='1.0.0'; var VERSION_SUFFIX=''; var TITLE='SIS'; var MAX_PREVIEW_EDGE=1024;",
@@ -293,13 +293,16 @@ var testCode = function(apiKey, tileDir, fixture, ctx, sis) {
 
         // wavefrontと同様に、解決済みタイルのWCSから refined_center を計算
         var tileHints = {
+            scale_units:  "arcsecperpix",
             center_ra:    tile.hintRA,
             center_dec:   tile.hintDEC,
+            radius:       10,
+            tweak_order:  4,
             scale_lower:  null,
             scale_upper:  null
         };
 
-        // スケールヒント: buildTileHints と同じロジック (簡略版)
+        // スケールヒント: buildTileHints と同じロジック (プロジェクション補正込み)
         if (hints.scale_est) {
             var tileCX = tile.offsetX + tile.tileWidth / 2.0;
             var tileCY = tile.offsetY + tile.tileHeight / 2.0;
@@ -308,9 +311,15 @@ var testCode = function(apiKey, tileDir, fixture, ctx, sis) {
             var rPixels = Math.sqrt((tileCX-imgCX)*(tileCX-imgCX) + (tileCY-imgCY)*(tileCY-imgCY));
             var maxR = Math.sqrt(imgCX*imgCX + imgCY*imgCY);
             var margin = 0.2 + 0.3 * (rPixels / maxR);
-            var ef = hints.scale_est / (tile.scaleFactor || 1.0);
-            tileHints.scale_lower = ef * (1.0 - margin);
-            tileHints.scale_upper = ef * (1.0 + margin);
+            // プロジェクション補正 (rectilinear/gnomonic): nativeScale * (1/cos^2(theta)) / scaleFactor
+            var nativeScale = hints.scale_est;
+            var scaleRad = (nativeScale / 3600.0) * Math.PI / 180.0;
+            var rScaled = rPixels * scaleRad;
+            var theta = Math.atan(rScaled); // rectilinear
+            var factor = (theta > 0.001) ? (1.0 / (Math.cos(theta) * Math.cos(theta))) : 1.0;
+            var effectiveScale = nativeScale * factor / (tile.scaleFactor || 1.0);
+            tileHints.scale_lower = effectiveScale * (1.0 - margin);
+            tileHints.scale_upper = effectiveScale * (1.0 + margin);
         }
 
         // 解決済みタイルからrefined_center
