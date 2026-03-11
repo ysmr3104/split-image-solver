@@ -31,17 +31,15 @@ var child_process = require("child_process");
 // 設定
 // ============================================================
 var API_KEY  = process.env.ASTROMETRY_API_KEY || "";
-var TILE_DIR = process.env.TILE_DIR || "";
 var MODE     = process.argv[2] || "2x2";  // "2x2" or "8x6"
+var TILE_DIR = process.env.TILE_DIR || path.join(__dirname, "../fits/" + MODE);
 
 if (!API_KEY) {
     console.error("ERROR: ASTROMETRY_API_KEY 環境変数を設定してください");
     process.exit(1);
 }
-if (!TILE_DIR || !fs.existsSync(TILE_DIR)) {
+if (!fs.existsSync(TILE_DIR)) {
     console.error("ERROR: TILE_DIR=" + TILE_DIR + " が存在しません");
-    console.error("  PixInsight で doSplitSolveCore の debugTileDir を設定して一度実行してください");
-    console.error("  例: TILE_DIR=/Users/ysmr/Downloads/split_tiles_debug");
     process.exit(1);
 }
 

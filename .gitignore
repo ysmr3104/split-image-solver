@@ -60,6 +60,8 @@ htmlcov/
 *.fit
 *.fts
 *.xisf
+# Exception: test fixture tiles are tracked in the repo
+!tests/fits/**/*.fits
 
 # Solver temporary files
 *_wcs.fits

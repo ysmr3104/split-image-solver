@@ -4061,7 +4061,7 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       imageWidth, imageHeight, skipEdges, solverFactory, "API",
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
-      2000, _debugFixturePath);
+      2000, null);
 };
 
 //----------------------------------------------------------------------------
@@ -4199,7 +4199,7 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
       imageWidth, imageHeight, skipEdges, solverFactory, "ImageSolver",
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
-      0, _debugFixturePath);
+      0, null);
 };
 
 //----------------------------------------------------------------------------
@@ -4235,9 +4235,9 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
 
       // 1b. Optionally copy tile FITS to a persistent debug directory for Node.js API tests
       //     Set debugTileDir to a path to enable, e.g. "/Users/ysmr/Downloads/split_tiles_debug"
-      var debugTileDir = null; // <-- set path here to save tiles
+      var debugTileDir = null; // set to a path (e.g. "/tmp/split_tiles_debug") to copy tile FITS for Node.js API tests
       if (debugTileDir) {
-         if (!File.exists(debugTileDir)) File.createDirectory(debugTileDir);
+         try { File.createDirectory(debugTileDir); } catch (e) { /* already exists */ }
          for (var dti = 0; dti < tiles.length; dti++) {
             var src = tiles[dti].filePath;
             var dst = debugTileDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
@@ -4551,7 +4551,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       imageWidth, imageHeight, skipEdges, solverFactory, "Local",
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
-      0, _debugFixturePath);
+      0, null);
 
    // Note: tmpInput / tmpOutput from old architecture are no longer used.
    // Tile temp files are managed by splitImageToTiles() / doSplitSolveCore().
