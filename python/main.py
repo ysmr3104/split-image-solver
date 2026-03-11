@@ -209,6 +209,332 @@ def _handle_recommend_grid(args) -> int:
     return 0
 
 
+def run_tile_solve_mode(args) -> int:
+    """--tile-solve-json モード: タイルFITSを並列ソルブし per-tile WCS を JSON 出力する。
+
+    WCS 統合（WCSIntegrator）は実行しない。統合は JS 側の mergeWcsSolutions() が担う。
+
+    Input JSON format (list):
+        [{"path": str, "row": int, "col": int,
+          "ra_hint": float|null, "dec_hint": float|null,
+          "scale_lower": float|null, "scale_upper": float|null,
+          "offset_x": float, "offset_y": float,
+          "tile_width": int, "tile_height": int}, ...]
+
+    Output JSON format:
+        {"success": bool, "tiles_solved": int, "tiles_total": int,
+         "tile_results": [{"row": int, "col": int, "success": bool,
+                           "crval1": float, "crval2": float,
+                           "crpix1": float, "crpix2": float,
+                           "cd1_1": float, "cd1_2": float,
+                           "cd2_1": float, "cd2_2": float,
+                           "pixel_scale": float|null,
+                           "sip_order": int, "sip_a": dict, "sip_b": dict}, ...]}
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # ログはすべて stderr へ (stdout は使わない)
+    logger = setup_logger(
+        level=args.log_level,
+        log_file=args.log_file,
+        console_output=True,
+        use_stderr=True,
+    )
+
+    def _write_result(result_dict):
+        json_str = _json_dumps_pjsr_safe(result_dict)
+        if args.result_file:
+            try:
+                with open(args.result_file, "w", encoding="utf-8") as rf:
+                    rf.write(json_str)
+            except Exception as e:
+                logger.error(f"Failed to write result file: {e}")
+        else:
+            print(json_str)
+            sys.stdout.flush()
+
+    # 入力 JSON を読み込む
+    input_path = Path(args.tile_solve_json)
+    if not input_path.exists():
+        err = {"success": False, "error": f"Input JSON not found: {input_path}"}
+        _write_result(err)
+        return 1
+
+    try:
+        tile_requests = json.loads(input_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        err = {"success": False, "error": f"Failed to parse input JSON: {e}"}
+        _write_result(err)
+        return 1
+
+    if not tile_requests:
+        err = {"success": False, "error": "No tiles in input JSON"}
+        _write_result(err)
+        return 1
+
+    logger.info("=" * 60)
+    logger.info("Tile Solve Mode - Starting")
+    logger.info(f"Tiles: {len(tile_requests)}")
+    logger.info("=" * 60)
+
+    # 設定ファイルを読み込む
+    config_path = Path(args.config)
+    config = load_config(config_path)
+    solver_config = _build_solver_config(config)
+    solver = create_solver(**solver_config)
+
+    def _solve_one(req):
+        """単一タイルをソルブし (row, col, result_dict) を返す"""
+        tile_path = Path(req["path"])
+        row = req["row"]
+        col = req["col"]
+        ra_hint = req.get("ra_hint")
+        dec_hint = req.get("dec_hint")
+        scale_lower = req.get("scale_lower")
+        scale_upper = req.get("scale_upper")
+        tile_width = req.get("tile_width", 0)
+        tile_height = req.get("tile_height", 0)
+
+        # タイル寸法が未指定なら FITS ヘッダーから取得
+        if not tile_width or not tile_height:
+            try:
+                from astropy.io import fits as afits
+                with afits.open(str(tile_path)) as hdul:
+                    tile_width = hdul[0].header.get("NAXIS1", 0)
+                    tile_height = hdul[0].header.get("NAXIS2", 0)
+            except Exception:
+                pass
+
+        # fov_hint と scale_margin を計算
+        fov_hint = None
+        scale_margin = 0.25
+        if scale_lower and scale_upper and tile_width and tile_height:
+            tile_longer = max(tile_width, tile_height)
+            mid_scale = (scale_lower + scale_upper) / 2.0
+            fov_hint = mid_scale * tile_longer / 3600.0  # degrees
+            scale_margin = (scale_upper - scale_lower) / (scale_lower + scale_upper)
+
+        try:
+            result = solver.solve_image(
+                tile_path,
+                fov_hint=fov_hint,
+                ra_hint=ra_hint,
+                dec_hint=dec_hint,
+                scale_margin=scale_margin,
+            )
+        except Exception as e:
+            result = {"success": False, "error_message": str(e), "wcs": None}
+
+        result["_req"] = req
+        return row, col, result
+
+    # Pass 1: 並列ソルブ
+    logger.info(f"\n[Pass 1] Solving {len(tile_requests)} tiles in parallel...")
+    solve_results = {}  # (row, col) -> result dict
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_map = {executor.submit(_solve_one, req): req for req in tile_requests}
+        for future in as_completed(future_map):
+            row, col, result = future.result()
+            solve_results[(row, col)] = result
+            if result["success"]:
+                logger.info(
+                    f"  [{row}][{col}] OK  RA={result.get('ra_center', 0):.3f}° "
+                    f"DEC={result.get('dec_center', 0):+.3f}° "
+                    f"scale={result.get('pixel_scale', 0):.2f}\"/px"
+                )
+            else:
+                logger.info(
+                    f"  [{row}][{col}] FAIL {result.get('error_message', 'unknown')[:80]}"
+                )
+
+    success_count = sum(1 for r in solve_results.values() if r["success"])
+    logger.info(f"Pass 1: {success_count}/{len(tile_requests)} tiles solved")
+
+    # Pass 2: 失敗タイルを成功タイルの WCS から得た精密ヒントでリトライ
+    failed_keys = [(row, col) for (row, col), r in solve_results.items() if not r["success"]]
+
+    if failed_keys and success_count > 0:
+        logger.info(
+            f"\n[Pass 2] Retrying {len(failed_keys)} failed tiles with WCS-derived hints..."
+        )
+
+        # 成功タイルの参照情報 (全画像座標での中心 + WCS)
+        success_refs = []
+        success_scales = []
+        for (row, col), r in solve_results.items():
+            if not r["success"]:
+                continue
+            req = r["_req"]
+            offset_x = req.get("offset_x", 0)
+            offset_y = req.get("offset_y", 0)
+            tw = req.get("tile_width", 0)
+            th = req.get("tile_height", 0)
+            success_refs.append({
+                "row": row, "col": col,
+                "cx": offset_x + tw / 2.0,
+                "cy": offset_y + th / 2.0,
+                "offset_x": offset_x,
+                "offset_y": offset_y,
+                "wcs": r["wcs"],
+            })
+            if r.get("pixel_scale"):
+                success_scales.append(r["pixel_scale"])
+
+        median_scale = float(np.median(success_scales)) if success_scales else None
+
+        retry_futures = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for (row, col) in failed_keys:
+                req = solve_results[(row, col)]["_req"]
+                offset_x = req.get("offset_x", 0)
+                offset_y = req.get("offset_y", 0)
+                tw = req.get("tile_width", 0)
+                th = req.get("tile_height", 0)
+                cx = offset_x + tw / 2.0
+                cy = offset_y + th / 2.0
+
+                # 最も近い成功タイルを選択
+                nearest = min(
+                    success_refs,
+                    key=lambda ref: (cx - ref["cx"]) ** 2 + (cy - ref["cy"]) ** 2,
+                )
+                ref_wcs = nearest["wcs"]
+
+                # 失敗タイルの中心を参照タイルのローカル座標に変換して RA/DEC を取得
+                local_x = cx - nearest["offset_x"]
+                local_y = cy - nearest["offset_y"]
+                try:
+                    tile_ra, tile_dec = ref_wcs.pixel_to_world_values(local_x, local_y)
+                    tile_ra = float(tile_ra) % 360.0
+                    tile_dec = float(tile_dec)
+                except Exception as e:
+                    logger.warning(f"  [{row}][{col}] WCS hint failed: {e}")
+                    continue
+
+                logger.info(
+                    f"  [{row}][{col}] retry hint RA={tile_ra:.3f}° DEC={tile_dec:+.3f}°"
+                )
+
+                new_req = dict(req)
+                new_req["ra_hint"] = tile_ra
+                new_req["dec_hint"] = tile_dec
+                f = executor.submit(_solve_one, new_req)
+                retry_futures[f] = (row, col)
+
+            for future in as_completed(retry_futures):
+                row, col = retry_futures[future]
+                _, _, result = future.result()
+                if result["success"]:
+                    # 偽陽性フィルタ: スケール比チェック
+                    is_valid = True
+                    if median_scale and result.get("pixel_scale"):
+                        ratio = result["pixel_scale"] / median_scale
+                        if ratio < 0.3 or ratio > 3.0:
+                            is_valid = False
+                            logger.warning(
+                                f"  [{row}][{col}] 2nd pass REJECTED: "
+                                f"scale ratio={ratio:.2f} (median={median_scale:.2f}\"/px)"
+                            )
+                    if is_valid:
+                        solve_results[(row, col)] = result
+                        logger.info(
+                            f"  [{row}][{col}] 2nd pass OK  "
+                            f"RA={result.get('ra_center', 0):.3f}° "
+                            f"DEC={result.get('dec_center', 0):+.3f}°"
+                        )
+                else:
+                    logger.debug(f"  [{row}][{col}] 2nd pass FAIL")
+
+        success_count = sum(1 for r in solve_results.values() if r["success"])
+        logger.info(f"Total: {success_count}/{len(tile_requests)} tiles solved")
+
+    # per-tile WCS を抽出して出力データを構築
+    tile_results = []
+    for req in tile_requests:
+        row = req["row"]
+        col = req["col"]
+        r = solve_results.get((row, col))
+
+        if not r:
+            tile_results.append({"row": row, "col": col, "success": False, "error": "no result"})
+            continue
+
+        if not r["success"]:
+            tile_results.append({
+                "row": row, "col": col, "success": False,
+                "error": r.get("error_message", "solve failed"),
+            })
+            continue
+
+        # astropy WCS から CRVAL / CRPIX / CD 行列を抽出
+        wcs = r["wcs"]
+        try:
+            crval1 = float(wcs.wcs.crval[0])
+            crval2 = float(wcs.wcs.crval[1])
+            crpix1 = float(wcs.wcs.crpix[0])
+            crpix2 = float(wcs.wcs.crpix[1])
+
+            # CD 行列: cd 属性があれば直接使用、なければ PC * CDELT から算出
+            if hasattr(wcs.wcs, "cd") and wcs.wcs.cd is not None and wcs.wcs.cd.size > 0:
+                cd = wcs.wcs.cd
+                cd1_1 = float(cd[0, 0])
+                cd1_2 = float(cd[0, 1])
+                cd2_1 = float(cd[1, 0])
+                cd2_2 = float(cd[1, 1])
+            else:
+                cdelt = wcs.wcs.cdelt
+                pc = wcs.wcs.get_pc()
+                cd1_1 = float(cdelt[0] * pc[0, 0])
+                cd1_2 = float(cdelt[0] * pc[0, 1])
+                cd2_1 = float(cdelt[1] * pc[1, 0])
+                cd2_2 = float(cdelt[1] * pc[1, 1])
+
+            entry = {
+                "row": row, "col": col, "success": True,
+                "crval1": crval1, "crval2": crval2,
+                "crpix1": crpix1, "crpix2": crpix2,
+                "cd1_1": cd1_1, "cd1_2": cd1_2,
+                "cd2_1": cd2_1, "cd2_2": cd2_2,
+                "pixel_scale": float(r["pixel_scale"]) if r.get("pixel_scale") else None,
+            }
+
+            # SIP 係数があれば含める
+            if wcs.sip is not None:
+                try:
+                    def _sip_dict(arr):
+                        d = {}
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                if arr[i, j] != 0.0:
+                                    d[f"{i}_{j}"] = float(arr[i, j])
+                        return d
+                    entry["sip_order"] = int(wcs.sip.a_order)
+                    entry["sip_a"] = _sip_dict(wcs.sip.a)
+                    entry["sip_b"] = _sip_dict(wcs.sip.b)
+                except Exception:
+                    pass
+
+            tile_results.append(entry)
+
+        except Exception as e:
+            logger.warning(f"  [{row}][{col}] WCS extraction failed: {e}")
+            tile_results.append({
+                "row": row, "col": col, "success": False,
+                "error": f"WCS extraction failed: {e}",
+            })
+
+    output = {
+        "success": True,
+        "tiles_solved": success_count,
+        "tiles_total": len(tile_requests),
+        "tile_results": tile_results,
+    }
+    _write_result(output)
+    logger.info("Tile solve mode completed.")
+    return 0
+
+
 def main():
     """メインエントリーポイント"""
     parser = argparse.ArgumentParser(
@@ -336,6 +662,15 @@ def main():
         help="レンズ投影型 (rectilinear, fisheye_equisolid, fisheye_equidistant, fisheye_stereographic)",
     )
 
+    # タイルソルブ専用モード（PixInsight連携用）
+    parser.add_argument(
+        "--tile-solve-json",
+        type=str,
+        help="タイルソルブ専用モード: タイルFITSパスとヒントのJSONを受け取り、"
+             "per-tile WCSをJSONで出力する（--result-fileと組み合わせて使用）。"
+             "WCS統合は行わない。",
+    )
+
     # 出力形式
     parser.add_argument(
         "--json-output",
@@ -362,6 +697,10 @@ def main():
     # ユーティリティモード: --recommend-grid
     if args.recommend_grid:
         return _handle_recommend_grid(args)
+
+    # タイルソルブ専用モード: --tile-solve-json
+    if args.tile_solve_json:
+        return run_tile_solve_mode(args)
 
     # 通常モードでは --input / --output が必須
     if not args.input:
