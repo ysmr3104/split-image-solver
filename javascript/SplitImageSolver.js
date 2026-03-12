@@ -2175,31 +2175,31 @@ function SolverSettingsDialog(parent) {
 
    // ---- Tile Output Settings ----
    var tileGroup = new GroupBox(this);
-   tileGroup.title = "タイル出力";
+   tileGroup.title = "Tile Output";
 
    this.saveTilesCheck = new CheckBox(tileGroup);
-   this.saveTilesCheck.text = "タイルファイルを保存する";
+   this.saveTilesCheck.text = "Save tile files";
    this.saveTilesCheck.checked = this._saveTiles;
-   this.saveTilesCheck.toolTip = "ソルブ用に分割したタイルFITSファイルを指定ディレクトリに保存します";
+   this.saveTilesCheck.toolTip = "Save split tile FITS files to the specified directory";
 
    var tileOutputDirLabel = new Label(tileGroup);
-   tileOutputDirLabel.text = "出力ディレクトリ:";
+   tileOutputDirLabel.text = "Output directory:";
    tileOutputDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
    tileOutputDirLabel.setFixedWidth(120);
 
    this.tileOutputDirEdit = new Edit(tileGroup);
    this.tileOutputDirEdit.text = this._tileOutputDir;
-   this.tileOutputDirEdit.toolTip = "タイルFITSファイルの保存先ディレクトリ";
+   this.tileOutputDirEdit.toolTip = "Directory to save tile FITS files";
    this.tileOutputDirEdit.enabled = this._saveTiles;
 
    this.tileOutputDirBrowse = new ToolButton(tileGroup);
    this.tileOutputDirBrowse.icon = this.scaledResource(":/browser/select-file.png");
    this.tileOutputDirBrowse.setScaledFixedSize(24, 24);
-   this.tileOutputDirBrowse.toolTip = "出力ディレクトリを参照";
+   this.tileOutputDirBrowse.toolTip = "Browse for output directory";
    this.tileOutputDirBrowse.enabled = this._saveTiles;
    this.tileOutputDirBrowse.onClick = function() {
       var gdd = new GetDirectoryDialog;
-      gdd.caption = "タイル出力ディレクトリを選択";
+      gdd.caption = "Select Tile Output Directory";
       if (d.tileOutputDirEdit.text.length > 0) {
          gdd.initialPath = d.tileOutputDirEdit.text;
       }
