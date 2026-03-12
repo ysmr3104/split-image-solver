@@ -100,3 +100,4 @@ AdP
 
 # WCS JSON output
 *.wcs.json
+.env

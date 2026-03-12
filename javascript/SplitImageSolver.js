@@ -2030,11 +2030,15 @@ function SolverSettingsDialog(parent) {
    var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
    var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
+   var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
+   var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
+   this._saveTiles = (savedSaveTiles === null || savedSaveTiles === undefined) ? false : savedSaveTiles;
+   this._tileOutputDir = savedTileOutputDir || "";
 
    // ---- Solve Mode ----
    var modeGroup = new GroupBox(this);
@@ -2169,6 +2173,58 @@ function SolverSettingsDialog(parent) {
    localGroup.sizer.add(pythonSizer);
    localGroup.sizer.add(scriptDirSizer);
 
+   // ---- Tile Output Settings ----
+   var tileGroup = new GroupBox(this);
+   tileGroup.title = "タイル出力";
+
+   this.saveTilesCheck = new CheckBox(tileGroup);
+   this.saveTilesCheck.text = "タイルファイルを保存する";
+   this.saveTilesCheck.checked = this._saveTiles;
+   this.saveTilesCheck.toolTip = "ソルブ用に分割したタイルFITSファイルを指定ディレクトリに保存します";
+
+   var tileOutputDirLabel = new Label(tileGroup);
+   tileOutputDirLabel.text = "出力ディレクトリ:";
+   tileOutputDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   tileOutputDirLabel.setFixedWidth(120);
+
+   this.tileOutputDirEdit = new Edit(tileGroup);
+   this.tileOutputDirEdit.text = this._tileOutputDir;
+   this.tileOutputDirEdit.toolTip = "タイルFITSファイルの保存先ディレクトリ";
+   this.tileOutputDirEdit.enabled = this._saveTiles;
+
+   this.tileOutputDirBrowse = new ToolButton(tileGroup);
+   this.tileOutputDirBrowse.icon = this.scaledResource(":/browser/select-file.png");
+   this.tileOutputDirBrowse.setScaledFixedSize(24, 24);
+   this.tileOutputDirBrowse.toolTip = "出力ディレクトリを参照";
+   this.tileOutputDirBrowse.enabled = this._saveTiles;
+   this.tileOutputDirBrowse.onClick = function() {
+      var gdd = new GetDirectoryDialog;
+      gdd.caption = "タイル出力ディレクトリを選択";
+      if (d.tileOutputDirEdit.text.length > 0) {
+         gdd.initialPath = d.tileOutputDirEdit.text;
+      }
+      if (gdd.execute()) {
+         d.tileOutputDirEdit.text = gdd.directory;
+      }
+   };
+
+   this.saveTilesCheck.onCheck = function(checked) {
+      d.tileOutputDirEdit.enabled = checked;
+      d.tileOutputDirBrowse.enabled = checked;
+   };
+
+   var tileOutputDirSizer = new HorizontalSizer;
+   tileOutputDirSizer.spacing = 4;
+   tileOutputDirSizer.add(tileOutputDirLabel);
+   tileOutputDirSizer.add(d.tileOutputDirEdit, 100);
+   tileOutputDirSizer.add(d.tileOutputDirBrowse);
+
+   tileGroup.sizer = new VerticalSizer;
+   tileGroup.sizer.margin = 6;
+   tileGroup.sizer.spacing = 4;
+   tileGroup.sizer.add(d.saveTilesCheck);
+   tileGroup.sizer.add(tileOutputDirSizer);
+
    // ---- Buttons ----
    var okButton = new PushButton(this);
    okButton.text = "OK";
@@ -2193,6 +2249,7 @@ function SolverSettingsDialog(parent) {
    this.sizer.add(modeGroup);
    this.sizer.add(apiGroup);
    this.sizer.add(localGroup);
+   this.sizer.add(tileGroup);
    this.sizer.addSpacing(4);
    this.sizer.add(btnSizer);
 
@@ -2207,17 +2264,23 @@ SolverSettingsDialog.prototype.getSettings = function() {
    var apiKey = this.apiKeyEdit.text.trim();
    var pythonPath = this.pythonEdit.text.trim();
    var scriptDir = this.scriptDirEdit.text.trim();
+   var saveTiles = this.saveTilesCheck.checked;
+   var tileOutputDir = this.tileOutputDirEdit.text.trim();
 
    Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
    Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
    Settings.write(SETTINGS_KEY + "/pythonPath", DataType_String, pythonPath);
    Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
+   Settings.write(SETTINGS_KEY + "/saveTiles", DataType_Boolean, saveTiles);
+   Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType_String, tileOutputDir);
 
    return {
       solveMode: mode,
       apiKey: apiKey,
       pythonPath: pythonPath,
-      scriptDir: scriptDir
+      scriptDir: scriptDir,
+      saveTiles: saveTiles,
+      tileOutputDir: tileOutputDir
    };
 };
 
@@ -2694,11 +2757,15 @@ function SplitSolverDialog() {
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
    var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType_String);
    var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
+   var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
+   var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
+   this._saveTiles = (savedSaveTiles2 === null || savedSaveTiles2 === undefined) ? false : savedSaveTiles2;
+   this._tileOutputDir = savedTileOutputDir2 || "";
 
    // ---- Target image ----
    var targetWindow = ImageWindow.activeWindow;
@@ -3508,6 +3575,8 @@ function SplitSolverDialog() {
          self._apiKey = s.apiKey;
          self._pythonPath = s.pythonPath;
          self._scriptDir = s.scriptDir;
+         self._saveTiles = s.saveTiles;
+         self._tileOutputDir = s.tileOutputDir;
          self.modeStatusValue.text = (s.solveMode === "local")
             ? "Local (solve-field)" : (s.solveMode === "imagesolver")
             ? "ImageSolver (built-in)" : "API (astrometry.net)";
@@ -4249,17 +4318,15 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, modeName);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
-      // 1b. Optionally copy tile FITS to a persistent debug directory for Node.js API tests
-      //     Set debugTileDir to a path to enable, e.g. "/Users/ysmr/Downloads/split_tiles_debug"
-      var debugTileDir = "/Users/yossy/projects/split-image-solver/tests/tile_output"; // TODO: revert after testing
-      if (debugTileDir) {
-         try { File.createDirectory(debugTileDir); } catch (e) { /* already exists */ }
+      // 1b. Optionally copy tile FITS to a user-specified output directory
+      if (this._saveTiles && this._tileOutputDir.length > 0) {
+         try { File.createDirectory(this._tileOutputDir); } catch (e) { /* already exists */ }
          for (var dti = 0; dti < tiles.length; dti++) {
             var src = tiles[dti].filePath;
-            var dst = debugTileDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
+            var dst = this._tileOutputDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
             File.copyFile(dst, src);
          }
-         console.writeln("Debug tiles saved to: " + debugTileDir + " (" + tiles.length + " files)");
+         console.writeln("Tile files saved to: " + this._tileOutputDir + " (" + tiles.length + " files)");
       }
 
       // 2. Compute per-tile RA/DEC hints
