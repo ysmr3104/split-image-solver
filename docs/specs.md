@@ -111,26 +111,32 @@ flowchart LR
 
 `solverFactory(tiles)` はモード固有のセットアップを行い、`solverFn` を返します。
 
+#### API モード
+
 ```mermaid
 flowchart TD
-    F["solverFactory(tiles)"]
-    F --> API
-    F --> Local
-    F --> IS
+    A1["solverFactory(tiles)"] --> A2["AstrometryClient ログイン"]
+    A2 --> A3["solverFn: solveSingleTile<br/>FITS アップロード → ポーリング → WCS取得<br/>2000ms レートリミット"]
+```
 
-    subgraph API["API モード"]
-        A1["AstrometryClient ログイン"] --> A2["solverFn: solveSingleTile<br/>FITS アップロード → ポーリング → WCS取得<br/>2000ms レートリミット"]
-    end
+#### Local モード
 
-    subgraph Local["Local モード"]
-        L1["全タイル情報を JSON シリアライズ"] --> L2["Python main.py<br/>--tile-solve-json 実行"]
-        L2 --> L3["solve-field 4並列<br/>(Pass 1 + Pass 2)"]
-        L3 --> L4["solverFn: 結果ルックアップ<br/>(ソルブは一括完了済み)"]
-    end
+```mermaid
+flowchart TD
+    L1["solverFactory(tiles)"] --> L2["全タイル情報を JSON シリアライズ"]
+    L2 --> L3["Python main.py --tile-solve-json 実行"]
+    L3 --> L4["solve-field 4並列 (Pass 1 + Pass 2)"]
+    L4 --> L5["solverFn: 結果ルックアップ<br/>(ソルブは一括完了済み)"]
+```
 
-    subgraph IS["ImageSolver モード"]
-        I1["solverFn: solveSingleTileIS<br/>タイル FITS を ImageWindow で開く<br/>→ PI ImageSolver で解く<br/>→ WCS を TD に変換"]
-    end
+#### ImageSolver モード
+
+```mermaid
+flowchart TD
+    I1["solverFactory(tiles)"] --> I2["solverFn: solveSingleTileIS"]
+    I2 --> I3["タイル FITS を ImageWindow で開く"]
+    I3 --> I4["PI ImageSolver で解く"]
+    I4 --> I5["WCS をボトムアップ → トップダウンに変換"]
 ```
 
 ### 3.4 Step 4: Wavefront ソルブ — `solveWavefront()`
