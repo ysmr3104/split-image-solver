@@ -700,12 +700,14 @@ function convertToWcsResult(wcs, imageWidth, imageHeight) {
 // targetWindow: ImageWindow to split
 // gridX, gridY: number of columns and rows
 // overlap: overlap in pixels
+// skipEdges: { top, bottom, left, right } edge tile rows/cols to skip
+// solveMode: "API" | "Local" | "ImageSolver" — controls downsample behavior
 //
 // Returns array of tile objects:
 //   { filePath, col, row, offsetX, offsetY, tileWidth, tileHeight,
 //     scaleFactor, origOffsetX, origOffsetY, origTileWidth, origTileHeight }
 //----------------------------------------------------------------------------
-function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
+function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, solveMode) {
    var image = targetWindow.mainView.image;
    var imgW = image.width;
    var imgH = image.height;
@@ -747,10 +749,11 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
          var tileH = y1 - y0;
          if (tileW < 10 || tileH < 10) continue;
 
-         // Create a new ImageWindow for the tile (16-bit integer, matching Python uint16)
+         // Create a new ImageWindow for the tile (32-bit float for precision)
+         // Stretch calculations run in float; final uint16 conversion at FITS save time
          var tileWin = new ImageWindow(tileW, tileH,
-            image.numberOfChannels, 16,
-            false, image.isColor,
+            image.numberOfChannels, 32,
+            true, image.isColor,
             "tile_" + col + "_" + row);
 
          // Copy pixel data from source using selectedRect
@@ -808,39 +811,52 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
          tileWin.mainView.endProcess();
 
          // Downsample if tile is too large (long edge > 2000px)
+         // API mode: downsample here (upload size constraint)
+         // Local/ImageSolver mode: skip (solve-field --downsample handles it)
          var scaleFactor = 1.0;
-         var maxEdge = Math.max(tileW, tileH);
-         if (maxEdge > 2000) {
-            scaleFactor = 2000.0 / maxEdge;
-            var newW = Math.round(tileW * scaleFactor);
-            var newH = Math.round(tileH * scaleFactor);
+         if (solveMode === "API") {
+            var maxEdge = Math.max(tileW, tileH);
+            if (maxEdge > 2000) {
+               scaleFactor = 2000.0 / maxEdge;
+               var newW = Math.round(tileW * scaleFactor);
+               var newH = Math.round(tileH * scaleFactor);
 
-            var resample = new Resample;
-            resample.mode = Resample.prototype.AbsolutePixels;
-            resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
-            resample.xSize = newW;
-            resample.ySize = newH;
-            resample.interpolation = Resample.prototype.Auto;
-            resample.executeOn(tileWin.mainView);
+               var resample = new Resample;
+               resample.mode = Resample.prototype.AbsolutePixels;
+               resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
+               resample.xSize = newW;
+               resample.ySize = newH;
+               resample.interpolation = Resample.prototype.Auto;
+               resample.executeOn(tileWin.mainView);
+            }
          }
+
+         // Convert float32 to uint16 for FITS output
+         var currentW = tileWin.mainView.image.width;
+         var currentH = tileWin.mainView.image.height;
+         var outWin = new ImageWindow(currentW, currentH, 1, 16, false, false, "out_tile");
+         outWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         outWin.mainView.image.apply(tileWin.mainView.image, ImageOp_Mov);
+         outWin.mainView.endProcess();
+         tileWin.forceClose();
 
          // Save to FITS using FileFormatInstance
          var fitsPath = tmpDir + "/split_tile_" + col + "_" + row + ".fits";
          var fmt = new FileFormat("FITS");
          var wrt = new FileFormatInstance(fmt);
          if (wrt.create(fitsPath)) {
-            wrt.writeImage(tileWin.mainView.image);
+            wrt.writeImage(outWin.mainView.image);
             wrt.close();
          }
          // Log tile file info
          var fInfo = new FileInfo(fitsPath);
          console.writeln("  Tile [" + col + "," + row + "] saved: " +
-            tileWin.mainView.image.width + "x" + tileWin.mainView.image.height +
-            " ch=" + tileWin.mainView.image.numberOfChannels +
-            " bits=" + tileWin.mainView.image.bitsPerSample +
+            outWin.mainView.image.width + "x" + outWin.mainView.image.height +
+            " ch=" + outWin.mainView.image.numberOfChannels +
+            " bits=" + outWin.mainView.image.bitsPerSample +
             " size=" + Math.round(fInfo.size / 1024) + "KB");
 
-         tileWin.forceClose();
+         outWin.forceClose();
 
          tiles.push({
             filePath: fitsPath,
@@ -4230,12 +4246,12 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
-      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
+      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, modeName);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
       // 1b. Optionally copy tile FITS to a persistent debug directory for Node.js API tests
       //     Set debugTileDir to a path to enable, e.g. "/Users/ysmr/Downloads/split_tiles_debug"
-      var debugTileDir = null; // set to a path (e.g. "/tmp/split_tiles_debug") to copy tile FITS for Node.js API tests
+      var debugTileDir = "/Users/yossy/projects/split-image-solver/tests/tile_output"; // TODO: revert after testing
       if (debugTileDir) {
          try { File.createDirectory(debugTileDir); } catch (e) { /* already exists */ }
          for (var dti = 0; dti < tiles.length; dti++) {
