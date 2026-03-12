@@ -204,13 +204,15 @@ class AstrometryLocalSolver(BasePlateSolver):
         timeout_override: Optional[int] = None,
         tweak_order: int = 4,
         downsample: Optional[int] = None,
+        scale_lower: Optional[float] = None,
+        scale_upper: Optional[float] = None,
     ) -> Dict:
         """
         単一画像をプレートソルブ
 
         Args:
             image_path: 画像ファイルパス（FITS or XISF）
-            fov_hint: 視野角ヒント（度）
+            fov_hint: 視野角ヒント（度）— scale_lower/scale_upper 未指定時に使用
             ra_hint: 赤経ヒント（度）
             dec_hint: 赤緯ヒント（度）
 
@@ -296,8 +298,13 @@ class AstrometryLocalSolver(BasePlateSolver):
                     f"Auto-downsample: {max_dimension}px -> factor {auto_downsample}"
                 )
 
-            # FOVヒントがある場合、スケール範囲を指定
-            if fov_hint:
+            # スケール範囲を指定: scale_lower/scale_upper 直接指定を優先、
+            # なければ fov_hint から計算
+            if scale_lower is not None and scale_upper is not None:
+                cmd.extend(["--scale-low", str(scale_lower)])
+                cmd.extend(["--scale-high", str(scale_upper)])
+                cmd.extend(["--scale-units", "arcsecperpix"])
+            elif fov_hint:
                 # arcsec/pixel を計算（FOV[deg] * 3600 / dimension[pixels]）
                 scale_center = fov_hint * 3600 / max_dimension
                 scale_low = scale_center * (1.0 - scale_margin)

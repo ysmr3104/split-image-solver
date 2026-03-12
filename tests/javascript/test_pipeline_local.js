@@ -32,7 +32,7 @@ var child_process = require("child_process");
 // 設定
 // ============================================================
 var MODE            = process.argv[2] || "2x2";
-var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../fits/" + MODE);
+var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../fits_original/" + MODE);
 var SOLVE_FIELD     = process.env.SOLVE_FIELD_PATH || "/opt/homebrew/bin/solve-field";
 var TIMEOUT_SEC     = parseInt(process.env.TIMEOUT_SEC || "120", 10);
 

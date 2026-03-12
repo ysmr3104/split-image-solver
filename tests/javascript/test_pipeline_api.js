@@ -34,7 +34,7 @@ var child_process = require("child_process");
 // ============================================================
 var API_KEY       = process.env.ASTROMETRY_API_KEY || "";
 var MODE          = process.argv[2] || "2x2";
-var TILE_DIR      = process.env.TILE_DIR || path.join(__dirname, "../fits/" + MODE);
+var TILE_DIR      = process.env.TILE_DIR || path.join(__dirname, "../fits_downsampling/" + MODE);
 var TIMEOUT_MS    = parseInt(process.env.TIMEOUT_MS    || "120000", 10);
 var RATE_LIMIT_MS = parseInt(process.env.RATE_LIMIT_MS || "2000",   10);
 

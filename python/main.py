@@ -305,15 +305,6 @@ def run_tile_solve_mode(args) -> int:
             except Exception:
                 pass
 
-        # fov_hint と scale_margin を計算
-        fov_hint = None
-        scale_margin = 0.25
-        if scale_lower and scale_upper and tile_width and tile_height:
-            tile_longer = max(tile_width, tile_height)
-            mid_scale = (scale_lower + scale_upper) / 2.0
-            fov_hint = mid_scale * tile_longer / 3600.0  # degrees
-            scale_margin = (scale_upper - scale_lower) / (scale_lower + scale_upper)
-
         # ダウンサンプル判定: 元タイルサイズが2000超なら、
         # FITS が既にダウンサンプル済みでも solve-field の --downsample を付与
         # （ソース抽出の品質向上のため）
@@ -326,10 +317,10 @@ def run_tile_solve_mode(args) -> int:
         try:
             result = solver.solve_image(
                 tile_path,
-                fov_hint=fov_hint,
                 ra_hint=ra_hint,
                 dec_hint=dec_hint,
-                scale_margin=scale_margin,
+                scale_lower=scale_lower,
+                scale_upper=scale_upper,
                 downsample=downsample,
             )
         except Exception as e:
@@ -429,6 +420,14 @@ def run_tile_solve_mode(args) -> int:
                 new_req = dict(req)
                 new_req["ra_hint"] = tile_ra
                 new_req["dec_hint"] = tile_dec
+                # Pass 2 ではスケールマージンを ±50% に拡大
+                # (full pipeline の 2nd pass と同じ)
+                orig_lower = req.get("scale_lower")
+                orig_upper = req.get("scale_upper")
+                if orig_lower and orig_upper:
+                    mid = (orig_lower + orig_upper) / 2.0
+                    new_req["scale_lower"] = mid * 0.5
+                    new_req["scale_upper"] = mid * 1.5
                 f = executor.submit(_solve_one, new_req)
                 retry_futures[f] = (row, col)
 
