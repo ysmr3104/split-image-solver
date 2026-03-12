@@ -4524,8 +4524,11 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       // Build and run Python --tile-solve-json command
       var pythonDir = File.extractDirectory(pythonPath);
       var pathEnv = quotePath(pythonDir) + ":/opt/homebrew/bin:/usr/local/bin:$PATH";
-      var timeoutPerTile = Math.floor(timeoutMs / 1000 / Math.max(tiles.length, 1) * 4);
-      timeoutPerTile = Math.max(60, Math.min(timeoutPerTile, 120));
+      // Per-tile timeout: GUI value directly (same semantics as API mode)
+      var timeoutPerTile = Math.max(30, Math.round(timeoutMs / 1000));
+      // JS watchdog: 2 passes × batches × per-tile + 20% margin
+      var numBatches = Math.ceil(tiles.length / 4);
+      var jsWatchdogMs = Math.round(numBatches * timeoutPerTile * 2 * 1.2 * 1000);
       var shellCmd = "export PATH=" + pathEnv + "; "
          + quotePath(pythonPath) + " " + quotePath(scriptPath)
          + " --tile-solve-json "   + quotePath(tileInputPath)
@@ -4548,7 +4551,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       var aborted = false;
       var lastStderrSize = 0;
 
-      while (elapsed < timeoutMs) {
+      while (elapsed < jsWatchdogMs) {
          if (P.waitForFinished(pollIntervalMs)) break;
          processEvents();
 
@@ -4582,9 +4585,10 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       }
 
       if (aborted) throw "Python tile solver aborted by user.";
-      if (elapsed >= timeoutMs && !P.waitForFinished(0)) {
+      if (elapsed >= jsWatchdogMs && !P.waitForFinished(0)) {
          P.kill();
-         throw "Python tile solver timed out after 30 minutes.";
+         var watchdogMin = Math.round(jsWatchdogMs / 60000);
+         throw "Python tile solver timed out after " + watchdogMin + " minutes (per-tile: " + timeoutPerTile + "s).";
       }
       if (P.exitCode !== 0) {
          var errText = "";
