@@ -203,6 +203,7 @@ class AstrometryLocalSolver(BasePlateSolver):
         scale_margin: float = 0.2,
         timeout_override: Optional[int] = None,
         tweak_order: int = 4,
+        downsample: Optional[int] = None,
     ) -> Dict:
         """
         単一画像をプレートソルブ
@@ -280,14 +281,19 @@ class AstrometryLocalSolver(BasePlateSolver):
                 height = header["NAXIS2"]
                 max_dimension = max(width, height)
 
-            # 大サイズタイルの自動ダウンサンプル
-            if max_dimension > 2000:
-                import math
-
-                downsample = max(2, math.ceil(max_dimension / 2000))
+            # ダウンサンプル: 明示指定があればそれを使い、なければ自動判定
+            if downsample:
                 cmd.extend(["--downsample", str(downsample)])
                 logger.debug(
-                    f"Auto-downsample: {max_dimension}px -> factor {downsample}"
+                    f"Explicit downsample: factor {downsample}"
+                )
+            elif max_dimension > 2000:
+                import math
+
+                auto_downsample = max(2, math.ceil(max_dimension / 2000))
+                cmd.extend(["--downsample", str(auto_downsample)])
+                logger.debug(
+                    f"Auto-downsample: {max_dimension}px -> factor {auto_downsample}"
                 )
 
             # FOVヒントがある場合、スケール範囲を指定

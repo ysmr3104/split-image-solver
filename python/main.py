@@ -314,6 +314,15 @@ def run_tile_solve_mode(args) -> int:
             fov_hint = mid_scale * tile_longer / 3600.0  # degrees
             scale_margin = (scale_upper - scale_lower) / (scale_lower + scale_upper)
 
+        # ダウンサンプル判定: 元タイルサイズが2000超なら、
+        # FITS が既にダウンサンプル済みでも solve-field の --downsample を付与
+        # （ソース抽出の品質向上のため）
+        downsample = None
+        original_longer = max(tile_width, tile_height)
+        if original_longer > 2000:
+            import math
+            downsample = max(2, math.ceil(original_longer / 2000))
+
         try:
             result = solver.solve_image(
                 tile_path,
@@ -321,6 +330,7 @@ def run_tile_solve_mode(args) -> int:
                 ra_hint=ra_hint,
                 dec_hint=dec_hint,
                 scale_margin=scale_margin,
+                downsample=downsample,
             )
         except Exception as e:
             result = {"success": False, "error_message": str(e), "wcs": None}
