@@ -283,6 +283,8 @@ def run_tile_solve_mode(args) -> int:
     solver_config = _build_solver_config(config)
     solver = create_solver(**solver_config)
 
+    timeout_per_tile = getattr(args, "timeout_per_tile", 120)
+
     def _solve_one(req):
         """単一タイルをソルブし (row, col, result_dict) を返す"""
         tile_path = Path(req["path"])
@@ -322,6 +324,7 @@ def run_tile_solve_mode(args) -> int:
                 scale_lower=scale_lower,
                 scale_upper=scale_upper,
                 downsample=downsample,
+                timeout_override=timeout_per_tile,
             )
         except Exception as e:
             result = {"success": False, "error_message": str(e), "wcs": None}
@@ -678,6 +681,12 @@ def main():
         help="タイルソルブ専用モード: タイルFITSパスとヒントのJSONを受け取り、"
              "per-tile WCSをJSONで出力する（--result-fileと組み合わせて使用）。"
              "WCS統合は行わない。",
+    )
+    parser.add_argument(
+        "--timeout-per-tile",
+        type=int,
+        default=120,
+        help="タイルソルブ専用モードでの1タイルあたりのタイムアウト秒数 [デフォルト: 120]",
     )
 
     # 出力形式

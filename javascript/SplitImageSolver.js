@@ -3519,19 +3519,21 @@ function SplitSolverDialog() {
    // Update UI enabled state based on solve mode
    var updateModeUI = function() {
       var isApi = (self._solveMode === "api");
+      var isLocal = (self._solveMode === "local");
       var isImageSolver = (self._solveMode === "imagesolver");
       // API-only controls (disabled for Local and ImageSolver modes)
       self.downsampleCombo.enabled = isApi;
       self.sipCombo.enabled = isApi;
-      self.timeoutEdit.enabled = isApi;
       self.scaleErrorEdit.enabled = isApi;
+      // Timeout: enabled for both API and Local modes
+      self.timeoutEdit.enabled = isApi || isLocal;
       // RA/DEC radius: relevant for API mode only
       self.radiusEdit.enabled = isApi;
       // Labels
       self.downsampleLabel.enabled = isApi;
       self.sipLabel.enabled = isApi;
-      self.timeoutLabel.enabled = isApi;
-      self.timeoutUnitLabel.enabled = isApi;
+      self.timeoutLabel.enabled = isApi || isLocal;
+      self.timeoutUnitLabel.enabled = isApi || isLocal;
       self.radiusLabel.enabled = isApi;
       self.radiusUnitLabel.enabled = isApi;
       self.scaleErrorLabel.enabled = isApi;
@@ -3989,7 +3991,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    try {
       if (solveMode === "local") {
-         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
+         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs);
       } else if (solveMode === "imagesolver") {
          if (isSplitMode) {
             this.doSplitSolveIS(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
@@ -4489,12 +4491,12 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
 //----------------------------------------------------------------------------
 // Local solve (Python backend)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
+SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs) {
    var self = this;
    var pythonPath = this._pythonPath;
    var scriptDir = this._scriptDir;
    var scriptPath = scriptDir + "/python/main.py";
-   var timeoutMs = 30 * 60 * 1000;
+   if (!timeoutMs || timeoutMs <= 0) timeoutMs = 30 * 60 * 1000;
 
    // solverFactory: after JS splits tiles, call Python --tile-solve-json in batch,
    // then return a lookup-type solverFn that reads results from the JSON.
@@ -4527,11 +4529,14 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       // Build and run Python --tile-solve-json command
       var pythonDir = File.extractDirectory(pythonPath);
       var pathEnv = quotePath(pythonDir) + ":/opt/homebrew/bin:/usr/local/bin:$PATH";
+      var timeoutPerTile = Math.floor(timeoutMs / 1000 / Math.max(tiles.length, 1) * 4);
+      timeoutPerTile = Math.max(60, Math.min(timeoutPerTile, 120));
       var shellCmd = "export PATH=" + pathEnv + "; "
          + quotePath(pythonPath) + " " + quotePath(scriptPath)
-         + " --tile-solve-json " + quotePath(tileInputPath)
-         + " --result-file "     + quotePath(resultPath)
-         + " 2> "                + quotePath(stderrFile);
+         + " --tile-solve-json "   + quotePath(tileInputPath)
+         + " --result-file "       + quotePath(resultPath)
+         + " --timeout-per-tile "  + timeoutPerTile
+         + " 2> "                  + quotePath(stderrFile);
 
       console.writeln("Running Python tile solver...");
       console.writeln("Command: " + shellCmd);
