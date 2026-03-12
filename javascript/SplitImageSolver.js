@@ -701,13 +701,11 @@ function convertToWcsResult(wcs, imageWidth, imageHeight) {
 // gridX, gridY: number of columns and rows
 // overlap: overlap in pixels
 // skipEdges: { top, bottom, left, right } edge tile rows/cols to skip
-// solveMode: "API" | "Local" | "ImageSolver" — controls downsample behavior
-//
 // Returns array of tile objects:
 //   { filePath, col, row, offsetX, offsetY, tileWidth, tileHeight,
 //     scaleFactor, origOffsetX, origOffsetY, origTileWidth, origTileHeight }
 //----------------------------------------------------------------------------
-function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, solveMode) {
+function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
    var image = targetWindow.mainView.image;
    var imgW = image.width;
    var imgH = image.height;
@@ -811,24 +809,20 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, solve
          tileWin.mainView.endProcess();
 
          // Downsample if tile is too large (long edge > 2000px)
-         // API mode: downsample here (upload size constraint)
-         // Local/ImageSolver mode: skip (solve-field --downsample handles it)
          var scaleFactor = 1.0;
-         if (solveMode === "API") {
-            var maxEdge = Math.max(tileW, tileH);
-            if (maxEdge > 2000) {
-               scaleFactor = 2000.0 / maxEdge;
-               var newW = Math.round(tileW * scaleFactor);
-               var newH = Math.round(tileH * scaleFactor);
+         var maxEdge = Math.max(tileW, tileH);
+         if (maxEdge > 2000) {
+            scaleFactor = 2000.0 / maxEdge;
+            var newW = Math.round(tileW * scaleFactor);
+            var newH = Math.round(tileH * scaleFactor);
 
-               var resample = new Resample;
-               resample.mode = Resample.prototype.AbsolutePixels;
-               resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
-               resample.xSize = newW;
-               resample.ySize = newH;
-               resample.interpolation = Resample.prototype.Auto;
-               resample.executeOn(tileWin.mainView);
-            }
+            var resample = new Resample;
+            resample.mode = Resample.prototype.AbsolutePixels;
+            resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
+            resample.xSize = newW;
+            resample.ySize = newH;
+            resample.interpolation = Resample.prototype.Auto;
+            resample.executeOn(tileWin.mainView);
          }
 
          // Convert float32 to uint16 for FITS output
@@ -4317,7 +4311,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
-      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges, modeName);
+      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
       // 1b. Optionally copy tile FITS to a user-specified output directory
