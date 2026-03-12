@@ -3518,7 +3518,8 @@ function SplitSolverDialog() {
       // API-only controls (disabled for Local and ImageSolver modes)
       self.downsampleCombo.enabled = isApi;
       self.sipCombo.enabled = isApi;
-      self.scaleErrorEdit.enabled = isApi;
+      // Scale error: used for scale_lower/upper in both API and Local modes
+      self.scaleErrorEdit.enabled = isApi || isLocal;
       // Timeout: enabled for both API and Local modes
       self.timeoutEdit.enabled = isApi || isLocal;
       // RA/DEC radius: relevant for API mode only
@@ -3530,8 +3531,8 @@ function SplitSolverDialog() {
       self.timeoutUnitLabel.enabled = isApi || isLocal;
       self.radiusLabel.enabled = isApi;
       self.radiusUnitLabel.enabled = isApi;
-      self.scaleErrorLabel.enabled = isApi;
-      self.scaleErrorUnitLabel.enabled = isApi;
+      self.scaleErrorLabel.enabled = isApi || isLocal;
+      self.scaleErrorUnitLabel.enabled = isApi || isLocal;
       // ImageSolver: Single only (no split support)
       if (isImageSolver) {
          self.gridCombo.currentItem = 0; // Force "1x1 (Single)"
