@@ -41,7 +41,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-FITS_DIR = Path(os.environ.get("FITS_DIR_OVERRIDE", str(REPO_ROOT / "tests" / "fits_original")))
+FITS_DIR = Path(os.environ.get("FITS_DIR_OVERRIDE", str(REPO_ROOT / "tests" / "fits_downsampling")))
 FIXTURE_DIR = REPO_ROOT / "tests" / "javascript" / "fixtures"
 CONFIG_PATH = REPO_ROOT / "config" / "settings.json"
 

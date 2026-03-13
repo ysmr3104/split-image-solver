@@ -436,10 +436,7 @@ PJSR の `JSON.parse()` には以下の制約があり、Python 側で対策:
 
 | ディレクトリ | 内容 |
 |-------------|------|
-| `tests/fits_original/` | JS float32 前処理済みタイル FITS (テスト基準) |
-| `tests/fits_downsampling/` | ダウンサンプル済みタイル FITS |
-| `tests/fits_old_api/` | 旧 API 用タイル FITS |
-| `tests/fits_old_python/` | 旧 Python 用タイル FITS |
+| `tests/fits_downsampling/` | ダウンサンプル済みタイル FITS (テスト基準、本番同等) |
 | `tests/javascript/fixtures/` | タイル WCS・ヒントの JSON フィクスチャ |
 
 ### 9.3 リグレッションテストのベースライン
