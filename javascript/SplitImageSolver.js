@@ -2778,20 +2778,43 @@ function SplitSolverDialog() {
    targetSizer.add(this.targetLabel);
    targetSizer.add(this.targetEdit, 100);
 
-   // Solve mode status label
-   this.modeStatusLabel = new Label(this);
-   this.modeStatusLabel.text = "Mode:";
-   this.modeStatusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.modeStatusLabel.setFixedWidth(120);
+   // Solve mode radio buttons
+   var modeLabel = new Label(this);
+   modeLabel.text = "Solve mode:";
+   modeLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   modeLabel.setFixedWidth(120);
 
-   this.modeStatusValue = new Label(this);
-   this.modeStatusValue.text = (this._solveMode === "local") ? "Local (solve-field)" : (this._solveMode === "imagesolver") ? "ImageSolver (built-in)" : "API (astrometry.net)";
-   this.modeStatusValue.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.modeApiRadio = new RadioButton(this);
+   this.modeApiRadio.text = "API";
+   this.modeApiRadio.checked = (this._solveMode === "api");
+   this.modeApiRadio.toolTip = "astrometry.net API (APIキー必要)";
+   this.modeApiRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "api"; updateModeUI(); }
+   };
 
-   var modeStatusSizer = new HorizontalSizer;
-   modeStatusSizer.spacing = 8;
-   modeStatusSizer.add(this.modeStatusLabel);
-   modeStatusSizer.add(this.modeStatusValue, 100);
+   this.modeLocalRadio = new RadioButton(this);
+   this.modeLocalRadio.text = "Local";
+   this.modeLocalRadio.checked = (this._solveMode === "local");
+   this.modeLocalRadio.toolTip = "ローカル solve-field (Python必要)";
+   this.modeLocalRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "local"; updateModeUI(); }
+   };
+
+   this.modeISRadio = new RadioButton(this);
+   this.modeISRadio.text = "ImageSolver";
+   this.modeISRadio.checked = (this._solveMode === "imagesolver");
+   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver (Single only)";
+   this.modeISRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "imagesolver"; updateModeUI(); }
+   };
+
+   var modeSizer = new HorizontalSizer;
+   modeSizer.spacing = 8;
+   modeSizer.add(modeLabel);
+   modeSizer.add(this.modeApiRadio);
+   modeSizer.add(this.modeLocalRadio);
+   modeSizer.add(this.modeISRadio);
+   modeSizer.addStretch();
 
    // ---- Equipment (Camera + Lens) ----
    var equipDB = loadEquipmentDB();
@@ -3568,15 +3591,18 @@ function SplitSolverDialog() {
       var dlg = new SolverSettingsDialog(self);
       if (dlg.execute()) {
          var s = dlg.getSettings();
-         self._solveMode = s.solveMode;
          self._apiKey = s.apiKey;
          self._pythonPath = s.pythonPath;
          self._scriptDir = s.scriptDir;
          self._saveTiles = s.saveTiles;
          self._tileOutputDir = s.tileOutputDir;
-         self.modeStatusValue.text = (s.solveMode === "local")
-            ? "Local (solve-field)" : (s.solveMode === "imagesolver")
-            ? "ImageSolver (built-in)" : "API (astrometry.net)";
+         // Reflect default mode from Settings onto radio buttons (only if changed)
+         if (s.solveMode !== self._solveMode) {
+            self._solveMode = s.solveMode;
+            self.modeApiRadio.checked   = (s.solveMode === "api");
+            self.modeLocalRadio.checked = (s.solveMode === "local");
+            self.modeISRadio.checked    = (s.solveMode === "imagesolver");
+         }
          updateModeUI();
       }
    };
@@ -3706,7 +3732,7 @@ function SplitSolverDialog() {
    imageGroup.sizer.margin = 6;
    imageGroup.sizer.spacing = 4;
    imageGroup.sizer.add(targetSizer);
-   imageGroup.sizer.add(modeStatusSizer);
+   imageGroup.sizer.add(modeSizer);
 
    // ---- GroupBox: Equipment ----
    var equipGroup = new GroupBox(this);
