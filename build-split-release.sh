@@ -35,6 +35,7 @@ cp "${SCRIPT_DIR}/javascript/wcs_math.js"          "${TMPDIR_BASE}/src/scripts/$
 cp "${SCRIPT_DIR}/javascript/wcs_keywords.js"      "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/equipment_data.jsh"   "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/imagesolver_bridge.jsh" "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
+cp "${SCRIPT_DIR}/javascript/SplitImageSolver.xsgn"  "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 
 echo "ファイルをコピーしました:"
 ls -la "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
