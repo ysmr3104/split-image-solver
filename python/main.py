@@ -209,6 +209,174 @@ def _handle_recommend_grid(args) -> int:
     return 0
 
 
+def _extract_wcs_to_dict(wcs, pixel_scale=None):
+    """astropy WCS オブジェクトから CRVAL/CRPIX/CD/SIP を dict に抽出する。
+
+    Returns:
+        dict with keys: crval1, crval2, crpix1, crpix2, cd1_1..cd2_2, pixel_scale,
+        and optionally sip_order, sip_a, sip_b.
+        Returns None on failure.
+    """
+    try:
+        crval1 = float(wcs.wcs.crval[0])
+        crval2 = float(wcs.wcs.crval[1])
+        crpix1 = float(wcs.wcs.crpix[0])
+        crpix2 = float(wcs.wcs.crpix[1])
+
+        if hasattr(wcs.wcs, "cd") and wcs.wcs.cd is not None and wcs.wcs.cd.size > 0:
+            cd = wcs.wcs.cd
+            cd1_1 = float(cd[0, 0])
+            cd1_2 = float(cd[0, 1])
+            cd2_1 = float(cd[1, 0])
+            cd2_2 = float(cd[1, 1])
+        else:
+            cdelt = wcs.wcs.cdelt
+            pc = wcs.wcs.get_pc()
+            cd1_1 = float(cdelt[0] * pc[0, 0])
+            cd1_2 = float(cdelt[0] * pc[0, 1])
+            cd2_1 = float(cdelt[1] * pc[1, 0])
+            cd2_2 = float(cdelt[1] * pc[1, 1])
+
+        entry = {
+            "success": True,
+            "crval1": crval1, "crval2": crval2,
+            "crpix1": crpix1, "crpix2": crpix2,
+            "cd1_1": cd1_1, "cd1_2": cd1_2,
+            "cd2_1": cd2_1, "cd2_2": cd2_2,
+            "pixel_scale": float(pixel_scale) if pixel_scale else None,
+        }
+
+        if wcs.sip is not None:
+            try:
+                def _sip_dict(arr):
+                    d = {}
+                    for i in range(arr.shape[0]):
+                        for j in range(arr.shape[1]):
+                            if arr[i, j] != 0.0:
+                                d[f"{i}_{j}"] = float(arr[i, j])
+                    return d
+                entry["sip_order"] = int(wcs.sip.a_order)
+                entry["sip_a"] = _sip_dict(wcs.sip.a)
+                entry["sip_b"] = _sip_dict(wcs.sip.b)
+            except Exception:
+                pass
+
+        return entry
+    except Exception:
+        return None
+
+
+def run_single_tile_solve(args) -> int:
+    """--solve-single-tile モード: 1タイルをソルブし WCS JSON を出力する。
+
+    CLI:
+        python main.py --solve-single-tile \\
+          --tile-path /tmp/tile_0_0.fits \\
+          --ra-hint 123.456 --dec-hint 45.678 \\
+          --scale-lower 3.0 --scale-upper 4.2 \\
+          --result-file /tmp/result.json \\
+          [--config settings.json]
+
+    Output JSON format:
+        {"success": true, "crval1": ..., "crval2": ..., "crpix1": ..., "crpix2": ...,
+         "cd1_1": ..., "cd1_2": ..., "cd2_1": ..., "cd2_2": ...,
+         "pixel_scale": ..., "sip_order": ..., "sip_a": {...}, "sip_b": {...}}
+    """
+    logger = setup_logger(
+        level=getattr(args, "log_level", "INFO"),
+        log_file=getattr(args, "log_file", None),
+        console_output=True,
+        use_stderr=True,
+    )
+
+    def _write_result(result_dict):
+        json_str = _json_dumps_pjsr_safe(result_dict)
+        if args.result_file:
+            try:
+                with open(args.result_file, "w", encoding="utf-8") as rf:
+                    rf.write(json_str)
+            except Exception as e:
+                logger.error(f"Failed to write result file: {e}")
+        else:
+            print(json_str)
+            sys.stdout.flush()
+
+    tile_path = Path(args.tile_path)
+    if not tile_path.exists():
+        _write_result({"success": False, "error": f"Tile not found: {tile_path}"})
+        return 1
+
+    # Config and solver
+    config_path = Path(args.config)
+    config = load_config(config_path)
+    solver_config = _build_solver_config(config)
+    solver = create_solver(**solver_config)
+
+    timeout = getattr(args, "timeout_per_tile", 120)
+
+    # Tile dimensions (for downsample decision)
+    tile_width = 0
+    tile_height = 0
+    try:
+        from astropy.io import fits as afits
+        with afits.open(str(tile_path)) as hdul:
+            tile_width = hdul[0].header.get("NAXIS1", 0)
+            tile_height = hdul[0].header.get("NAXIS2", 0)
+    except Exception:
+        pass
+
+    downsample = None
+    original_longer = max(tile_width, tile_height)
+    if original_longer > 2000:
+        downsample = max(2, math.ceil(original_longer / 2000))
+
+    ra_hint = getattr(args, "ra_hint", None)
+    dec_hint = getattr(args, "dec_hint", None)
+    scale_lower = getattr(args, "scale_lower", None)
+    scale_upper = getattr(args, "scale_upper", None)
+
+    logger.info(f"Solving tile: {tile_path}")
+    if ra_hint is not None and dec_hint is not None:
+        logger.info(f"  Hints: RA={ra_hint:.4f} DEC={dec_hint:+.4f}")
+    if scale_lower is not None and scale_upper is not None:
+        logger.info(f"  Scale: {scale_lower:.3f} - {scale_upper:.3f} arcsec/px")
+
+    try:
+        result = solver.solve_image(
+            tile_path,
+            ra_hint=ra_hint,
+            dec_hint=dec_hint,
+            scale_lower=scale_lower,
+            scale_upper=scale_upper,
+            downsample=downsample,
+            timeout_override=timeout,
+            write_back_wcs=False,
+        )
+    except Exception as e:
+        _write_result({"success": False, "error": str(e)})
+        return 1
+
+    if not result["success"]:
+        _write_result({
+            "success": False,
+            "error": result.get("error_message", "solve failed"),
+        })
+        return 1
+
+    wcs = result["wcs"]
+    entry = _extract_wcs_to_dict(wcs, result.get("pixel_scale"))
+    if entry is None:
+        _write_result({"success": False, "error": "WCS extraction failed"})
+        return 1
+
+    _write_result(entry)
+    logger.info(
+        f"  OK  RA={entry['crval1']:.3f}° DEC={entry['crval2']:+.3f}° "
+        f"scale={entry.get('pixel_scale', 0):.2f}\"/px"
+    )
+    return 0
+
+
 def main():
     """メインエントリーポイント"""
     parser = argparse.ArgumentParser(
@@ -336,6 +504,49 @@ def main():
         help="レンズ投影型 (rectilinear, fisheye_equisolid, fisheye_equidistant, fisheye_stereographic)",
     )
 
+    # 単一タイルソルブモード（PixInsight連携用 — per-tile 呼び出し）
+    parser.add_argument(
+        "--solve-single-tile",
+        action="store_true",
+        help="単一タイルソルブモード: 1タイルをソルブし WCS JSON を出力する。"
+             "--tile-path, --result-file と組み合わせて使用。",
+    )
+    parser.add_argument(
+        "--tile-path",
+        type=str,
+        help="ソルブ対象のタイルFITSパス（--solve-single-tile用）",
+    )
+    parser.add_argument(
+        "--ra-hint",
+        type=float,
+        default=None,
+        help="RA ヒント (degrees)（--solve-single-tile用）",
+    )
+    parser.add_argument(
+        "--dec-hint",
+        type=float,
+        default=None,
+        help="DEC ヒント (degrees)（--solve-single-tile用）",
+    )
+    parser.add_argument(
+        "--scale-lower",
+        type=float,
+        default=None,
+        help="スケール下限 (arcsec/px)（--solve-single-tile用）",
+    )
+    parser.add_argument(
+        "--scale-upper",
+        type=float,
+        default=None,
+        help="スケール上限 (arcsec/px)（--solve-single-tile用）",
+    )
+    parser.add_argument(
+        "--timeout-per-tile",
+        type=int,
+        default=120,
+        help="タイルソルブのタイムアウト秒数 [デフォルト: 120]",
+    )
+
     # 出力形式
     parser.add_argument(
         "--json-output",
@@ -362,6 +573,12 @@ def main():
     # ユーティリティモード: --recommend-grid
     if args.recommend_grid:
         return _handle_recommend_grid(args)
+
+    # 単一タイルソルブモード: --solve-single-tile
+    if args.solve_single_tile:
+        if not args.tile_path:
+            parser.error("--tile-path is required with --solve-single-tile")
+        return run_single_tile_solve(args)
 
     # 通常モードでは --input / --output が必須
     if not args.input:

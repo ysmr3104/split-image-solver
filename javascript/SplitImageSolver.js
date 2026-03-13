@@ -700,7 +700,7 @@ function convertToWcsResult(wcs, imageWidth, imageHeight) {
 // targetWindow: ImageWindow to split
 // gridX, gridY: number of columns and rows
 // overlap: overlap in pixels
-//
+// skipEdges: { top, bottom, left, right } edge tile rows/cols to skip
 // Returns array of tile objects:
 //   { filePath, col, row, offsetX, offsetY, tileWidth, tileHeight,
 //     scaleFactor, origOffsetX, origOffsetY, origTileWidth, origTileHeight }
@@ -747,10 +747,11 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
          var tileH = y1 - y0;
          if (tileW < 10 || tileH < 10) continue;
 
-         // Create a new ImageWindow for the tile (16-bit integer, matching Python uint16)
+         // Create a new ImageWindow for the tile (32-bit float for precision)
+         // Stretch calculations run in float; final uint16 conversion at FITS save time
          var tileWin = new ImageWindow(tileW, tileH,
-            image.numberOfChannels, 16,
-            false, image.isColor,
+            image.numberOfChannels, 32,
+            true, image.isColor,
             "tile_" + col + "_" + row);
 
          // Copy pixel data from source using selectedRect
@@ -824,23 +825,32 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
             resample.executeOn(tileWin.mainView);
          }
 
+         // Convert float32 to uint16 for FITS output
+         var currentW = tileWin.mainView.image.width;
+         var currentH = tileWin.mainView.image.height;
+         var outWin = new ImageWindow(currentW, currentH, 1, 16, false, false, "out_tile");
+         outWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         outWin.mainView.image.apply(tileWin.mainView.image, ImageOp_Mov);
+         outWin.mainView.endProcess();
+         tileWin.forceClose();
+
          // Save to FITS using FileFormatInstance
          var fitsPath = tmpDir + "/split_tile_" + col + "_" + row + ".fits";
          var fmt = new FileFormat("FITS");
          var wrt = new FileFormatInstance(fmt);
          if (wrt.create(fitsPath)) {
-            wrt.writeImage(tileWin.mainView.image);
+            wrt.writeImage(outWin.mainView.image);
             wrt.close();
          }
          // Log tile file info
          var fInfo = new FileInfo(fitsPath);
          console.writeln("  Tile [" + col + "," + row + "] saved: " +
-            tileWin.mainView.image.width + "x" + tileWin.mainView.image.height +
-            " ch=" + tileWin.mainView.image.numberOfChannels +
-            " bits=" + tileWin.mainView.image.bitsPerSample +
+            outWin.mainView.image.width + "x" + outWin.mainView.image.height +
+            " ch=" + outWin.mainView.image.numberOfChannels +
+            " bits=" + outWin.mainView.image.bitsPerSample +
             " size=" + Math.round(fInfo.size / 1024) + "KB");
 
-         tileWin.forceClose();
+         outWin.forceClose();
 
          tiles.push({
             filePath: fitsPath,
@@ -920,20 +930,34 @@ function timestamp() {
 // gridX, gridY: grid dimensions
 //----------------------------------------------------------------------------
 function printTileGrid(tiles, gridX, gridY) {
+   // Build tile lookup for O(1) access
+   var tileMap = {};
+   for (var t = 0; t < tiles.length; t++) {
+      tileMap[tiles[t].col + "," + tiles[t].row] = tiles[t];
+   }
+
+   // Column header
+   var header = "    ";
+   for (var c = 0; c < gridX; c++) {
+      header += c + " ";
+   }
+   console.writeln(header);
+
    for (var row = 0; row < gridY; row++) {
-      var line = "  ";
+      var line = (row < 10 ? " " : "") + row + "  ";
       for (var col = 0; col < gridX; col++) {
-         var symbol = "\u00b7 "; // pending (middle dot)
-         for (var t = 0; t < tiles.length; t++) {
-            if (tiles[t].col === col && tiles[t].row === row) {
-               if (tiles[t].status === "success") symbol = "\u25cb ";
-               else if (tiles[t].status === "skipped") symbol = "\u2014 ";
-               else if (tiles[t].status === "failed") symbol = "\u00d7 ";
-               else if (tiles[t].status === "solving") symbol = "\u25cf "; // filled circle
-               break;
-            }
+         var tile = tileMap[col + "," + row];
+         if (!tile) {
+            line += "  "; // skip edge excluded
+         } else if (tile.status === "success") {
+            line += "\u25cb ";
+         } else if (tile.status === "skipped") {
+            line += "\u2014 ";
+         } else if (tile.status === "failed") {
+            line += "\u00d7 ";
+         } else {
+            line += "\u00b7 "; // pending
          }
-         line += symbol;
       }
       console.writeln(line);
    }
@@ -1301,7 +1325,7 @@ function solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec) {
 //
 // Returns number of successfully solved tiles.
 //----------------------------------------------------------------------------
-function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback, tileSolverFn, abortCheckFn, skipCheckFn) {
+function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY, progressCallback, tileSolverFn, abortCheckFn, skipCheckFn, rateLimitMs) {
    var notify = progressCallback || function() {};
    var successCount = 0;
    var attemptCount = 0;
@@ -1554,8 +1578,9 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          printTileGrid(tiles, gridX, gridY);
 
          // Rate limit
-         // Rate limit only for API mode (not needed for ImageSolver)
-         if (!tileSolverFn) msleep(2000);
+         // rateLimitMs: explicit value overrides default (API=2000ms, IS/Local=0ms)
+         var rateMs = (rateLimitMs !== undefined) ? rateLimitMs : (tileSolverFn ? 0 : 2000);
+         if (rateMs > 0) msleep(rateMs);
       }
    }
 
@@ -1563,6 +1588,7 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
    notify("Solved " + successCount + "/" + tiles.length + " tiles | " + formatElapsed(totalElapsed) + " total", -1);
    console.writeln("");
    console.writeln("<b>Wavefront solve complete: " + successCount + "/" + tiles.length + " succeeded (" + formatElapsed(totalElapsed) + ")</b>");
+   printTileGrid(tiles, gridX, gridY);
    return successCount;
 }
 
@@ -2013,11 +2039,15 @@ function SolverSettingsDialog(parent) {
    var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
    var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
+   var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
+   var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
+   this._saveTiles = (savedSaveTiles === null || savedSaveTiles === undefined) ? false : savedSaveTiles;
+   this._tileOutputDir = savedTileOutputDir || "";
 
    // ---- Solve Mode ----
    var modeGroup = new GroupBox(this);
@@ -2152,6 +2182,58 @@ function SolverSettingsDialog(parent) {
    localGroup.sizer.add(pythonSizer);
    localGroup.sizer.add(scriptDirSizer);
 
+   // ---- Tile Output Settings ----
+   var tileGroup = new GroupBox(this);
+   tileGroup.title = "Tile Output";
+
+   this.saveTilesCheck = new CheckBox(tileGroup);
+   this.saveTilesCheck.text = "Save tile files";
+   this.saveTilesCheck.checked = this._saveTiles;
+   this.saveTilesCheck.toolTip = "Save split tile FITS files to the specified directory";
+
+   var tileOutputDirLabel = new Label(tileGroup);
+   tileOutputDirLabel.text = "Output directory:";
+   tileOutputDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   tileOutputDirLabel.setFixedWidth(120);
+
+   this.tileOutputDirEdit = new Edit(tileGroup);
+   this.tileOutputDirEdit.text = this._tileOutputDir;
+   this.tileOutputDirEdit.toolTip = "Directory to save tile FITS files";
+   this.tileOutputDirEdit.enabled = this._saveTiles;
+
+   this.tileOutputDirBrowse = new ToolButton(tileGroup);
+   this.tileOutputDirBrowse.icon = this.scaledResource(":/browser/select-file.png");
+   this.tileOutputDirBrowse.setScaledFixedSize(24, 24);
+   this.tileOutputDirBrowse.toolTip = "Browse for output directory";
+   this.tileOutputDirBrowse.enabled = this._saveTiles;
+   this.tileOutputDirBrowse.onClick = function() {
+      var gdd = new GetDirectoryDialog;
+      gdd.caption = "Select Tile Output Directory";
+      if (d.tileOutputDirEdit.text.length > 0) {
+         gdd.initialPath = d.tileOutputDirEdit.text;
+      }
+      if (gdd.execute()) {
+         d.tileOutputDirEdit.text = gdd.directory;
+      }
+   };
+
+   this.saveTilesCheck.onCheck = function(checked) {
+      d.tileOutputDirEdit.enabled = checked;
+      d.tileOutputDirBrowse.enabled = checked;
+   };
+
+   var tileOutputDirSizer = new HorizontalSizer;
+   tileOutputDirSizer.spacing = 4;
+   tileOutputDirSizer.add(tileOutputDirLabel);
+   tileOutputDirSizer.add(d.tileOutputDirEdit, 100);
+   tileOutputDirSizer.add(d.tileOutputDirBrowse);
+
+   tileGroup.sizer = new VerticalSizer;
+   tileGroup.sizer.margin = 6;
+   tileGroup.sizer.spacing = 4;
+   tileGroup.sizer.add(d.saveTilesCheck);
+   tileGroup.sizer.add(tileOutputDirSizer);
+
    // ---- Buttons ----
    var okButton = new PushButton(this);
    okButton.text = "OK";
@@ -2176,6 +2258,7 @@ function SolverSettingsDialog(parent) {
    this.sizer.add(modeGroup);
    this.sizer.add(apiGroup);
    this.sizer.add(localGroup);
+   this.sizer.add(tileGroup);
    this.sizer.addSpacing(4);
    this.sizer.add(btnSizer);
 
@@ -2190,17 +2273,23 @@ SolverSettingsDialog.prototype.getSettings = function() {
    var apiKey = this.apiKeyEdit.text.trim();
    var pythonPath = this.pythonEdit.text.trim();
    var scriptDir = this.scriptDirEdit.text.trim();
+   var saveTiles = this.saveTilesCheck.checked;
+   var tileOutputDir = this.tileOutputDirEdit.text.trim();
 
    Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
    Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
    Settings.write(SETTINGS_KEY + "/pythonPath", DataType_String, pythonPath);
    Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
+   Settings.write(SETTINGS_KEY + "/saveTiles", DataType_Boolean, saveTiles);
+   Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType_String, tileOutputDir);
 
    return {
       solveMode: mode,
       apiKey: apiKey,
       pythonPath: pythonPath,
-      scriptDir: scriptDir
+      scriptDir: scriptDir,
+      saveTiles: saveTiles,
+      tileOutputDir: tileOutputDir
    };
 };
 
@@ -2677,11 +2766,15 @@ function SplitSolverDialog() {
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
    var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType_String);
    var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
+   var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
+   var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
+   this._saveTiles = (savedSaveTiles2 === null || savedSaveTiles2 === undefined) ? false : savedSaveTiles2;
+   this._tileOutputDir = savedTileOutputDir2 || "";
 
    // ---- Target image ----
    var targetWindow = ImageWindow.activeWindow;
@@ -2700,20 +2793,43 @@ function SplitSolverDialog() {
    targetSizer.add(this.targetLabel);
    targetSizer.add(this.targetEdit, 100);
 
-   // Solve mode status label
-   this.modeStatusLabel = new Label(this);
-   this.modeStatusLabel.text = "Mode:";
-   this.modeStatusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
-   this.modeStatusLabel.setFixedWidth(120);
+   // Solve mode radio buttons
+   var modeLabel = new Label(this);
+   modeLabel.text = "Solve mode:";
+   modeLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   modeLabel.setFixedWidth(120);
 
-   this.modeStatusValue = new Label(this);
-   this.modeStatusValue.text = (this._solveMode === "local") ? "Local (solve-field)" : (this._solveMode === "imagesolver") ? "ImageSolver (built-in)" : "API (astrometry.net)";
-   this.modeStatusValue.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.modeApiRadio = new RadioButton(this);
+   this.modeApiRadio.text = "API";
+   this.modeApiRadio.checked = (this._solveMode === "api");
+   this.modeApiRadio.toolTip = "astrometry.net API (APIキー必要)";
+   this.modeApiRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "api"; updateModeUI(); }
+   };
 
-   var modeStatusSizer = new HorizontalSizer;
-   modeStatusSizer.spacing = 8;
-   modeStatusSizer.add(this.modeStatusLabel);
-   modeStatusSizer.add(this.modeStatusValue, 100);
+   this.modeLocalRadio = new RadioButton(this);
+   this.modeLocalRadio.text = "Local";
+   this.modeLocalRadio.checked = (this._solveMode === "local");
+   this.modeLocalRadio.toolTip = "ローカル solve-field (Python必要)";
+   this.modeLocalRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "local"; updateModeUI(); }
+   };
+
+   this.modeISRadio = new RadioButton(this);
+   this.modeISRadio.text = "ImageSolver";
+   this.modeISRadio.checked = (this._solveMode === "imagesolver");
+   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver (Single only)";
+   this.modeISRadio.onCheck = function(checked) {
+      if (checked) { self._solveMode = "imagesolver"; updateModeUI(); }
+   };
+
+   var modeSizer = new HorizontalSizer;
+   modeSizer.spacing = 8;
+   modeSizer.add(modeLabel);
+   modeSizer.add(this.modeApiRadio);
+   modeSizer.add(this.modeLocalRadio);
+   modeSizer.add(this.modeISRadio);
+   modeSizer.addStretch();
 
    // ---- Equipment (Camera + Lens) ----
    var equipDB = loadEquipmentDB();
@@ -3435,23 +3551,26 @@ function SplitSolverDialog() {
    // Update UI enabled state based on solve mode
    var updateModeUI = function() {
       var isApi = (self._solveMode === "api");
+      var isLocal = (self._solveMode === "local");
       var isImageSolver = (self._solveMode === "imagesolver");
       // API-only controls (disabled for Local and ImageSolver modes)
       self.downsampleCombo.enabled = isApi;
       self.sipCombo.enabled = isApi;
-      self.timeoutEdit.enabled = isApi;
-      self.scaleErrorEdit.enabled = isApi;
+      // Scale error: used for scale_lower/upper in both API and Local modes
+      self.scaleErrorEdit.enabled = isApi || isLocal;
+      // Timeout: enabled for both API and Local modes
+      self.timeoutEdit.enabled = isApi || isLocal;
       // RA/DEC radius: relevant for API mode only
       self.radiusEdit.enabled = isApi;
       // Labels
       self.downsampleLabel.enabled = isApi;
       self.sipLabel.enabled = isApi;
-      self.timeoutLabel.enabled = isApi;
-      self.timeoutUnitLabel.enabled = isApi;
+      self.timeoutLabel.enabled = isApi || isLocal;
+      self.timeoutUnitLabel.enabled = isApi || isLocal;
       self.radiusLabel.enabled = isApi;
       self.radiusUnitLabel.enabled = isApi;
-      self.scaleErrorLabel.enabled = isApi;
-      self.scaleErrorUnitLabel.enabled = isApi;
+      self.scaleErrorLabel.enabled = isApi || isLocal;
+      self.scaleErrorUnitLabel.enabled = isApi || isLocal;
       // ImageSolver: Single only (no split support)
       if (isImageSolver) {
          self.gridCombo.currentItem = 0; // Force "1x1 (Single)"
@@ -3487,13 +3606,18 @@ function SplitSolverDialog() {
       var dlg = new SolverSettingsDialog(self);
       if (dlg.execute()) {
          var s = dlg.getSettings();
-         self._solveMode = s.solveMode;
          self._apiKey = s.apiKey;
          self._pythonPath = s.pythonPath;
          self._scriptDir = s.scriptDir;
-         self.modeStatusValue.text = (s.solveMode === "local")
-            ? "Local (solve-field)" : (s.solveMode === "imagesolver")
-            ? "ImageSolver (built-in)" : "API (astrometry.net)";
+         self._saveTiles = s.saveTiles;
+         self._tileOutputDir = s.tileOutputDir;
+         // Reflect default mode from Settings onto radio buttons (only if changed)
+         if (s.solveMode !== self._solveMode) {
+            self._solveMode = s.solveMode;
+            self.modeApiRadio.checked   = (s.solveMode === "api");
+            self.modeLocalRadio.checked = (s.solveMode === "local");
+            self.modeISRadio.checked    = (s.solveMode === "imagesolver");
+         }
          updateModeUI();
       }
    };
@@ -3623,7 +3747,7 @@ function SplitSolverDialog() {
    imageGroup.sizer.margin = 6;
    imageGroup.sizer.spacing = 4;
    imageGroup.sizer.add(targetSizer);
-   imageGroup.sizer.add(modeStatusSizer);
+   imageGroup.sizer.add(modeSizer);
 
    // ---- GroupBox: Equipment ----
    var equipGroup = new GroupBox(this);
@@ -3903,7 +4027,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    try {
       if (solveMode === "local") {
-         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
+         this.doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs);
       } else if (solveMode === "imagesolver") {
          if (isSplitMode) {
             this.doSplitSolveIS(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges);
@@ -4037,108 +4161,30 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 //----------------------------------------------------------------------------
 SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs, skipEdges) {
    var self = this;
-   var tiles = [];
 
-   try {
-      // 1. Split image into tiles
-      this.progressLabel.text = "Splitting image into tiles... (" + gridX + "x" + gridY + ")";
-      processEvents();
-      console.writeln("");
-      console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
+   // API login (mode-specific setup)
+   this.progressLabel.text = "Logging in to API...";
+   processEvents();
+   var client = new AstrometryClient(apiKey);
+   client.timeout = timeoutMs;
+   client.abortCheck = function() { return self._abortRequested; };
+   client.skipCheck  = function() { return self._skipToMerge; };
+   console.writeln("Logging in to astrometry.net...");
+   if (!client.login()) throw "API login failed. Please check your API key.";
+   console.writeln("  Login successful, session: " + client.session);
 
-      tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
-      if (tiles.length === 0) throw "Tile splitting failed.";
+   // solverFactory: bind client in closure, return solveSingleTile wrapper
+   var solverFactory = function(tiles) {
+      return function(tile, tileHints, medianScale, expectedRaDec) {
+         return solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec);
+      };
+   };
 
-      // Compute per-tile RA/DEC hints from image center and tile positions
-      if (hints.center_ra !== undefined && hints.center_dec !== undefined && hints.scale_est) {
-         computeTileHints(tiles, hints.center_ra, hints.center_dec,
-            hints.scale_est, imageWidth, imageHeight, hints._projection || "rectilinear");
-         console.writeln("Per-tile RA/DEC hints computed (" + (hints._projection || "rectilinear") + " projection):");
-         for (var ti = 0; ti < tiles.length; ti++) {
-            console.writeln("  Tile [" + tiles[ti].col + "," + tiles[ti].row + "]: RA=" +
-               raToHMS(tiles[ti].hintRA) + " DEC=" + decToDMS(tiles[ti].hintDEC));
-         }
-      }
-
-      // 2. Login to astrometry.net
-      this.progressLabel.text = "Logging in to API...";
-      processEvents();
-      var client = new AstrometryClient(apiKey);
-      client.timeout = timeoutMs;
-      client.abortCheck = function() { return self._abortRequested; };
-      client.skipCheck = function() { return self._skipToMerge; };
-      console.writeln("Logging in to astrometry.net...");
-      if (!client.login()) throw "API login failed. Please check your API key.";
-      console.writeln("  Login successful");
-
-      // 3. Solve all tiles
-      console.writeln("");
-      console.writeln("<b>Solving " + tiles.length + " tiles...</b>");
-
-      var successCount = solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gridY,
-         function(message, tileIdx) {
-            self.progressLabel.text = message;
-            processEvents();
-         }
-      );
-
-      if (successCount < 2) {
-         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
-      }
-
-      // 5. Overlap validation
-      this.progressLabel.text = "Validating overlap...";
-      processEvents();
-
-      // Scale-adaptive tolerance: 3 pixels worth of arcsec (minimum 5")
-      var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
-      var invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
-      if (invalidated > 0) {
-         successCount -= invalidated;
-         console.writeln(invalidated + " tiles invalidated by overlap check");
-         if (successCount < 2) {
-            throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
-         }
-      }
-
-      // 6. Merge WCS solutions
-      this.progressLabel.text = "Merging WCS solutions...";
-      processEvents();
-      console.writeln("");
-      console.writeln("<b>Merging WCS solutions from " + successCount + " tiles...</b>");
-
-      var wcsResult = mergeWcsSolutions(tiles, imageWidth, imageHeight);
-      if (!wcsResult) throw "WCS merging failed.";
-
-      // 7. Apply unified WCS
-      this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, null);
-
-      // Summary message
-      var msg = new MessageBox("Split solve completed.\n\n" +
-         "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
-         (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
-         "RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec",
-         TITLE, StdIcon_Information, StdButton_Ok);
-      msg.execute();
-
-   } catch (e) {
-      var errMsg = (typeof e === "string") ? e : e.toString();
-      console.writeln("ERROR: " + errMsg);
-      this.progressLabel.text = "Error: " + errMsg;
-      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
-      msg.execute();
-   }
-
-   // Clean up tile temp files (temporarily disabled for debugging)
-   // try {
-   //    if (tiles) {
-   //       for (var i = 0; i < tiles.length; i++) {
-   //          if (tiles[i].filePath && File.exists(tiles[i].filePath)) {
-   //             File.remove(tiles[i].filePath);
-   //          }
-   //       }
-   //    }
-   // } catch (e) {}
+   this.doSplitSolveCore(targetWindow, hints, gridX, gridY, overlap,
+      imageWidth, imageHeight, skipEdges, solverFactory, "API",
+      function() { return self._abortRequested; },
+      function() { return self._skipToMerge; },
+      2000, null);
 };
 
 //----------------------------------------------------------------------------
@@ -4266,7 +4312,39 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
 //----------------------------------------------------------------------------
 SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
+
+   // solverFactory: return solveSingleTileIS directly (no setup needed)
+   var solverFactory = function(tiles) {
+      return solveSingleTileIS;
+   };
+
+   this.doSplitSolveCore(targetWindow, hints, gridX, gridY, overlap,
+      imageWidth, imageHeight, skipEdges, solverFactory, "ImageSolver",
+      function() { return self._abortRequested; },
+      function() { return self._skipToMerge; },
+      0, null);
+};
+
+//----------------------------------------------------------------------------
+// doSplitSolveCore
+//
+// Unified split-solve pipeline shared by all solver modes (API / IS / Local).
+// The only mode-specific part is solverFactory, which receives the tile array
+// after splitting and returns a solverFn:
+//
+//   solverFactory(tiles) -> solverFn
+//   solverFn(tile, tileHints, medianScale, expectedRaDec) -> bool
+//
+// Optional debugFixturePath: if set, writes per-tile snapshot JSON after
+// solveWavefront() completes (used to generate integration test fixtures).
+//----------------------------------------------------------------------------
+SplitSolverDialog.prototype.doSplitSolveCore = function(
+      targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight,
+      skipEdges, solverFactory, modeName, abortCheckFn, skipCheckFn, rateLimitMs,
+      debugFixturePath) {
+   var self = this;
    var tiles = [];
+   var invalidated = 0;
 
    try {
       // 1. Split image into tiles
@@ -4278,7 +4356,19 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
       tiles = splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges);
       if (tiles.length === 0) throw "Tile splitting failed.";
 
-      // Compute per-tile RA/DEC hints
+      // 1b. Optionally copy tile FITS to a user-specified output directory
+      if (this._saveTiles && this._tileOutputDir.length > 0) {
+         try { File.createDirectory(this._tileOutputDir); } catch (e) { /* already exists */ }
+         for (var dti = 0; dti < tiles.length; dti++) {
+            var src = tiles[dti].filePath;
+            var dst = this._tileOutputDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
+            if (File.exists(dst)) File.remove(dst);
+            File.copyFile(dst, src);
+         }
+         console.writeln("Tile files saved to: " + this._tileOutputDir + " (" + tiles.length + " files)");
+      }
+
+      // 2. Compute per-tile RA/DEC hints
       if (hints.center_ra !== undefined && hints.center_dec !== undefined && hints.scale_est) {
          computeTileHints(tiles, hints.center_ra, hints.center_dec,
             hints.scale_est, imageWidth, imageHeight, hints._projection || "rectilinear");
@@ -4289,31 +4379,63 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
          }
       }
 
-      // 2. Solve all tiles using ImageSolver
-      console.writeln("");
-      console.writeln("<b>Solving " + tiles.length + " tiles with ImageSolver...</b>");
+      // 3. Obtain solverFn from factory (mode-specific setup, e.g. Python batch call)
+      var solverFn = solverFactory(tiles);
 
-      // Pass solveSingleTileIS as the tile solver function (no API client needed)
+      // 4. Wavefront solve
+      console.writeln("");
+      console.writeln("<b>Solving " + tiles.length + " tiles (" + modeName + ")...</b>");
+
       var successCount = solveWavefront(null, tiles, hints, imageWidth, imageHeight, gridX, gridY,
-         function(message, tileIdx) {
+         function(message) {
             self.progressLabel.text = message;
             processEvents();
          },
-         solveSingleTileIS,  // custom tile solver function
-         function() { return self._abortRequested; },  // abort check
-         function() { return self._skipToMerge; }       // skip check
-      );
+         solverFn, abortCheckFn, skipCheckFn, rateLimitMs);
 
       if (successCount < 2) {
          throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
       }
 
-      // 3. Overlap validation
+      // 5. Write debug fixture if requested
+      if (debugFixturePath) {
+         try {
+            var fixtureData = {
+               imageWidth: imageWidth, imageHeight: imageHeight,
+               gridX: gridX, gridY: gridY,
+               hints: {
+                  centerRA: hints.center_ra, centerDEC: hints.center_dec,
+                  scaleEst: hints.scale_est, projection: hints._projection || "rectilinear"
+               },
+               tiles: []
+            };
+            for (var fi = 0; fi < tiles.length; fi++) {
+               var ft = tiles[fi];
+               fixtureData.tiles.push({
+                  row: ft.row, col: ft.col,
+                  offsetX: ft.offsetX, offsetY: ft.offsetY,
+                  tileWidth: ft.tileWidth, tileHeight: ft.tileHeight,
+                  scaleFactor: ft.scaleFactor || 1.0,
+                  hintRA: ft.hintRA, hintDEC: ft.hintDEC,
+                  scaleLower: ft.scaleLower, scaleUpper: ft.scaleUpper,
+                  status: ft.status,
+                  wcs: ft.wcs || null,
+                  calibration: ft.calibration || null
+               });
+            }
+            File.writeTextFile(debugFixturePath, JSON.stringify(fixtureData, null, 2));
+            console.writeln("Debug fixture written: " + debugFixturePath);
+         } catch (fe) {
+            console.warningln("Failed to write debug fixture: " + fe.toString());
+         }
+      }
+
+      // 6. Overlap validation
       this.progressLabel.text = "Validating overlap...";
       processEvents();
 
       var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
-      var invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
+      invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
       if (invalidated > 0) {
          successCount -= invalidated;
          console.writeln(invalidated + " tiles invalidated by overlap check");
@@ -4322,7 +4444,7 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
          }
       }
 
-      // 4. Merge WCS solutions
+      // 7. Merge WCS solutions
       this.progressLabel.text = "Merging WCS solutions...";
       processEvents();
       console.writeln("");
@@ -4331,11 +4453,31 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
       var wcsResult = mergeWcsSolutions(tiles, imageWidth, imageHeight);
       if (!wcsResult) throw "WCS merging failed.";
 
-      // 5. Apply unified WCS
+      // 8. Display banner and tile grid
+      console.writeln("");
+      console.writeln("    .       *           .       *       .           *");
+      console.writeln("        .       .   *       .       .       *");
+      console.writeln("  +=========================================+");
+      console.writeln("  |                                         |");
+      console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
+      console.writeln("  |                                         |");
+      console.writeln("  +=========================================+");
+      console.writeln("        *       .           *       .       .");
+      console.writeln("    .       .       *   .       *       .       *");
+      console.writeln("");
+      console.writeln("<b>Result:</b> " + successCount + "/" + tiles.length + " tiles solved" +
+         (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") +
+         ", RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec");
+      console.writeln("");
+      console.writeln("<b>Tile solve grid (" + gridX + "x" + gridY + "):</b>");
+      printTileGrid(tiles, gridX, gridY);
+      console.writeln("  (\u25cb=solved, \u00d7=failed, \u2014=skipped)");
+
+      // 9. Apply unified WCS
       this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, null);
 
-      // Summary
-      var msg = new MessageBox("Split solve (ImageSolver) completed.\n\n" +
+      // 10. Summary
+      var msg = new MessageBox("Split solve (" + modeName + ") completed.\n\n" +
          "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
          (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
          "RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec",
@@ -4406,7 +4548,159 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
 //----------------------------------------------------------------------------
 // Local solve (Python backend)
 //----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
+SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs) {
+   var self = this;
+   var pythonPath = this._pythonPath;
+   var scriptDir = this._scriptDir;
+   var scriptPath = scriptDir + "/python/main.py";
+   if (!timeoutMs || timeoutMs <= 0) timeoutMs = 30 * 60 * 1000;
+
+   // Per-tile timeout in seconds (same semantics as API mode)
+   var timeoutPerTile = Math.max(30, Math.round(timeoutMs / 1000));
+   var pythonDir = File.extractDirectory(pythonPath);
+   var pathEnv = quotePath(pythonDir) + ":/opt/homebrew/bin:/usr/local/bin:$PATH";
+
+   // solverFactory: per-tile Python --solve-single-tile invocation.
+   // Each call solves one tile using wavefront-refined hints from tileHints.
+   var solverFactory = function(tiles) {
+      return function(tile, tileHints, medianScale, expectedRaDec) {
+         var resultPath = File.systemTempDirectory + "/sis_tile_result_" + tile.row + "_" + tile.col + ".json";
+         var stderrFile = File.systemTempDirectory + "/sis_tile_stderr_" + tile.row + "_" + tile.col + ".txt";
+
+         if (File.exists(resultPath)) try { File.remove(resultPath); } catch (e) {}
+         if (File.exists(stderrFile)) try { File.remove(stderrFile); } catch (e) {}
+
+         // Build CLI command using tileHints (wavefront-refined)
+         var raHint = tileHints.center_ra;
+         var decHint = tileHints.center_dec;
+         var scaleLower = tileHints.scale_lower;
+         var scaleUpper = tileHints.scale_upper;
+
+         var shellCmd = "export PATH=" + pathEnv + "; "
+            + quotePath(pythonPath) + " " + quotePath(scriptPath)
+            + " --solve-single-tile"
+            + " --tile-path " + quotePath(tile.filePath)
+            + " --result-file " + quotePath(resultPath)
+            + " --timeout-per-tile " + timeoutPerTile;
+
+         if (raHint !== undefined && raHint !== null && decHint !== undefined && decHint !== null) {
+            shellCmd += " --ra-hint " + raHint + " --dec-hint " + decHint;
+         }
+         if (scaleLower !== undefined && scaleLower !== null && scaleUpper !== undefined && scaleUpper !== null) {
+            shellCmd += " --scale-lower " + scaleLower + " --scale-upper " + scaleUpper;
+         }
+
+         shellCmd += " 2>> " + quotePath(stderrFile);
+
+         self.progressLabel.text = "Solving tile [" + tile.row + "][" + tile.col + "]...";
+         processEvents();
+
+         var P = new ExternalProcess;
+         P.workingDirectory = scriptDir;
+         P.start("/bin/sh", ["-c", shellCmd]);
+
+         // Poll with abort support and stderr display
+         var pollIntervalMs = 500;
+         var elapsed = 0;
+         var jsWatchdogMs = (timeoutPerTile + 30) * 1000;
+         var lastStderrSize = 0;
+
+         while (elapsed < jsWatchdogMs) {
+            if (P.waitForFinished(pollIntervalMs)) break;
+            processEvents();
+
+            if (self._abortRequested || console.abortRequested) {
+               console.warningln("<b>Abort requested. Killing Python process...</b>");
+               P.kill();
+               throw "Python tile solver aborted by user.";
+            }
+
+            try {
+               if (File.exists(stderrFile)) {
+                  var currentStderr = File.readTextFile(stderrFile);
+                  if (currentStderr.length > lastStderrSize) {
+                     var newOutput = currentStderr.substring(lastStderrSize).trim();
+                     if (newOutput.length > 0) {
+                        var newLines = newOutput.split("\n");
+                        for (var li = 0; li < newLines.length; li++) {
+                           console.writeln("[PYTHON] " + newLines[li]);
+                        }
+                        console.flush();
+                     }
+                     lastStderrSize = currentStderr.length;
+                  }
+               }
+            } catch (e) {}
+
+            elapsed += pollIntervalMs;
+         }
+
+         if (elapsed >= jsWatchdogMs && !P.waitForFinished(0)) {
+            P.kill();
+            tile.status = "failed";
+            console.writeln("  [" + tile.row + "][" + tile.col + "] Python timed out (" + timeoutPerTile + "s)");
+            return false;
+         }
+         if (P.exitCode !== 0) {
+            tile.status = "failed";
+            console.writeln("  [" + tile.row + "][" + tile.col + "] Python failed (exit " + P.exitCode + ")");
+            return false;
+         }
+
+         // Parse result JSON
+         if (!File.exists(resultPath)) {
+            tile.status = "failed";
+            console.writeln("  [" + tile.row + "][" + tile.col + "] no result file");
+            return false;
+         }
+         var r;
+         try {
+            r = JSON.parse(File.readTextFile(resultPath));
+         } catch (e) {
+            tile.status = "failed";
+            console.writeln("  [" + tile.row + "][" + tile.col + "] JSON parse error: " + e.toString());
+            return false;
+         }
+         // Cleanup temp files
+         try { File.remove(resultPath); } catch (e) {}
+         try { File.remove(stderrFile); } catch (e) {}
+
+         if (!r.success) {
+            tile.status = "failed";
+            return false;
+         }
+
+         // Reverse downsample and apply tile offset (top-down convention)
+         var sf = tile.scaleFactor || 1.0;
+         tile.wcs = {
+            crval1: r.crval1, crval2: r.crval2,
+            crpix1: (r.crpix1 / sf) + tile.offsetX,
+            crpix2: (r.crpix2 / sf) + tile.offsetY,
+            cd1_1:  r.cd1_1 * sf, cd1_2: r.cd1_2 * sf,
+            cd2_1:  r.cd2_1 * sf, cd2_2: r.cd2_2 * sf
+         };
+         if (r.sip_order && r.sip_a && r.sip_b) {
+            tile.wcs.sip = { order: r.sip_order, a: r.sip_a, b: r.sip_b };
+         }
+         tile.calibration = { pixscale: r.pixel_scale, ra: r.crval1, dec: r.crval2 };
+         tile.status = "success";
+         return true;
+      };
+   };
+
+   this.doSplitSolveCore(targetWindow, hints, gridX, gridY, overlap,
+      imageWidth, imageHeight, skipEdges, solverFactory, "Local",
+      function() { return self._abortRequested; },
+      function() { return self._skipToMerge; },
+      0, null);
+};
+
+// ---------------------------------------------------------------------------
+// _doLocalSolve_legacy (旧実装を保持: Python フルパイプライン呼び出し)
+// 将来的に削除予定。Single (1x1) モード等で従来の Python WCSIntegrator が
+// 必要になった場合の参照用として残す。
+// ---------------------------------------------------------------------------
+SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
    var pythonPath = this._pythonPath;
    var scriptDir = this._scriptDir;
@@ -4697,21 +4991,22 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          var rows = result.grid.rows;
          var cols = result.grid.cols;
          var tileGrid = result.tile_grid;
-         // grid[row][col]: row=Y (top→bottom), col=X (left→right)
-         var header = "     ";
-         for (var c = 0; c < cols; c++) { header += " " + c; }
+         var header = "    ";
+         for (var c = 0; c < cols; c++) { header += c + " "; }
          console.writeln("");
          console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
          console.writeln(header);
          for (var r = 0; r < rows; r++) {
-            var gridLine = "  " + r + "  ";
+            var gridLine = (r < 10 ? " " : "") + r + "  ";
             for (var gc = 0; gc < cols; gc++) {
                var cell = tileGrid[r][gc];
-               gridLine += (cell === "O") ? " O" : (cell === "-") ? " -" : " .";
+               if (cell === "O") gridLine += "\u25cb ";       // ○ success
+               else if (cell === "-") gridLine += "  ";       //   skip edge excluded
+               else gridLine += "\u00d7 ";                    // × failed
             }
             console.writeln(gridLine);
          }
-         console.writeln("  (O=solved, .=failed, -=skipped)");
+         console.writeln("  (\u25cb=solved, \u00d7=failed, \u2014=skipped)");
       } catch (e3) {}
    }
 

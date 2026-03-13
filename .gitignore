@@ -60,6 +60,12 @@ htmlcov/
 *.fit
 *.fts
 *.xisf
+# Exception: test fixture tiles are tracked in the repo
+!tests/fits/**/*.fits
+!tests/fits_old_api/**/*.fits
+!tests/fits_old_python/**/*.fits
+!tests/fits_downsampling/**/*.fits
+!tests/fits_original/**/*.fits
 
 # Solver temporary files
 *_wcs.fits
@@ -98,3 +104,4 @@ AdP
 
 # WCS JSON output
 *.wcs.json
+.env
