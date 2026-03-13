@@ -4362,6 +4362,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
          for (var dti = 0; dti < tiles.length; dti++) {
             var src = tiles[dti].filePath;
             var dst = this._tileOutputDir + "/tile_" + tiles[dti].row + "_" + tiles[dti].col + ".fits";
+            if (File.exists(dst)) File.remove(dst);
             File.copyFile(dst, src);
          }
          console.writeln("Tile files saved to: " + this._tileOutputDir + " (" + tiles.length + " files)");
@@ -4636,16 +4637,19 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
 
          if (elapsed >= jsWatchdogMs && !P.waitForFinished(0)) {
             P.kill();
+            tile.status = "failed";
             console.writeln("  [" + tile.row + "][" + tile.col + "] Python timed out (" + timeoutPerTile + "s)");
             return false;
          }
          if (P.exitCode !== 0) {
+            tile.status = "failed";
             console.writeln("  [" + tile.row + "][" + tile.col + "] Python failed (exit " + P.exitCode + ")");
             return false;
          }
 
          // Parse result JSON
          if (!File.exists(resultPath)) {
+            tile.status = "failed";
             console.writeln("  [" + tile.row + "][" + tile.col + "] no result file");
             return false;
          }
@@ -4653,6 +4657,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          try {
             r = JSON.parse(File.readTextFile(resultPath));
          } catch (e) {
+            tile.status = "failed";
             console.writeln("  [" + tile.row + "][" + tile.col + "] JSON parse error: " + e.toString());
             return false;
          }
@@ -4660,7 +4665,10 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          try { File.remove(resultPath); } catch (e) {}
          try { File.remove(stderrFile); } catch (e) {}
 
-         if (!r.success) return false;
+         if (!r.success) {
+            tile.status = "failed";
+            return false;
+         }
 
          // Reverse downsample and apply tile offset (top-down convention)
          var sf = tile.scaleFactor || 1.0;
@@ -4675,6 +4683,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
             tile.wcs.sip = { order: r.sip_order, a: r.sip_a, b: r.sip_b };
          }
          tile.calibration = { pixscale: r.pixel_scale, ra: r.crval1, dec: r.crval2 };
+         tile.status = "success";
          return true;
       };
    };
