@@ -11,7 +11,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.0.0"
+#define VERSION "1.1.0"
 #define VERSION_SUFFIX ""
 
 #include <pjsr/DataType.jsh>
