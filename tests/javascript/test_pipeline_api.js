@@ -37,6 +37,10 @@ var MODE          = process.argv[2] || "2x2";
 var TILE_DIR      = process.env.TILE_DIR || path.join(__dirname, "../fits_downsampling/" + MODE);
 var TIMEOUT_MS    = parseInt(process.env.TIMEOUT_MS    || "120000", 10);
 var RATE_LIMIT_MS = parseInt(process.env.RATE_LIMIT_MS || "2000",   10);
+var SKIP_TOP      = parseInt(process.env.SKIP_TOP      || "0", 10);
+var SKIP_BOTTOM   = parseInt(process.env.SKIP_BOTTOM   || "0", 10);
+var SKIP_LEFT     = parseInt(process.env.SKIP_LEFT     || "0", 10);
+var SKIP_RIGHT    = parseInt(process.env.SKIP_RIGHT    || "0", 10);
 
 if (!API_KEY) {
     console.error("ERROR: ASTROMETRY_API_KEY 環境変数を設定してください");
@@ -55,11 +59,16 @@ if (!fs.existsSync(FIXTURE_FILE)) {
 
 var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 
+var skipEdgesStr = (SKIP_TOP || SKIP_BOTTOM || SKIP_LEFT || SKIP_RIGHT)
+    ? "  SKIP_EDGES: T=" + SKIP_TOP + " B=" + SKIP_BOTTOM + " L=" + SKIP_LEFT + " R=" + SKIP_RIGHT
+    : "";
+
 console.log("=".repeat(70));
 console.log("API パイプラインテスト (Case B: solveWavefront 直接呼び出し)");
 console.log("  MODE=" + MODE + "  fixture=" + FIXTURE_FILE);
 console.log("  TILE_DIR=" + TILE_DIR);
 console.log("  TIMEOUT_MS=" + TIMEOUT_MS + "  RATE_LIMIT_MS=" + RATE_LIMIT_MS);
+if (skipEdgesStr) console.log(skipEdgesStr);
 console.log("=".repeat(70));
 
 // ============================================================
@@ -222,6 +231,19 @@ var hints = {
 
 // タイル配列を center-first ソートで構築
 var tiles = buildTilesFromFixture(fixture, TILE_DIR, gridX, gridY);
+
+// Skip edges フィルタ (splitImageToTiles と同じロジック)
+if (SKIP_TOP || SKIP_BOTTOM || SKIP_LEFT || SKIP_RIGHT) {
+    var beforeCount = tiles.length;
+    tiles = tiles.filter(function(t) {
+        if (t.row < SKIP_TOP || t.row >= gridY - SKIP_BOTTOM ||
+            t.col < SKIP_LEFT || t.col >= gridX - SKIP_RIGHT) {
+            return false;
+        }
+        return true;
+    });
+    console.log("Skip edges: " + beforeCount + " → " + tiles.length + " タイル (除外 " + (beforeCount - tiles.length) + ")");
+}
 
 // FITS 存在チェック
 var missingFits = tiles.filter(function(t) { return !fs.existsSync(t.filePath); });

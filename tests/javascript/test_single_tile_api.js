@@ -12,7 +12,7 @@ var os            = require("os");
 var child_process = require("child_process");
 
 var API_KEY    = process.env.ASTROMETRY_API_KEY || "";
-var TIMEOUT_MS = 120000;
+var TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || "120000", 10);
 
 if (!API_KEY) { console.error("ERROR: ASTROMETRY_API_KEY 必須"); process.exit(1); }
 
@@ -107,9 +107,9 @@ if (!loginOk) { console.error("ログイン失敗"); process.exit(1); }
 console.log("ログイン成功\n");
 
 // テスト: ベースラインのヒントで [2][2] を solve
-var tileFilePython = path.join(__dirname, "../fits/8x6/tile_2_2.fits");
+var tileFilePython = path.join(__dirname, "../fits_downsampling/8x6/tile_2_2.fits");
 var tileFileOrig   = "/tmp/tile_2_2_orig.fits";
-var tileFile = tileFilePython;  // Python 変換 FITS
+var tileFile = process.env.TILE_FILE || tileFilePython;
 console.log("=== テスト: [2][2] ベースラインヒント (RA=" + BASELINE_HINT_RA.toFixed(4) + " DEC=" + BASELINE_HINT_DEC.toFixed(4) + ") ===");
 ctx.TILE1 = {
     filePath: tileFile, col: 2, row: 2,
