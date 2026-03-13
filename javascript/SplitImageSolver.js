@@ -930,20 +930,34 @@ function timestamp() {
 // gridX, gridY: grid dimensions
 //----------------------------------------------------------------------------
 function printTileGrid(tiles, gridX, gridY) {
+   // Build tile lookup for O(1) access
+   var tileMap = {};
+   for (var t = 0; t < tiles.length; t++) {
+      tileMap[tiles[t].col + "," + tiles[t].row] = tiles[t];
+   }
+
+   // Column header
+   var header = "    ";
+   for (var c = 0; c < gridX; c++) {
+      header += c + " ";
+   }
+   console.writeln(header);
+
    for (var row = 0; row < gridY; row++) {
-      var line = "  ";
+      var line = (row < 10 ? " " : "") + row + "  ";
       for (var col = 0; col < gridX; col++) {
-         var symbol = "\u00b7 "; // pending (middle dot)
-         for (var t = 0; t < tiles.length; t++) {
-            if (tiles[t].col === col && tiles[t].row === row) {
-               if (tiles[t].status === "success") symbol = "\u25cb ";
-               else if (tiles[t].status === "skipped") symbol = "\u2014 ";
-               else if (tiles[t].status === "failed") symbol = "\u00d7 ";
-               else if (tiles[t].status === "solving") symbol = "\u25cf "; // filled circle
-               break;
-            }
+         var tile = tileMap[col + "," + row];
+         if (!tile) {
+            line += "  "; // skip edge excluded
+         } else if (tile.status === "success") {
+            line += "\u25cb ";
+         } else if (tile.status === "skipped") {
+            line += "\u2014 ";
+         } else if (tile.status === "failed") {
+            line += "\u00d7 ";
+         } else {
+            line += "\u00b7 "; // pending
          }
-         line += symbol;
       }
       console.writeln(line);
    }
@@ -1574,6 +1588,7 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
    notify("Solved " + successCount + "/" + tiles.length + " tiles | " + formatElapsed(totalElapsed) + " total", -1);
    console.writeln("");
    console.writeln("<b>Wavefront solve complete: " + successCount + "/" + tiles.length + " succeeded (" + formatElapsed(totalElapsed) + ")</b>");
+   printTileGrid(tiles, gridX, gridY);
    return successCount;
 }
 
@@ -4437,10 +4452,30 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       var wcsResult = mergeWcsSolutions(tiles, imageWidth, imageHeight);
       if (!wcsResult) throw "WCS merging failed.";
 
-      // 8. Apply unified WCS
+      // 8. Display banner and tile grid
+      console.writeln("");
+      console.writeln("    .       *           .       *       .           *");
+      console.writeln("        .       .   *       .       .       *");
+      console.writeln("  +=========================================+");
+      console.writeln("  |                                         |");
+      console.writeln("  |     * SPLIT IMAGE SOLVER - SOLVED! *    |");
+      console.writeln("  |                                         |");
+      console.writeln("  +=========================================+");
+      console.writeln("        *       .           *       .       .");
+      console.writeln("    .       .       *   .       *       .       *");
+      console.writeln("");
+      console.writeln("<b>Result:</b> " + successCount + "/" + tiles.length + " tiles solved" +
+         (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") +
+         ", RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec");
+      console.writeln("");
+      console.writeln("<b>Tile solve grid (" + gridX + "x" + gridY + "):</b>");
+      printTileGrid(tiles, gridX, gridY);
+      console.writeln("  (\u25cb=solved, \u00d7=failed, \u2014=skipped)");
+
+      // 9. Apply unified WCS
       this.applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, null);
 
-      // 9. Summary
+      // 10. Summary
       var msg = new MessageBox("Split solve (" + modeName + ") completed.\n\n" +
          "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
          (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
@@ -4947,21 +4982,22 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
          var rows = result.grid.rows;
          var cols = result.grid.cols;
          var tileGrid = result.tile_grid;
-         // grid[row][col]: row=Y (top→bottom), col=X (left→right)
-         var header = "     ";
-         for (var c = 0; c < cols; c++) { header += " " + c; }
+         var header = "    ";
+         for (var c = 0; c < cols; c++) { header += c + " "; }
          console.writeln("");
          console.writeln("<b>Tile solve grid (" + cols + "x" + rows + "):</b>");
          console.writeln(header);
          for (var r = 0; r < rows; r++) {
-            var gridLine = "  " + r + "  ";
+            var gridLine = (r < 10 ? " " : "") + r + "  ";
             for (var gc = 0; gc < cols; gc++) {
                var cell = tileGrid[r][gc];
-               gridLine += (cell === "O") ? " O" : (cell === "-") ? " -" : " .";
+               if (cell === "O") gridLine += "\u25cb ";       // ○ success
+               else if (cell === "-") gridLine += "  ";       //   skip edge excluded
+               else gridLine += "\u00d7 ";                    // × failed
             }
             console.writeln(gridLine);
          }
-         console.writeln("  (O=solved, .=failed, -=skipped)");
+         console.writeln("  (\u25cb=solved, \u00d7=failed, \u2014=skipped)");
       } catch (e3) {}
    }
 
