@@ -4493,130 +4493,114 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
    var scriptPath = scriptDir + "/python/main.py";
    if (!timeoutMs || timeoutMs <= 0) timeoutMs = 30 * 60 * 1000;
 
-   // solverFactory: after JS splits tiles, call Python --tile-solve-json in batch,
-   // then return a lookup-type solverFn that reads results from the JSON.
+   // Per-tile timeout in seconds (same semantics as API mode)
+   var timeoutPerTile = Math.max(30, Math.round(timeoutMs / 1000));
+   var pythonDir = File.extractDirectory(pythonPath);
+   var pathEnv = quotePath(pythonDir) + ":/opt/homebrew/bin:/usr/local/bin:$PATH";
+
+   // solverFactory: per-tile Python --solve-single-tile invocation.
+   // Each call solves one tile using wavefront-refined hints from tileHints.
    var solverFactory = function(tiles) {
-      var tileInputPath = File.systemTempDirectory + "/sis_tile_input.json";
-      var resultPath    = File.systemTempDirectory + "/sis_tile_result.json";
-      var stderrFile    = File.systemTempDirectory + "/sis_tile_stderr.txt";
+      return function(tile, tileHints, medianScale, expectedRaDec) {
+         var resultPath = File.systemTempDirectory + "/sis_tile_result_" + tile.row + "_" + tile.col + ".json";
+         var stderrFile = File.systemTempDirectory + "/sis_tile_stderr_" + tile.row + "_" + tile.col + ".txt";
 
-      // Collect per-tile info for Python
-      var tileInput = [];
-      for (var i = 0; i < tiles.length; i++) {
-         var t = tiles[i];
-         tileInput.push({
-            path: t.filePath, row: t.row, col: t.col,
-            ra_hint:     (t.hintRA    !== undefined) ? t.hintRA    : null,
-            dec_hint:    (t.hintDEC   !== undefined) ? t.hintDEC   : null,
-            scale_lower: (t.scaleLower !== undefined) ? t.scaleLower : null,
-            scale_upper: (t.scaleUpper !== undefined) ? t.scaleUpper : null,
-            offset_x:    t.offsetX    || 0,
-            offset_y:    t.offsetY    || 0,
-            tile_width:  t.tileWidth  || 0,
-            tile_height: t.tileHeight || 0
-         });
-      }
-      if (File.exists(tileInputPath)) try { File.remove(tileInputPath); } catch (e) {}
-      if (File.exists(resultPath))    try { File.remove(resultPath);    } catch (e) {}
-      if (File.exists(stderrFile))    try { File.remove(stderrFile);    } catch (e) {}
-      File.writeTextFile(tileInputPath, JSON.stringify(tileInput));
+         if (File.exists(resultPath)) try { File.remove(resultPath); } catch (e) {}
+         if (File.exists(stderrFile)) try { File.remove(stderrFile); } catch (e) {}
 
-      // Build and run Python --tile-solve-json command
-      var pythonDir = File.extractDirectory(pythonPath);
-      var pathEnv = quotePath(pythonDir) + ":/opt/homebrew/bin:/usr/local/bin:$PATH";
-      // Per-tile timeout: GUI value directly (same semantics as API mode)
-      var timeoutPerTile = Math.max(30, Math.round(timeoutMs / 1000));
-      // JS watchdog: 2 passes × batches × per-tile + 20% margin
-      var numBatches = Math.ceil(tiles.length / 4);
-      var jsWatchdogMs = Math.round(numBatches * timeoutPerTile * 2 * 1.2 * 1000);
-      var shellCmd = "export PATH=" + pathEnv + "; "
-         + quotePath(pythonPath) + " " + quotePath(scriptPath)
-         + " --tile-solve-json "   + quotePath(tileInputPath)
-         + " --result-file "       + quotePath(resultPath)
-         + " --timeout-per-tile "  + timeoutPerTile
-         + " 2> "                  + quotePath(stderrFile);
+         // Build CLI command using tileHints (wavefront-refined)
+         var raHint = tileHints.center_ra;
+         var decHint = tileHints.center_dec;
+         var scaleLower = tileHints.scale_lower;
+         var scaleUpper = tileHints.scale_upper;
 
-      console.writeln("Running Python tile solver...");
-      console.writeln("Command: " + shellCmd);
-      self.progressLabel.text = "Running Python tile solver...";
-      processEvents();
+         var shellCmd = "export PATH=" + pathEnv + "; "
+            + quotePath(pythonPath) + " " + quotePath(scriptPath)
+            + " --solve-single-tile"
+            + " --tile-path " + quotePath(tile.filePath)
+            + " --result-file " + quotePath(resultPath)
+            + " --timeout-per-tile " + timeoutPerTile;
 
-      var P = new ExternalProcess;
-      P.workingDirectory = scriptDir;
-      P.start("/bin/sh", ["-c", shellCmd]);
-
-      // Poll with abort support and real-time stderr display
-      var pollIntervalMs = 500;
-      var elapsed = 0;
-      var aborted = false;
-      var lastStderrSize = 0;
-
-      while (elapsed < jsWatchdogMs) {
-         if (P.waitForFinished(pollIntervalMs)) break;
-         processEvents();
-
-         if (self._abortRequested || console.abortRequested) {
-            console.warningln("<b>Abort requested. Killing Python process...</b>");
-            P.kill();
-            aborted = true;
-            break;
+         if (raHint !== undefined && raHint !== null && decHint !== undefined && decHint !== null) {
+            shellCmd += " --ra-hint " + raHint + " --dec-hint " + decHint;
+         }
+         if (scaleLower !== undefined && scaleLower !== null && scaleUpper !== undefined && scaleUpper !== null) {
+            shellCmd += " --scale-lower " + scaleLower + " --scale-upper " + scaleUpper;
          }
 
-         try {
-            if (File.exists(stderrFile)) {
-               var currentStderr = File.readTextFile(stderrFile);
-               if (currentStderr.length > lastStderrSize) {
-                  var newOutput = currentStderr.substring(lastStderrSize).trim();
-                  if (newOutput.length > 0) {
-                     var newLines = newOutput.split("\n");
-                     for (var li = 0; li < newLines.length; li++) {
-                        console.writeln("[PYTHON] " + newLines[li]);
-                     }
-                     console.flush();
-                     self.progressLabel.text = newLines[newLines.length - 1];
-                     processEvents();
-                  }
-                  lastStderrSize = currentStderr.length;
-               }
+         shellCmd += " 2>> " + quotePath(stderrFile);
+
+         self.progressLabel.text = "Solving tile [" + tile.row + "][" + tile.col + "]...";
+         processEvents();
+
+         var P = new ExternalProcess;
+         P.workingDirectory = scriptDir;
+         P.start("/bin/sh", ["-c", shellCmd]);
+
+         // Poll with abort support and stderr display
+         var pollIntervalMs = 500;
+         var elapsed = 0;
+         var jsWatchdogMs = (timeoutPerTile + 30) * 1000;
+         var lastStderrSize = 0;
+
+         while (elapsed < jsWatchdogMs) {
+            if (P.waitForFinished(pollIntervalMs)) break;
+            processEvents();
+
+            if (self._abortRequested || console.abortRequested) {
+               console.warningln("<b>Abort requested. Killing Python process...</b>");
+               P.kill();
+               throw "Python tile solver aborted by user.";
             }
-         } catch (e) {}
 
-         elapsed += pollIntervalMs;
-      }
+            try {
+               if (File.exists(stderrFile)) {
+                  var currentStderr = File.readTextFile(stderrFile);
+                  if (currentStderr.length > lastStderrSize) {
+                     var newOutput = currentStderr.substring(lastStderrSize).trim();
+                     if (newOutput.length > 0) {
+                        var newLines = newOutput.split("\n");
+                        for (var li = 0; li < newLines.length; li++) {
+                           console.writeln("[PYTHON] " + newLines[li]);
+                        }
+                        console.flush();
+                     }
+                     lastStderrSize = currentStderr.length;
+                  }
+               }
+            } catch (e) {}
 
-      if (aborted) throw "Python tile solver aborted by user.";
-      if (elapsed >= jsWatchdogMs && !P.waitForFinished(0)) {
-         P.kill();
-         var watchdogMin = Math.round(jsWatchdogMs / 60000);
-         throw "Python tile solver timed out after " + watchdogMin + " minutes (per-tile: " + timeoutPerTile + "s).";
-      }
-      if (P.exitCode !== 0) {
-         var errText = "";
-         try { if (File.exists(stderrFile)) errText = File.readTextFile(stderrFile).trim(); } catch (e) {}
-         throw "Python tile solver failed (exit code " + P.exitCode + "): " + errText.substring(0, 300);
-      }
+            elapsed += pollIntervalMs;
+         }
 
-      // Parse per-tile results
-      if (!File.exists(resultPath)) throw "Python tile solver produced no result file.";
-      var resultJson;
-      try {
-         resultJson = JSON.parse(File.readTextFile(resultPath));
-      } catch (e) {
-         throw "Failed to parse Python tile result JSON: " + e.toString();
-      }
-      if (!resultJson.success) throw "Python tile solver reported failure: " + (resultJson.error || "unknown");
+         if (elapsed >= jsWatchdogMs && !P.waitForFinished(0)) {
+            P.kill();
+            console.writeln("  [" + tile.row + "][" + tile.col + "] Python timed out (" + timeoutPerTile + "s)");
+            return false;
+         }
+         if (P.exitCode !== 0) {
+            console.writeln("  [" + tile.row + "][" + tile.col + "] Python failed (exit " + P.exitCode + ")");
+            return false;
+         }
 
-      var tileWcsMap = {};
-      for (var j = 0; j < resultJson.tile_results.length; j++) {
-         var r = resultJson.tile_results[j];
-         tileWcsMap[r.row + "_" + r.col] = r;
-      }
-      console.writeln("Python tile solve complete: received " + resultJson.tile_results.length + " results.");
+         // Parse result JSON
+         if (!File.exists(resultPath)) {
+            console.writeln("  [" + tile.row + "][" + tile.col + "] no result file");
+            return false;
+         }
+         var r;
+         try {
+            r = JSON.parse(File.readTextFile(resultPath));
+         } catch (e) {
+            console.writeln("  [" + tile.row + "][" + tile.col + "] JSON parse error: " + e.toString());
+            return false;
+         }
+         // Cleanup temp files
+         try { File.remove(resultPath); } catch (e) {}
+         try { File.remove(stderrFile); } catch (e) {}
 
-      // Return lookup-type solverFn
-      return function(tile, tileHints, medianScale, expectedRaDec) {
-         var r = tileWcsMap[tile.row + "_" + tile.col];
-         if (!r || !r.success) return false;
+         if (!r.success) return false;
+
          // Reverse downsample and apply tile offset (top-down convention)
          var sf = tile.scaleFactor || 1.0;
          tile.wcs = {
@@ -4639,9 +4623,6 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
       0, null);
-
-   // Note: tmpInput / tmpOutput from old architecture are no longer used.
-   // Tile temp files are managed by splitImageToTiles() / doSplitSolveCore().
 };
 
 // ---------------------------------------------------------------------------

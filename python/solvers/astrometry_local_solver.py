@@ -5,6 +5,7 @@ Astrometry.net ローカル版プレートソルバー統合モジュール
 
 import subprocess
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -165,14 +166,23 @@ class AstrometryLocalSolver(BasePlateSolver):
             logger.error(f"Failed to convert XISF to FITS: {e}")
             raise
 
-    def _cleanup_temp_files(self, base_path: Path):
+    def _cleanup_temp_files(self, base_path: Path, temp_dir: Optional[Path] = None):
         """
         solve-fieldが生成する一時ファイルをクリーンアップ
 
         Args:
-            base_path: 入力ファイルのベースパス
+            base_path: 入力ファイルのベースパス（ステム名の特定に使用）
+            temp_dir: solve-field出力先の一時ディレクトリ（指定時はディレクトリごと削除）
         """
-        # solve-fieldが生成する拡張子リスト
+        if temp_dir and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir)
+                logger.debug(f"Cleaned up temp dir: {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp dir {temp_dir}: {e}")
+            return
+
+        # temp_dir 未指定時は従来どおり個別ファイル削除
         temp_extensions = [
             ".wcs",
             ".solved",
@@ -206,6 +216,7 @@ class AstrometryLocalSolver(BasePlateSolver):
         downsample: Optional[int] = None,
         scale_lower: Optional[float] = None,
         scale_upper: Optional[float] = None,
+        write_back_wcs: bool = True,
     ) -> Dict:
         """
         単一画像をプレートソルブ
@@ -262,6 +273,9 @@ class AstrometryLocalSolver(BasePlateSolver):
         # タイムアウト決定
         effective_timeout = timeout_override if timeout_override else self.timeout
 
+        # solve-field の出力先一時ディレクトリ（入力ファイルを汚さない）
+        solve_temp_dir = Path(tempfile.mkdtemp(prefix="sis_solve_"))
+
         try:
             # solve-fieldコマンドライン引数を構築
             cmd = [
@@ -273,6 +287,8 @@ class AstrometryLocalSolver(BasePlateSolver):
                 "--crpix-center",  # 歪みの基準点を画像中心に固定
                 "--tweak-order",
                 str(tweak_order),  # SIP多項式次数
+                "--dir",
+                str(solve_temp_dir),  # 出力先を一時ディレクトリに
                 str(work_path),
             ]
 
@@ -341,7 +357,7 @@ class AstrometryLocalSolver(BasePlateSolver):
                 logger.debug(f"solve-field stderr: {result.stderr}")
 
             # 成功判定（solve-fieldは成功時に.wcsファイルを生成）
-            wcs_file = work_path.parent / f"{work_path.stem}.wcs"
+            wcs_file = solve_temp_dir / f"{work_path.stem}.wcs"
 
             if wcs_file.exists():
                 try:
@@ -387,50 +403,16 @@ class AstrometryLocalSolver(BasePlateSolver):
                         pixel_scale = None
                         rotation = None
 
-                    # 元のファイルにWCS情報を保存
-                    if is_xisf:
-                        # XISFファイルの場合
-                        from xisf_handler import XISFHandler
+                    # 元のファイルにWCS情報を書き戻す（オプション）
+                    if write_back_wcs:
+                        if is_xisf:
+                            from xisf_handler import XISFHandler
 
-                        image_data, orig_metadata = XISFHandler.load_image(image_path)
+                            image_data, orig_metadata = XISFHandler.load_image(image_path)
 
-                        # WCS情報をFITSキーワードに追加
-                        if "fits_keywords" not in orig_metadata:
-                            orig_metadata["fits_keywords"] = {}
+                            if "fits_keywords" not in orig_metadata:
+                                orig_metadata["fits_keywords"] = {}
 
-                        wcs_keywords = [
-                            "CRVAL1",
-                            "CRVAL2",
-                            "CRPIX1",
-                            "CRPIX2",
-                            "CD1_1",
-                            "CD1_2",
-                            "CD2_1",
-                            "CD2_2",
-                            "CTYPE1",
-                            "CTYPE2",
-                            "CUNIT1",
-                            "CUNIT2",
-                            "RADESYS",
-                            "EQUINOX",
-                        ]
-                        for keyword in wcs_keywords:
-                            if keyword in wcs_header:
-                                orig_metadata["fits_keywords"][keyword] = wcs_header[
-                                    keyword
-                                ]
-
-                        # WCS情報を含めてXISFファイルを再保存
-                        XISFHandler.save_image(
-                            file_path=image_path,
-                            image_data=image_data,
-                            metadata=orig_metadata,
-                            wcs=wcs,
-                        )
-                    else:
-                        # FITSファイルの場合
-                        with fits.open(image_path, mode="update") as orig_hdul:
-                            # WCS関連のキーワードをコピー
                             wcs_keywords = [
                                 "CRVAL1",
                                 "CRVAL2",
@@ -449,7 +431,37 @@ class AstrometryLocalSolver(BasePlateSolver):
                             ]
                             for keyword in wcs_keywords:
                                 if keyword in wcs_header:
-                                    orig_hdul[0].header[keyword] = wcs_header[keyword]
+                                    orig_metadata["fits_keywords"][keyword] = wcs_header[
+                                        keyword
+                                    ]
+
+                            XISFHandler.save_image(
+                                file_path=image_path,
+                                image_data=image_data,
+                                metadata=orig_metadata,
+                                wcs=wcs,
+                            )
+                        else:
+                            with fits.open(image_path, mode="update") as orig_hdul:
+                                wcs_keywords = [
+                                    "CRVAL1",
+                                    "CRVAL2",
+                                    "CRPIX1",
+                                    "CRPIX2",
+                                    "CD1_1",
+                                    "CD1_2",
+                                    "CD2_1",
+                                    "CD2_2",
+                                    "CTYPE1",
+                                    "CTYPE2",
+                                    "CUNIT1",
+                                    "CUNIT2",
+                                    "RADESYS",
+                                    "EQUINOX",
+                                ]
+                                for keyword in wcs_keywords:
+                                    if keyword in wcs_header:
+                                        orig_hdul[0].header[keyword] = wcs_header[keyword]
 
                     # 成功ログと結果を返す
                     logger.info(
@@ -538,7 +550,7 @@ class AstrometryLocalSolver(BasePlateSolver):
                 work_path.unlink()
 
             # solve-fieldが生成する一時ファイルをクリーンアップ
-            self._cleanup_temp_files(work_path)
+            self._cleanup_temp_files(work_path, temp_dir=solve_temp_dir)
 
     def batch_solve(
         self, image_paths: List[Path], max_workers: int = 4, **solve_kwargs

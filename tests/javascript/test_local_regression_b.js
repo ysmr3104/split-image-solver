@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 /**
- * test_pipeline_local.js  (Case B: solveWavefront + solve-field 直接呼び出し)
+ * test_local_regression_b.js — リグレッションテスト B
  *
- * Local モードで solveWavefront() を実際に呼び出して
- * hint 伝播チェーン（buildTileHints → solve-field → 次タイルの refined ヒント）
- * を end-to-end で検証する。
+ * ■ 定義:
+ *   wavefront (solveWavefront) を通して全タイルを逐次ソルブし、
+ *   都度ヒントを再計算させることで計算能力の劣化が起きていないことを確認する。
+ *   solve-field を Node.js から直接呼び出す (Python CLI は経由しない)。
  *
- * test_pipeline_api.js との違い:
- *   API版: solveSingleTile (astrometry.net API) を solverFn として渡す
- *   本テスト: solve-field を直接呼び出す localSolverFn を solverFn として渡す
+ * ■ 目的:
+ *   JS wavefront のヒント伝播チェーン (buildTileHints → solve-field → refined ヒント)
+ *   が正しく機能し、ベースラインと同等以上のタイルが解けることを検証する。
+ *
+ * ■ 関連テスト:
+ *   - リグレッションテスト A (test_local_regression_a.py):
+ *       wavefront なし、事前定義ヒントで per-tile ソルブの動作確認
+ *   - パイプラインテスト E2E:
+ *       PixInsight GUI から全パイプラインを通して問題ないことを確認 (手動)
  *
  * 前提:
  *   - /opt/homebrew/bin/solve-field (または SOLVE_FIELD_PATH) が存在すること
@@ -16,8 +23,8 @@
  *   - フィクスチャ tests/javascript/fixtures/tile_wcs_api_{MODE}.json が存在すること
  *
  * 実行:
- *   node tests/javascript/test_pipeline_local.js [2x2|8x6]
- *   TILE_DIR=/path/to/tiles node tests/javascript/test_pipeline_local.js 2x2
+ *   node tests/javascript/test_local_regression_b.js [2x2|8x6]
+ *   TILE_DIR=/path/to/tiles node tests/javascript/test_local_regression_b.js 2x2
  */
 
 "use strict";

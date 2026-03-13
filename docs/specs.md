@@ -41,7 +41,7 @@ flowchart TD
 
     C["Step 3. ソルバー初期化<br/><code>solverFactory(tiles)</code>"]
     C --> C1["API: login →<br/>solveSingleTile (逐次)"]
-    C --> C2["Local: Python一括実行 →<br/>結果ルックアップ"]
+    C --> C2["Local: per-tile Python<br/>--solve-single-tile (逐次)"]
     C --> C3["IS: solveSingleTileIS<br/>(逐次)"]
     C1 --> D
     C2 --> D
@@ -129,10 +129,10 @@ flowchart TD
 
     subgraph Local["Local モード"]
         direction TB
-        L1["全タイル情報を<br/>JSON シリアライズ"]
-        L1 --> L2["Python main.py<br/>--tile-solve-json 実行"]
-        L2 --> L3["solve-field 4並列<br/>(Pass 1 + Pass 2)"]
-        L3 --> L4["solverFn:<br/>結果ルックアップ<br/>(ソルブは一括完了済み)"]
+        L1["Python main.py<br/>--solve-single-tile 実行"]
+        L1 --> L2["solve-field で<br/>1タイルをソルブ"]
+        L2 --> L3["WCS JSON を出力"]
+        L3 --> L4["solverFn:<br/>per-tile Python 呼び出し<br/>(wavefront ヒント活用)"]
     end
 
     subgraph IS["ImageSolver モード"]
@@ -220,32 +220,23 @@ flowchart LR
 
 Local モードでは、JS がタイル分割とヒント計算を行った後、Python がタイルごとの solve-field 実行を担当します。
 
-### 4.1 tile_solve_mode — `run_tile_solve_mode()`
+### 4.1 single_tile_solve — `run_single_tile_solve()`
+
+JS の `solveWavefront()` から per-tile で呼び出される。1タイルをソルブし WCS JSON を出力する。
 
 ```mermaid
 flowchart TD
-    Input["入力: JS からの JSON<br/>(per-tile: path, row, col, ra_hint, dec_hint,<br/>scale_lower, scale_upper, offset_x/y, tile_width/height)"]
-
-    Input --> Pass1
-
-    subgraph Pass1["Pass 1: 全タイル並列ソルブ (4並列)"]
-        P1a["_solve_one():<br/>scale_lower/upper → --scale-low/high<br/>ra_hint/dec_hint → --ra/--dec/--radius<br/>元タイルサイズ > 2000 → --downsample"]
-        P1a --> P1b["solve-field 実行 → WCS パース"]
-        P1b --> P1c["偽陽性フィルタ:<br/>スケール比 0.3〜3.0 / 座標乖離 > 5°"]
-    end
-
-    Pass1 --> HasFailed{"失敗タイル<br/>あり?"}
-    HasFailed -- No --> Output
-    HasFailed -- Yes --> Pass2
-
-    subgraph Pass2["Pass 2: WCS由来ヒントでリトライ"]
-        P2a["最近傍の成功タイルを選択"] --> P2b["成功タイルの WCS で<br/>失敗タイル中心の RA/DEC を算出"]
-        P2b --> P2c["スケールマージンを ±50% に拡大"]
-        P2c --> P2d["再ソルブ → 偽陽性フィルタ"]
-    end
-
-    Pass2 --> Output["結果JSON出力<br/>per-tile: crval, crpix, cd, sip, scale"]
+    Input["CLI 引数:<br/>--tile-path, --ra-hint, --dec-hint,<br/>--scale-lower, --scale-upper"]
+    Input --> Init["create_solver() でソルバー初期化"]
+    Init --> Downsample{"元タイルサイズ<br/>> 2000?"}
+    Downsample -- Yes --> DS["--downsample N を算出"]
+    Downsample -- No --> Solve
+    DS --> Solve["solver.solve_image() 実行"]
+    Solve --> Extract["_extract_wcs_to_dict():<br/>WCS → crval/crpix/cd/sip 抽出"]
+    Extract --> Output["結果 JSON をファイル出力"]
 ```
+
+Pass 2 リトライ・偽陽性フィルタは JS 側 `solveWavefront()` が担当するため、Python 側では不要。
 
 ### 4.2 solve-field コマンド構成
 
@@ -375,17 +366,17 @@ flowchart LR
 |------|-----|-------|-------------|
 | タイル分割 | JS (共通) | JS (共通) | JS (共通) |
 | ヒント計算 | JS (共通) | JS (共通) | JS (共通) |
-| ソルブ実行 | JS: astrometry.net API | Python: solve-field (4並列) | JS: PI ImageSolver |
+| ソルブ実行 | JS: astrometry.net API | Python: solve-field (per-tile) | JS: PI ImageSolver |
 | レートリミット | 2000ms | なし | なし |
-| Wavefront | JS (逐次) | JS (結果ルックアップ) | JS (逐次) |
+| Wavefront | JS (逐次) | JS (逐次, per-tile Python呼び出し) | JS (逐次) |
 | WCS統合 | JS WCSFitter (共通) | JS WCSFitter (共通) | JS WCSFitter (共通) |
 | Python 必要 | 不要 | 必要 | 不要 |
 | Split対応 | NxM | NxM | NxM |
 | 1x1対応 | あり | あり | あり |
 
-**Local モードの特殊性:**
+**Local モードの構造:**
 
-Local モードでは `solverFactory` が Python を一括実行し、全タイルの結果をメモリに保持します。その後の `solveWavefront()` では実際のソルブは行わず、結果の参照のみを行います。ただし Wavefront のヒント精緻化やスケールマージン拡大は JS 側で計算され、Python の `run_tile_solve_mode()` の Pass 2 でも同等のリトライが行われるため、二重にリトライが実施されます。
+Local モードも API / ImageSolver と同じく、`solverFn` が呼ばれるたびに1タイルを Python `--solve-single-tile` で逐次ソルブします。wavefront のヒント精緻化（成功タイルの WCS から次タイルの RA/DEC を改善）が全モードで統一的に機能します。偽陽性フィルタ（スケール比・座標乖離チェック）は JS 側 `solveWavefront()` が担当します。
 
 ---
 
@@ -429,9 +420,9 @@ PJSR の `JSON.parse()` には以下の制約があり、Python 側で対策:
 |--------|---------|------|
 | JS 単体テスト | `node tests/javascript/test_split_solver.js` | WCS数学、座標変換等の純粋関数 |
 | JS API パイプライン | `node tests/javascript/test_pipeline_api.js` | API モード E2E |
-| JS Local パイプライン | `node tests/javascript/test_pipeline_local.js` | Local モード E2E |
+| Local リグレッション B | `node tests/javascript/test_local_regression_b.js` | wavefront 経由でヒント再計算、計算能力の劣化確認 |
 | Python 単体テスト | `PYTHONPATH="." .venv/bin/pytest tests/python -v` | 座標変換、ソルバー等 |
-| Python Local リグレッション | `PYTHONPATH="." .venv/bin/pytest tests/python/test_local_tile_regression.py -v -s` | solve-field 実行のリグレッション |
+| Local リグレッション A | `PYTHONPATH="." .venv/bin/pytest tests/python/test_local_regression_a.py -v -s` | wavefront なし、事前定義ヒントで per-tile ソルブ確認 |
 
 ### 9.2 テストフィクスチャ
 
