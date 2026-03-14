@@ -34,6 +34,14 @@ PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_8x6.py -v -s
 node tests/it/local/test_wavefront_2x2.js
 node tests/it/local/test_wavefront_8x6.js
 
+# IT-Solver API（astrometry.net API 実呼び出し、低速）
+node tests/it/api/test_solver_2x2.js
+node tests/it/api/test_solver_8x6.js
+
+# IT-Wavefront API（astrometry.net API 実呼び出し、低速）
+node tests/it/api/test_wavefront_2x2.js
+node tests/it/api/test_wavefront_8x6.js
+
 # リリースビルド
 bash build-split-release.sh
 ```
