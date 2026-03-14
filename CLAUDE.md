@@ -30,21 +30,25 @@ PYTHONPATH="." .venv/bin/pytest tests/python/test_coordinate_transform.py -v
 PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_2x2.py -v -s
 PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_8x6.py -v -s
 PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_equisolid_8x6.py -v -s
+PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_equisolid_12x8.py -v -s
 
 # IT-Wavefront（solve-field + タイル FITS 必要）
 node tests/it/local/test_wavefront_2x2.js
 node tests/it/local/test_wavefront_8x6.js
 node tests/it/local/test_wavefront_equisolid_8x6.js
+node tests/it/local/test_wavefront_equisolid_12x8.js
 
 # IT-Solver API（astrometry.net API 実呼び出し、低速）
 node tests/it/api/test_solver_2x2.js
 node tests/it/api/test_solver_8x6.js
 node tests/it/api/test_solver_equisolid_8x6.js
+node tests/it/api/test_solver_equisolid_12x8.js
 
 # IT-Wavefront API（astrometry.net API 実呼び出し、低速）
 node tests/it/api/test_wavefront_2x2.js
 node tests/it/api/test_wavefront_8x6.js
 node tests/it/api/test_wavefront_equisolid_8x6.js
+node tests/it/api/test_wavefront_equisolid_12x8.js
 
 # リリースビルド
 bash build-split-release.sh
