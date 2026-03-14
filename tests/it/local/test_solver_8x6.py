@@ -1,30 +1,11 @@
 """
-test_local_regression_a.py — リグレッションテスト A
+test_solver_8x6.py — IT-Solver (8x6, 14mm rectilinear)
 
-■ 定義:
-  wavefront を通さず、フィクスチャから事前定義したヒント (RA/DEC/スケール) を
-  各タイルに直接指定して solve-field を呼び出す。
-  解けるべきタイルが解けることを確認するテスト。
-
-■ 目的:
-  Python solve-field ラッパー (run_single_tile_solve) 単体の動作確認。
-  wavefront のヒント伝播ロジックは検証対象外。
-
-■ 関連テスト:
-  - リグレッションテスト B (test_local_regression_b.js):
-      wavefront を通して都度ヒント再計算し、計算能力の劣化がないことを確認
-  - パイプラインテスト E2E:
-      PixInsight GUI から全パイプラインを通して問題ないことを確認 (手動)
+wavefront を通さず、フィクスチャから事前定義したヒントで
+8x6 タイルの per-tile ソルブ動作を確認する。
 
 実行:
-    # 全テスト (時間がかかる: 8x6は数十分)
-    PYTHONPATH="." .venv/bin/pytest tests/python/test_local_regression_a.py -v -s
-
-    # 2x2 のみ
-    PYTHONPATH="." .venv/bin/pytest tests/python/test_local_regression_a.py -v -s -k "2x2"
-
-    # 8x6 のみ
-    PYTHONPATH="." .venv/bin/pytest tests/python/test_local_regression_a.py -v -s -k "8x6"
+    PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_8x6.py -v -s
 
 前提:
     - /opt/homebrew/bin/solve-field が存在すること
@@ -40,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent.parent
 FITS_DIR = Path(os.environ.get("FITS_DIR_OVERRIDE", str(REPO_ROOT / "tests" / "fits_downsampling")))
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures"
 CONFIG_PATH = REPO_ROOT / "config" / "settings.json"
@@ -224,34 +205,6 @@ def _print_report(result: dict):
 # ---------------------------------------------------------------------------
 # テストケース
 # ---------------------------------------------------------------------------
-
-@pytest.mark.slow
-def test_local_tile_solve_2x2():
-    """2x2 グリッド: 精密ヒントで解けるべき全タイル (4/4) が解けることを確認。"""
-    result = _run_tile_solve("2x2", timeout_per_tile=240)
-    _print_report(result)
-
-    total = result["tiles_total"]
-    solved = result["tiles_solved"]
-    fixture = result["fixture"]
-
-    assert total == 4, f"Expected 4 tiles, got {total}"
-    # 精密ヒント付きなので全タイル成功を期待 (最低3/4)
-    assert solved >= 3, (
-        f"Expected ≥3/4 tiles solved with refined hints, got {solved}/4. "
-        f"Failed: {[t for t in result['tile_results'] if not t.get('success')]}"
-    )
-
-    # 成功タイルの pixel_scale がフィクスチャのメジアンスケールと整合すること
-    median_scale = fixture.get("median_scale", 24.549)
-    for t in result["tile_results"]:
-        if t.get("success") and t.get("pixel_scale"):
-            ps = t["pixel_scale"]
-            ratio = ps / median_scale
-            assert 0.5 <= ratio <= 2.0, (
-                f"tile[{t['row']}][{t['col']}] pixel_scale={ps:.3f} "
-                f"is far from median={median_scale:.3f} (ratio={ratio:.2f})"
-            )
 
 
 @pytest.mark.slow

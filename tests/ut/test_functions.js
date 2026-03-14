@@ -1,7 +1,7 @@
 //============================================================================
-// test_split_solver.js - SplitImageSolver 単体テスト
+// test_functions.js - SplitImageSolver 単体テスト
 //
-// 実行方法: node tests/javascript/test_split_solver.js
+// 実行方法: node tests/ut/test_functions.js
 //
 // SplitImageSolver.js の純粋関数を Node.js でテスト。
 // 振る舞い検証: 入力→出力の結果のみを検証し、内部実装には依存しない。
@@ -1002,6 +1002,233 @@ test("convertISwcsToTD + convertToWcsResult: round-trip consistency", function()
 
    assertEqual(raDecTD[0], raDecBU[0], "RA consistent between TD and BU paths", 1e-8);
    assertEqual(raDecTD[1], raDecBU[1], "Dec consistent between TD and BU paths", 1e-8);
+});
+
+//============================================================================
+// 偽陽性フィルタ — スケール比の閾値テスト (項目2)
+//
+// solveSingleTile 内のフィルタロジックを関数化して直接テスト:
+//   scaleRatio < 0.3 || scaleRatio > 3.0 → reject
+//============================================================================
+
+function falsePositiveScaleFilter(pixscale, medianScale) {
+   if (medianScale <= 0 || !pixscale) return "skip";
+   var scaleRatio = pixscale / medianScale;
+   if (scaleRatio < 0.3 || scaleRatio > 3.0) return "reject";
+   return "accept";
+}
+
+test("falsePositiveScaleFilter: medianScale=0 → skip (フィルタ無効)", function() {
+   assertEqual(falsePositiveScaleFilter(10.0, 0), "skip", "median=0 skips");
+});
+
+test("falsePositiveScaleFilter: pixscale=null → skip", function() {
+   assertEqual(falsePositiveScaleFilter(null, 10.0), "skip", "null pixscale skips");
+});
+
+test("falsePositiveScaleFilter: ratio=1.0 → accept", function() {
+   assertEqual(falsePositiveScaleFilter(10.0, 10.0), "accept", "ratio=1.0");
+});
+
+test("falsePositiveScaleFilter: ratio=0.3 → accept (境界値)", function() {
+   assertEqual(falsePositiveScaleFilter(3.0, 10.0), "accept", "ratio=0.3 exact");
+});
+
+test("falsePositiveScaleFilter: ratio=0.29 → reject (境界値超過)", function() {
+   assertEqual(falsePositiveScaleFilter(2.9, 10.0), "reject", "ratio=0.29");
+});
+
+test("falsePositiveScaleFilter: ratio=3.0 → accept (境界値)", function() {
+   assertEqual(falsePositiveScaleFilter(30.0, 10.0), "accept", "ratio=3.0 exact");
+});
+
+test("falsePositiveScaleFilter: ratio=3.01 → reject (境界値超過)", function() {
+   assertEqual(falsePositiveScaleFilter(30.1, 10.0), "reject", "ratio=3.01");
+});
+
+test("falsePositiveScaleFilter: ratio=0.5 → accept (安全な範囲)", function() {
+   assertEqual(falsePositiveScaleFilter(5.0, 10.0), "accept", "ratio=0.5");
+});
+
+test("falsePositiveScaleFilter: ratio=2.5 → accept (安全な範囲)", function() {
+   assertEqual(falsePositiveScaleFilter(25.0, 10.0), "accept", "ratio=2.5");
+});
+
+//============================================================================
+// 偽陽性フィルタ — 座標乖離の閾値テスト (項目5)
+//
+// solveSingleTile 内のフィルタロジック:
+//   coordDev > 5.0° → reject
+//============================================================================
+
+function falsePositiveCoordFilter(expectedRaDec, actualRaDec) {
+   if (!expectedRaDec) return "skip";
+   var coordDev = angularSeparation(expectedRaDec, actualRaDec);
+   if (coordDev > 5.0) return "reject";
+   return "accept";
+}
+
+test("falsePositiveCoordFilter: expectedRaDec=null → skip", function() {
+   assertEqual(falsePositiveCoordFilter(null, [180.0, 45.0]), "skip", "null expected skips");
+});
+
+test("falsePositiveCoordFilter: 同一座標 → accept", function() {
+   assertEqual(falsePositiveCoordFilter([180.0, 45.0], [180.0, 45.0]), "accept", "same coords");
+});
+
+test("falsePositiveCoordFilter: 4.9° 乖離 → accept (境界値内)", function() {
+   // 赤道付近で DEC に 4.9° ずらす
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 4.9]), "accept", "4.9 deg");
+});
+
+test("falsePositiveCoordFilter: 5.1° 乖離 → reject (境界値超過)", function() {
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 5.1]), "reject", "5.1 deg");
+});
+
+test("falsePositiveCoordFilter: RA 方向の大きな乖離 → reject", function() {
+   // 赤道付近で RA に 10° ずらす
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [190.0, 0.0]), "reject", "10 deg RA");
+});
+
+test("falsePositiveCoordFilter: RA 方向 3° → accept", function() {
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [183.0, 0.0]), "accept", "3 deg RA");
+});
+
+//============================================================================
+// validateOverlap — 3タイル以上での逸脱検出 (項目6)
+//============================================================================
+
+test("validateOverlap: 3タイル一致 → 無効化なし", function() {
+   var wcsData = {
+      crval1: 180.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0, offsetY: 0, tileWidth: 3500, tileHeight: 2200, status: "success", wcs: wcsData },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3248, tileHeight: 2200, status: "success", wcs: wcsData },
+      { col: 0, row: 1, offsetX: 0, offsetY: 1900, tileWidth: 3500, tileHeight: 2276, status: "success", wcs: wcsData }
+   ];
+   var result = validateOverlap(tiles, 6248, 4176);
+   assertEqual(result, 0, "3 consistent tiles = no invalidation");
+});
+
+test("validateOverlap: 3タイル中1つが大きくずれ → 逸脱タイル無効化", function() {
+   var wcsGood = {
+      crval1: 180.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var wcsBad = {
+      crval1: 190.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0, offsetY: 0, tileWidth: 3500, tileHeight: 2200, status: "success", wcs: wcsGood },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3248, tileHeight: 2200, status: "success", wcs: wcsBad },
+      { col: 0, row: 1, offsetX: 0, offsetY: 1900, tileWidth: 3500, tileHeight: 2276, status: "success", wcs: wcsGood }
+   ];
+   var result = validateOverlap(tiles, 6248, 4176, 5.0);
+   assertTrue(result >= 1, "bad tile invalidated: " + result);
+});
+
+test("validateOverlap: 全タイルが相互に大きくずれ → 全無効化", function() {
+   var wcs1 = {
+      crval1: 180.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var wcs2 = {
+      crval1: 190.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var wcs3 = {
+      crval1: 170.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0, offsetY: 0, tileWidth: 3500, tileHeight: 2200, status: "success", wcs: wcs1 },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3248, tileHeight: 2200, status: "success", wcs: wcs2 },
+      { col: 0, row: 1, offsetX: 0, offsetY: 1900, tileWidth: 3500, tileHeight: 2276, status: "success", wcs: wcs3 }
+   ];
+   var result = validateOverlap(tiles, 6248, 4176, 5.0);
+   assertTrue(result >= 2, "all mismatched tiles invalidated: " + result);
+});
+
+test("validateOverlap: toleranceArcsec のデフォルト値=5 で動作", function() {
+   var wcsData = {
+      crval1: 180.0, crval2: 45.0,
+      crpix1: 3124, crpix2: 2088,
+      cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001
+   };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0, offsetY: 0, tileWidth: 3500, tileHeight: 2200, status: "success", wcs: wcsData },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3248, tileHeight: 2200, status: "success", wcs: wcsData }
+   ];
+   // toleranceArcsec 引数を省略 → デフォルト5で動作
+   var result = validateOverlap(tiles, 6248, 4176);
+   assertEqual(result, 0, "default tolerance works");
+});
+
+//============================================================================
+// mergeWcsSolutions — 制御点数の確認 (項目8)
+//
+// 現状: 各タイル 6x6=36 点 (GRID_STEP=5, 0..5 の 6ステップ)
+// WCSFitter は context 内にあるため、制御点の収集ロジックのみテスト
+//============================================================================
+
+function countControlPoints(tiles, imageWidth, imageHeight) {
+   // mergeWcsSolutions と同じロジックで制御点数をカウント
+   var count = 0;
+   var GRID_STEP = 5;
+   for (var t = 0; t < tiles.length; t++) {
+      if (tiles[t].status !== "success" || !tiles[t].wcs) continue;
+      for (var gy = 0; gy <= GRID_STEP; gy++) {
+         for (var gx = 0; gx <= GRID_STEP; gx++) {
+            count++;
+         }
+      }
+   }
+   return count;
+}
+
+test("mergeWcsSolutions 制御点数: 1タイル → 36点 (6x6)", function() {
+   var tiles = [
+      { status: "success", wcs: { crval1: 180, crval2: 45, crpix1: 100, crpix2: 100, cd1_1: -0.001, cd2_2: 0.001 },
+        tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 }
+   ];
+   assertEqual(countControlPoints(tiles, 2000, 2000), 36, "1 tile = 36 points");
+});
+
+test("mergeWcsSolutions 制御点数: 4タイル → 144点", function() {
+   var wcs = { crval1: 180, crval2: 45, crpix1: 100, crpix2: 100, cd1_1: -0.001, cd2_2: 0.001 };
+   var tiles = [
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 },
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 1000, offsetY: 0 },
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 1000 },
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 1000, offsetY: 1000 }
+   ];
+   assertEqual(countControlPoints(tiles, 2000, 2000), 144, "4 tiles = 144 points");
+});
+
+test("mergeWcsSolutions 制御点数: 失敗タイルは除外", function() {
+   var wcs = { crval1: 180, crval2: 45, crpix1: 100, crpix2: 100, cd1_1: -0.001, cd2_2: 0.001 };
+   var tiles = [
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 },
+      { status: "failed", wcs: null, tileWidth: 1000, tileHeight: 1000, offsetX: 1000, offsetY: 0 },
+      { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 1000 }
+   ];
+   assertEqual(countControlPoints(tiles, 2000, 2000), 72, "2 success tiles = 72 points");
+});
+
+test("mergeWcsSolutions 制御点数: 0成功タイル → 0点", function() {
+   var tiles = [
+      { status: "failed", wcs: null, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 }
+   ];
+   assertEqual(countControlPoints(tiles, 2000, 2000), 0, "no success = 0 points");
 });
 
 //============================================================================

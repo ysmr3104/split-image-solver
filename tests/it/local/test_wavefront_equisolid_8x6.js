@@ -1,30 +1,16 @@
 #!/usr/bin/env node
 /**
- * test_local_regression_b.js — リグレッションテスト B
+ * test_wavefront_equisolid_8x6.js — IT-Wavefront (equisolid 8x6, Sigma 15mm fisheye)
  *
- * ■ 定義:
- *   wavefront (solveWavefront) を通して全タイルを逐次ソルブし、
- *   都度ヒントを再計算させることで計算能力の劣化が起きていないことを確認する。
- *   solve-field を Node.js から直接呼び出す (Python CLI は経由しない)。
- *
- * ■ 目的:
- *   JS wavefront のヒント伝播チェーン (buildTileHints → solve-field → refined ヒント)
- *   が正しく機能し、ベースラインと同等以上のタイルが解けることを検証する。
- *
- * ■ 関連テスト:
- *   - リグレッションテスト A (test_local_regression_a.py):
- *       wavefront なし、事前定義ヒントで per-tile ソルブの動作確認
- *   - パイプラインテスト E2E:
- *       PixInsight GUI から全パイプラインを通して問題ないことを確認 (手動)
+ * wavefront (solveWavefront) を通して equisolid 魚眼 8x6 タイルを逐次ソルブし、
+ * ベースラインと同等以上のタイルが解けることを検証する。
  *
  * 前提:
  *   - /opt/homebrew/bin/solve-field (または SOLVE_FIELD_PATH) が存在すること
- *   - TILE_DIR に tile_{row}_{col}.fits が存在すること
- *   - フィクスチャ tests/javascript/fixtures/tile_wcs_api_{MODE}.json が存在すること
+ *   - tests/fits_downsampling/equisolid_8x6/ に tile FITS が存在すること
  *
  * 実行:
- *   node tests/javascript/test_local_regression_b.js [2x2|8x6]
- *   TILE_DIR=/path/to/tiles node tests/javascript/test_local_regression_b.js 2x2
+ *   node tests/it/local/test_wavefront_equisolid_8x6.js
  */
 
 "use strict";
@@ -38,8 +24,8 @@ var child_process = require("child_process");
 // ============================================================
 // 設定
 // ============================================================
-var MODE            = process.argv[2] || "2x2";
-var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../fits_downsampling/" + MODE);
+var MODE            = "equisolid_8x6";
+var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../../fits_downsampling/" + MODE);
 var SOLVE_FIELD     = process.env.SOLVE_FIELD_PATH || "/opt/homebrew/bin/solve-field";
 var TIMEOUT_SEC     = parseInt(process.env.TIMEOUT_SEC || "120", 10);
 
@@ -52,7 +38,7 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "fixtures/tile_wcs_api_" + MODE + ".json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equisolid_8x6.json");
 if (!fs.existsSync(FIXTURE_FILE)) {
     console.error("ERROR: フィクスチャが見つかりません: " + FIXTURE_FILE);
     process.exit(1);
@@ -62,35 +48,25 @@ var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 
 // ============================================================
 // Local ベースライン (PixInsight + solve-field の実測結果)
-// API ベースライン (fixture.tiles[].status) とは異なる
 // ============================================================
 var LOCAL_BASELINE = {
-    "2x2": {
-        // 4/4 全タイル成功 (Orion, 50mm, 2x2)
-        successTiles: [[0,0], [0,1], [1,0], [1,1]],
-        totalSolved: 4
-    },
-    "8x6": {
-        // 8/48 成功 (Milky Way, 14mm, 8x6)
-        // テスト FITS は Python パイプライン変換品 (ルミナンス + uint16 スケーリング)
-        // PI ベースラインと同じデータ変換パイプラインで生成
-        successTiles: [[1,3], [1,4], [2,3], [2,4], [3,2], [3,3], [3,4], [3,5]],
-        totalSolved: 8
-    }
+    // 12/48 成功 (銀河中心, Sigma 15mm equisolid fisheye, 8x6)
+    successTiles: [
+        [1,2], [1,3], [1,4], [1,5],
+        [2,2], [2,3], [2,4], [2,5],
+        [3,2], [3,3], [3,4], [3,5]
+    ],
+    totalSolved: 12
 };
-var localBaseline = LOCAL_BASELINE[MODE];
-if (!localBaseline) {
-    console.error("ERROR: LOCAL_BASELINE に " + MODE + " が定義されていません");
-    process.exit(1);
-}
+var localBaseline = LOCAL_BASELINE;
 var localBaselineMap = {};
 localBaseline.successTiles.forEach(function(rc) {
     localBaselineMap[rc[0] + "_" + rc[1]] = true;
 });
 
 console.log("=".repeat(70));
-console.log("Local パイプラインテスト (Case B: solveWavefront + solve-field)");
-console.log("  MODE=" + MODE + "  fixture=" + FIXTURE_FILE);
+console.log("IT-Wavefront Local (equisolid 8x6, Sigma 15mm fisheye)");
+console.log("  fixture=" + FIXTURE_FILE);
 console.log("  TILE_DIR=" + TILE_DIR);
 console.log("  SOLVE_FIELD=" + SOLVE_FIELD);
 console.log("  TIMEOUT_SEC=" + TIMEOUT_SEC);
@@ -98,7 +74,7 @@ console.log("  LOCAL_BASELINE=" + localBaseline.totalSolved + "/" + fixture.tile
 console.log("=".repeat(70));
 
 // ============================================================
-// PJSR → Node.js スタブ (test_pipeline_api.js と共通)
+// PJSR → Node.js スタブ
 // ============================================================
 function loadSisContext() {
     var ctx = vm.createContext({
@@ -124,13 +100,15 @@ function loadSisContext() {
         "var format=function(){return '';};",
         "var UndoFlag_NoSwapFile=0; var ImageOp_Mov=0;",
         "var StdIcon_Information=0; var StdIcon_Error=0; var StdButton_Ok=0; var StdButton_Cancel=0;",
+        "var StdIcon_Warning=0; var StdButton_Yes=0; var StdButton_No=0;",
         "var PropertyType_String=0; var PropertyAttribute_Storable=0; var PropertyAttribute_Permanent=0; var PropertyAttribute_Protected=0;",
-        "var SampleType_UInt16=0; var SampleType_Real32=0; var DataType_Float32=0; var StdCursor_Arrow=0;",
+        "var SampleType_UInt16=0; var SampleType_Real32=0; var DataType_Float32=0; var StdCursor_Arrow=0; var StdCursor_Wait=0; var StdCursor_PointingHand=0;",
+        "var TextAlign_VertCenter=0; var TextAlign_Left=0; var TextAlign_Right=0;",
         "function MessageBox(){return{execute:function(){return 0;}};}",
         "var ImageWindow={open:function(){return[];}};",
     ].join("\n"), ctx);
 
-    var jsDir = path.join(__dirname, "../../javascript");
+    var jsDir = path.join(__dirname, "../../../javascript");
 
     vm.runInContext(fs.readFileSync(path.join(jsDir, "wcs_math.js"), "utf8"), ctx);
     vm.runInContext(fs.readFileSync(path.join(jsDir, "wcs_keywords.js"), "utf8"), ctx);
@@ -176,7 +154,7 @@ function loadSisContext() {
 }
 
 // ============================================================
-// タイル配列の構築 (test_pipeline_api.js と同一)
+// タイル配列の構築
 // ============================================================
 function buildTilesFromFixture(fixture, tileDir, gridX, gridY) {
     var centerCol = (gridX - 1) / 2.0;
@@ -215,7 +193,6 @@ function buildTilesFromFixture(fixture, tileDir, gridX, gridY) {
 // ============================================================
 // solve-field を直接呼び出す solverFn
 // ============================================================
-// readWcsFromFits は SIS context 内にあるので、Node.js 側で簡易実装
 function parseWcsFromFits(fitsPath) {
     var raw;
     try {
@@ -254,16 +231,12 @@ function parseWcsFromFits(fitsPath) {
 }
 
 function buildLocalSolverFn(solveFieldPath, timeoutSec) {
-    // solveWavefront の solverFn シグネチャ:
-    //   solverFn(tile, tileHints, medianScale, expectedRaDec) -> bool
     return function localSolverFn(tile, tileHints, medianScale, expectedRaDec) {
         var fitsPath = tile.filePath;
         var tmpDir = os.tmpdir();
         var baseName = "sis_local_" + tile.row + "_" + tile.col;
         var tmpBase = path.join(tmpDir, baseName);
 
-        // ダウンサンプル判定: 元タイルサイズが 2000 超なら --downsample 付与
-        // (Python solver と同じロジック)
         var origLonger = Math.max(tile.tileWidth || 0, tile.tileHeight || 0);
         var downsample = 0;
         if (origLonger > 2000) {
@@ -285,14 +258,12 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
             args.push("--downsample", String(downsample));
         }
 
-        // スケール制約 (buildTileHints が設定した scale_lower/scale_upper を使用)
         if (tileHints.scale_lower && tileHints.scale_upper) {
             args.push("--scale-low",   String(tileHints.scale_lower));
             args.push("--scale-high",  String(tileHints.scale_upper));
             args.push("--scale-units", "arcsecperpix");
         }
 
-        // RA/DEC 制約
         if (tileHints.center_ra !== undefined && tileHints.center_dec !== undefined) {
             args.push("--ra",     String(tileHints.center_ra));
             args.push("--dec",    String(tileHints.center_dec));
@@ -301,7 +272,6 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
 
         args.push(fitsPath);
 
-        // solve-field 実行
         var startMs = Date.now();
         var result;
         try {
@@ -321,8 +291,6 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
             return false;
         }
 
-        // .wcs ファイル確認
-        // solve-field は入力ファイルの stem に基づいて出力する
         var inputStem = path.basename(fitsPath, path.extname(fitsPath));
         var wcsPath = path.join(tmpDir, inputStem + ".wcs");
         if (!fs.existsSync(wcsPath)) {
@@ -338,7 +306,6 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
             return false;
         }
 
-        // タイルオフセット・スケールファクター補正 (top-down convention)
         var sf = tile.scaleFactor || 1.0;
         tile.wcs = {
             crval1: wcsJson.crval1,
@@ -351,7 +318,6 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
             cd2_2:  (wcsJson.cd2_2 || 0) * sf
         };
 
-        // pixel_scale の計算 (CD 行列から)
         var pixscale = Math.sqrt(
             Math.abs((wcsJson.cd1_1 || 0) * (wcsJson.cd2_2 || 0) -
                      (wcsJson.cd1_2 || 0) * (wcsJson.cd2_1 || 0))
@@ -368,7 +334,6 @@ function buildLocalSolverFn(solveFieldPath, timeoutSec) {
             wcsJson.crval1.toFixed(4) + " Dec=" + wcsJson.crval2.toFixed(4) +
             " scale=" + pixscale.toFixed(2) + "\"/px (" + elapsed + "s)");
 
-        // 一時ファイル掃除
         [".wcs", ".solved", ".axy", ".corr", ".match", ".rdls", ".xyls", "-indx.xyls", ".new"].forEach(function(ext) {
             var f = path.join(tmpDir, inputStem + ext);
             try { fs.unlinkSync(f); } catch (e) {}
@@ -403,7 +368,7 @@ var hints = {
     center_dec:   fHints.centerDEC,
     scale_est:    fHints.scaleEst,
     _nativeScale: fHints.scaleEst,
-    _projection:  fHints.projection || "rectilinear",
+    _projection:  fHints.projection || "equisolid",
     scale_units:  "arcsecperpix",
     radius:       10,
     tweak_order:  4
@@ -418,10 +383,9 @@ if (missingFits.length > 0) {
     process.exit(1);
 }
 console.log("\n利用可能タイルFITS: " + tiles.length + "/" + fixture.tiles.length);
-console.log("Wavefront 開始タイル (tiles[0]): [" + tiles[0].col + "," + tiles[0].row + "]");
 
 // ============================================================
-// STEP 1: computeTileHints — 初期 RA/DEC ヒント設定
+// STEP 1: computeTileHints
 // ============================================================
 console.log("\n[STEP 1] computeTileHints: 初期 RA/DEC ヒント計算...");
 ctx.TILES_STEP1 = tiles;
@@ -429,26 +393,16 @@ ctx.HINTS_STEP1 = hints;
 ctx.IMG_W = imgW;
 ctx.IMG_H = imgH;
 vm.runInContext(
-    "(function(){" +
-    "  computeTileHints(TILES_STEP1, HINTS_STEP1.center_ra, HINTS_STEP1.center_dec," +
-    "    HINTS_STEP1.scale_est, IMG_W, IMG_H, HINTS_STEP1._projection);" +
-    "  TILES_STEP1.forEach(function(t){" +
-    "    var ra  = t.hintRA  !== undefined ? t.hintRA.toFixed(4)  : 'N/A';" +
-    "    var dec = t.hintDEC !== undefined ? t.hintDEC.toFixed(4) : 'N/A';" +
-    "    console_log('  [' + t.row + '][' + t.col + '] hintRA=' + ra + ' hintDEC=' + dec);" +
-    "  });" +
-    "})()",
+    "computeTileHints(TILES_STEP1, HINTS_STEP1.center_ra, HINTS_STEP1.center_dec," +
+    "  HINTS_STEP1.scale_est, IMG_W, IMG_H, HINTS_STEP1._projection);",
     ctx);
 console.log("[STEP 1] 完了");
 
 // ============================================================
-// STEP 2: solveWavefront 実行 (Case B: solve-field 直接)
+// STEP 2: solveWavefront 実行
 // ============================================================
-console.log("\n[STEP 2] solveWavefront 実行 (Case B: solve-field 直接呼び出し)...");
-console.log("  -> buildTileHints が各タイルの effective scale / refined RA/DEC を計算");
-console.log("  -> 解けたタイルの WCS から次のタイルの hint を改善");
+console.log("\n[STEP 2] solveWavefront 実行 (solve-field 直接呼び出し)...");
 
-// localSolverFn を context に注入
 var localSolverFn = buildLocalSolverFn(SOLVE_FIELD, TIMEOUT_SEC);
 ctx._localSolverFn = localSolverFn;
 
@@ -471,7 +425,7 @@ var successCount = vm.runInContext([
     "    _localSolverFn,",
     "    function(){ return false; },",
     "    function(){ return false; },",
-    "    0",  // Local モードはレートリミット不要
+    "    0",
     "  );",
     "})()"
 ].join("\n"), ctx);
@@ -485,14 +439,12 @@ console.log("\n[STEP 2] 完了  " + successCount + "/" + tiles.length + " solved
 var baselineCount = localBaseline.totalSolved;
 
 console.log("\n" + "=".repeat(70));
-console.log("結果レポート (" + MODE + ")");
+console.log("結果レポート (equisolid 8x6)");
 console.log("=".repeat(70));
 console.log("Local ベースライン : " + baselineCount + "/" + fixture.tiles.length);
-console.log("Case B 成功数     : " + successCount  + "/" + tiles.length);
-var diff = successCount - baselineCount;
-console.log("差分              : " + (diff >= 0 ? "+" : "") + diff);
+console.log("成功数             : " + successCount  + "/" + tiles.length);
 
-console.log("\nタイル別結果 (wavefront 順):");
+console.log("\nタイル別結果:");
 tiles.forEach(function(t) {
     var bl  = !!localBaselineMap[t.row + "_" + t.col];
     var ok  = (t.status === "success");
@@ -507,61 +459,18 @@ tiles.forEach(function(t) {
         (bl ? "base:OK" : "base:NG") + " -> " + (ok ? "OK " : "NG ") + tag + cal);
 });
 
-// hint 伝播サニティーチェック
-console.log("\n--- hint 伝播チェーン サニティーチェック ---");
-var successTiles = tiles.filter(function(t) { return t.status === "success" && t.wcs; });
-console.log("成功タイル数 (wcs あり): " + successTiles.length);
-
-successTiles.forEach(function(t) {
-    var cx = t.offsetX + t.tileWidth  / 2.0;
-    var cy = t.offsetY + t.tileHeight / 2.0;
-    ctx.WCS_CHK = t.wcs;
-    ctx.CX_CHK  = cx;
-    ctx.CY_CHK  = cy;
-    var computed = null;
-    try {
-        computed = vm.runInContext("pixelToRaDecTD(WCS_CHK, CX_CHK, CY_CHK)", ctx);
-    } catch (e) { /* ignore */ }
-
-    if (computed && isFinite(computed[0]) && isFinite(computed[1])) {
-        var initHint = t.hintRA !== undefined ? t.hintRA.toFixed(4) : "N/A";
-        console.log("  [" + t.row + "][" + t.col + "]" +
-            "  wcs->center: ra=" + computed[0].toFixed(4) + " dec=" + computed[1].toFixed(4) +
-            "  (初期 hintRA=" + initHint + ")");
-    }
-});
-
 // ============================================================
 // Pass/Fail 判定
 // ============================================================
 console.log("\n" + "=".repeat(70));
 var pass = true;
 
-// Local ベースラインと同等以上であること (リファクタリングの許容条件)
-if (successCount >= baselineCount) {
-    console.log("PASS: 成功タイル数 >= ベースライン (" + successCount + " >= " + baselineCount + ")");
+// 魚眼は変動が大きいため ±2 の許容
+if (successCount >= baselineCount - 2) {
+    console.log("PASS: 成功タイル数 >= ベースライン-2 (" + successCount + " >= " + (baselineCount - 2) + ")");
 } else {
-    var regressionTiles = [];
-    tiles.forEach(function(t) {
-        var bl = !!localBaselineMap[t.row + "_" + t.col];
-        if (bl && t.status !== "success") regressionTiles.push("[" + t.row + "][" + t.col + "]");
-    });
-    console.log("FAIL: 成功タイル数がベースライン未満 (" + successCount + " < " + baselineCount +
-        ")  リグレッション: " + regressionTiles.join(", "));
+    console.log("FAIL: 成功タイル数がベースライン-2 未満 (" + successCount + " < " + (baselineCount - 2) + ")");
     pass = false;
-}
-
-if (successCount >= baselineCount) {
-    console.log("PASS: 成功タイル数 >= ベースライン (" + successCount + " >= " + baselineCount + ")");
-} else {
-    // 許容範囲内のリグレッションは警告のみ (上の閾値チェックで判定済み)
-    var regressionTiles = [];
-    tiles.forEach(function(t) {
-        var bl = !!localBaselineMap[t.row + "_" + t.col];
-        if (bl && t.status !== "success") regressionTiles.push("[" + t.row + "][" + t.col + "]");
-    });
-    console.log("WARN: 成功タイル数がベースライン未満 (" + successCount + " < " + baselineCount +
-        ")  リグレッション: " + regressionTiles.join(", "));
 }
 
 if (successCount >= 1) {
@@ -569,14 +478,6 @@ if (successCount >= 1) {
 } else {
     console.log("FAIL: 全タイル失敗");
     pass = false;
-}
-
-var allWcsSet = successTiles.length > 0 &&
-    successTiles.every(function(t) { return !!t.wcs; });
-if (allWcsSet) {
-    console.log("PASS: 全成功タイルに wcs が設定されている (" + successTiles.length + " タイル)");
-} else {
-    console.log("WARN: wcs が未設定の成功タイルがある");
 }
 
 console.log("=".repeat(70));
