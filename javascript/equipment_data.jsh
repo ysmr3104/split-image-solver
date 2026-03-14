@@ -121,6 +121,14 @@ var __equipmentData__ = {
       "sensor_width": 9504,
       "sensor_height": 6336
     },
+    // ===== Sony alpha6000 (APS-C) =====
+    {
+      "name": "Sony \u03b16100",
+      "instrume": "Sony ILCE-6100",
+      "pixel_pitch": 3.92,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
     // ===== Nikon Z (24MP class) =====
     {
       "name": "Nikon Z 5",
@@ -517,6 +525,7 @@ var __equipmentData__ = {
     {"name": "8mm Fisheye", "focal_length": 8, "projection": "equisolid"},
     {"name": "10mm Fisheye", "focal_length": 10, "projection": "equisolid"},
     {"name": "Sigma 15mm f/2.8 EX DG Fisheye", "model": "Sigma 15mm F2.8 EX DG Fisheye", "focal_length": 15, "projection": "equisolid"},
+    {"name": "AstrHori 6.5mm F2.0 Fish-Eye", "focal_length": 6.5, "projection": "equisolid"},
     // ===== Sony FE =====
     {"name": "Sony FE 14mm f/1.8 GM", "model": "SEL14F18GM", "focal_length": 14, "projection": "rectilinear"},
     {"name": "Sony FE 20mm f/1.8 G", "model": "SEL20F18G", "focal_length": 20, "projection": "rectilinear"},

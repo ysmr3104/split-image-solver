@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * test_wavefront_equisolid_12x8.js — IT-Wavefront API (equisolid 12x8, AstrHori 6.5mm fisheye)
+ * test_wavefront_equidistant_12x8.js — IT-Wavefront API (equidistant 12x8, AstrHori 6.5mm fisheye)
  *
  * astrometry.net API を実呼び出しして solveWavefront の
  * ヒント伝播パイプライン全体を検証する (equisolid 超広角魚眼)。
  *
  * 実行:
- *   node tests/it/api/test_wavefront_equisolid_12x8.js
- *   ASTROMETRY_API_KEY=xxx node tests/it/api/test_wavefront_equisolid_12x8.js
+ *   node tests/it/api/test_wavefront_equidistant_12x8.js
+ *   ASTROMETRY_API_KEY=xxx node tests/it/api/test_wavefront_equidistant_12x8.js
  */
 
 "use strict";
@@ -17,7 +17,7 @@ var path = require("path");
 var vm   = require("vm");
 var helpers = require("./_helpers");
 
-var MODE          = "equisolid_12x8";
+var MODE          = "equidistant_12x8";
 var TILE_DIR      = process.env.TILE_DIR || path.join(__dirname, "../../fits_downsampling/" + MODE);
 var RATE_LIMIT_MS = parseInt(process.env.RATE_LIMIT_MS || "2000", 10);
 
@@ -31,11 +31,11 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equisolid_12x8.json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equidistant_12x8.json");
 var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 
 console.log("=".repeat(70));
-console.log("IT-Wavefront API (equisolid 12x8, AstrHori 6.5mm fisheye)");
+console.log("IT-Wavefront API (equidistant 12x8, AstrHori 6.5mm fisheye)");
 console.log("  TILE_DIR=" + TILE_DIR);
 console.log("  RATE_LIMIT_MS=" + RATE_LIMIT_MS);
 console.log("=".repeat(70));

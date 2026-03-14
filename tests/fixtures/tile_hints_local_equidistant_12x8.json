@@ -1,14 +1,14 @@
 {
-  "mode": "equisolid_12x8",
+  "mode": "equidistant_12x8",
   "source": "PixInsight SIS v1.1.0 API mode wavefront solve (AstrHori 6.5mm equisolid fisheye)",
-  "batch_solved": 4,
+  "batch_solved": 9,
   "batch_total": 96,
   "median_scale": 125.877372,
   "hints": {
     "centerRA": 33.2553,
     "centerDEC": 37.8353,
     "scaleEst": 123.898,
-    "projection": "equisolid"
+    "projection": "equidistant"
   },
   "imageWidth": 6024,
   "imageHeight": 4024,
@@ -388,7 +388,7 @@
       "offset_y": 906,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 2,
@@ -414,7 +414,7 @@
       "offset_y": 906,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 2,
@@ -570,7 +570,7 @@
       "offset_y": 1409,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 3,
@@ -700,7 +700,7 @@
       "offset_y": 1912,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 4,
@@ -869,7 +869,7 @@
       "offset_y": 2415,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 5,

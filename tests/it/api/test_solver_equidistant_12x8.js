@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * test_solver_equisolid_12x8.js — IT-Solver API (equisolid 12x8, AstrHori 6.5mm fisheye)
+ * test_solver_equidistant_12x8.js — IT-Solver API (equidistant 12x8, AstrHori 6.5mm fisheye)
  *
  * astrometry.net API を実呼び出しして per-tile ソルブの動作を確認する。
  * wavefront のヒント伝播は使わず、フィクスチャの事前定義ヒントで直接ソルブ。
  *
  * 実行:
- *   node tests/it/api/test_solver_equisolid_12x8.js
- *   ASTROMETRY_API_KEY=xxx node tests/it/api/test_solver_equisolid_12x8.js
+ *   node tests/it/api/test_solver_equidistant_12x8.js
+ *   ASTROMETRY_API_KEY=xxx node tests/it/api/test_solver_equidistant_12x8.js
  */
 
 "use strict";
@@ -17,7 +17,7 @@ var path = require("path");
 var vm   = require("vm");
 var helpers = require("./_helpers");
 
-var MODE          = "equisolid_12x8";
+var MODE          = "equidistant_12x8";
 var TILE_DIR      = process.env.TILE_DIR || path.join(__dirname, "../../fits_downsampling/" + MODE);
 var RATE_LIMIT_MS = parseInt(process.env.RATE_LIMIT_MS || "2000", 10);
 
@@ -31,11 +31,11 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equisolid_12x8.json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equidistant_12x8.json");
 var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 
 // 精密ヒントフィクスチャ (IT-Solver 用)
-var HINTS_FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_hints_local_equisolid_12x8.json");
+var HINTS_FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_hints_local_equidistant_12x8.json");
 if (!fs.existsSync(HINTS_FIXTURE_FILE)) {
     console.error("ERROR: ヒントフィクスチャが見つかりません: " + HINTS_FIXTURE_FILE);
     process.exit(1);
@@ -43,7 +43,7 @@ if (!fs.existsSync(HINTS_FIXTURE_FILE)) {
 var hintsFixture = JSON.parse(fs.readFileSync(HINTS_FIXTURE_FILE, "utf8"));
 
 console.log("=".repeat(70));
-console.log("IT-Solver API (equisolid 12x8, AstrHori 6.5mm fisheye)");
+console.log("IT-Solver API (equidistant 12x8, AstrHori 6.5mm fisheye)");
 console.log("  TILE_DIR=" + TILE_DIR);
 console.log("  RATE_LIMIT_MS=" + RATE_LIMIT_MS);
 console.log("=".repeat(70));
