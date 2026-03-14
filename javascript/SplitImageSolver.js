@@ -11,7 +11,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.1.0"
+#define VERSION "1.1.1"
 #define VERSION_SUFFIX ""
 
 #include <pjsr/DataType.jsh>
@@ -1411,32 +1411,11 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
             default:             theta = Math.atan(rScaled); break; // rectilinear (gnomonic)
          }
 
-         // Effective pixel scale factor (Python: _effective_pixel_scale_factor)
-         var factor = 1.0;
-         if (theta > 0.001) {
-            switch (projection) {
-               case "rectilinear":
-                  var cosT = Math.cos(theta);
-                  factor = 1.0 / (cosT * cosT);
-                  break;
-               case "equisolid":
-                  factor = Math.sqrt(1.0 - Math.sin(theta / 2.0) * Math.sin(theta / 2.0)) /
-                           Math.cos(theta);
-                  break;
-               case "equidistant":
-                  factor = theta / Math.sin(theta);
-                  break;
-               case "stereographic":
-                  var cosHalf = Math.cos(theta / 2.0);
-                  factor = 1.0 / (cosHalf * cosHalf * Math.cos(theta));
-                  break;
-            }
-         }
-
-         // Apply projection factor to native scale (matching Python behavior).
+         // Effective pixel scale using projectionScale() (matches Python behavior).
          // Python computes effective_scale from native sensor scale, not resampled.
          // The tile image pixels correspond to the native optical geometry.
-         var effectiveScale = nativeScale * factor;
+         var thetaDeg = theta * 180.0 / Math.PI;
+         var effectiveScale = projectionScale(projection, nativeScale, thetaDeg);
 
          // Dynamic margin: Python's 0.2 + 0.3 * (r / max_r)
          var maxR = Math.sqrt(imgCX * imgCX + imgCY * imgCY);
