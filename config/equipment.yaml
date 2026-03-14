@@ -193,6 +193,20 @@ cameras:
     lensfun_model: ILCE-7CR
 
   #
+  # ===== Sony α6000 (APS-C) =====
+  #
+  "Sony ILCE-6100":
+    maker: Sony
+    display_name: "Sony α6100"
+    sensor_width_mm: 23.5
+    sensor_height_mm: 15.6
+    pixel_pitch_um: 3.92
+    native_resolution: [6000, 4000]
+    crop_factor: 1.5
+    lensfun_maker: Sony
+    lensfun_model: ILCE-6100
+
+  #
   # ===== Nikon Z (24MP クラス) =====
   #
   "NIKON Z 5":
@@ -494,6 +508,17 @@ lenses:
     camera_makers: [Canon, Nikon, Sony, Pentax]
     lensfun_maker: Sigma
     lensfun_search: "15mm f/2.8 EX DG"
+
+  #
+  # ===== AstrHori Fisheye =====
+  #
+  "AstrHori 6.5mm F2.0 Fish-Eye":
+    maker: AstrHori
+    display_name: "AstrHori 6.5mm F2.0 Fish-Eye"
+    type: fisheye_equidistant
+    focal_length_mm: 6.5
+    max_aperture: 2.0
+    camera_makers: [Sony]
 
   #
   # ===== Sigma Art DG DN =====

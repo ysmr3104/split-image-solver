@@ -1,11 +1,11 @@
 """
-test_solver_equisolid_12x8.py — IT-Solver (equisolid 12x8, AstrHori 6.5mm fisheye)
+test_solver_equidistant_12x8.py — IT-Solver (equidistant 12x8, AstrHori 6.5mm fisheye)
 
 wavefront を通さず、フィクスチャから事前定義したヒントで
 equisolid 魚眼 12x8 タイルの per-tile ソルブ動作を確認する。
 
 実行:
-    PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_equisolid_12x8.py -v -s
+    PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_equidistant_12x8.py -v -s
 
 前提:
     - /opt/homebrew/bin/solve-field が存在すること
@@ -188,13 +188,13 @@ def _print_report(result: dict):
 
 
 @pytest.mark.slow
-def test_local_tile_solve_equisolid_12x8():
-    """equisolid 12x8 グリッド: 精密ヒントで解けるべきタイル (4/96) が解けることを確認。
+def test_local_tile_solve_equidistant_12x8():
+    """equidistant 12x8 グリッド: 精密ヒントで解けるべきタイル (4/96) が解けることを確認。
 
     フィクスチャの batch_success=True タイルのみソルブ対象。
     PixInsight wavefront で解けた 4 タイルが、per-tile でも同様に解けることを検証。
     """
-    result = _run_tile_solve("equisolid_12x8", timeout_per_tile=240)
+    result = _run_tile_solve("equidistant_12x8", timeout_per_tile=240)
     _print_report(result)
 
     total = result["tiles_total"]

@@ -113,6 +113,13 @@
       "sensor_height": 6336
     },
     {
+      "name": "Sony α6100",
+      "instrume": "Sony ILCE-6100",
+      "pixel_pitch": 3.92,
+      "sensor_width": 6000,
+      "sensor_height": 4000
+    },
+    {
       "name": "Nikon Z 5",
       "instrume": "NIKON Z 5",
       "pixel_pitch": 5.97,
@@ -465,20 +472,9 @@
   ],
   "lenses": [
     {
-      "name": "8mm Fisheye",
-      "focal_length": 8,
-      "projection": "equisolid"
-    },
-    {
-      "name": "10mm Fisheye",
-      "focal_length": 10,
-      "projection": "equisolid"
-    },
-    {
-      "name": "Sigma 15mm f/2.8 EX DG Fisheye",
-      "model": "Sigma 15mm F2.8 EX DG Fisheye",
-      "focal_length": 15,
-      "projection": "equisolid"
+      "name": "Custom",
+      "focal_length": 0,
+      "projection": "rectilinear"
     },
     {
       "name": "Sony FE 14mm f/1.8 GM",
@@ -551,6 +547,12 @@
       "model": "35mm F2 Contemp.",
       "focal_length": 35,
       "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 15mm f/2.8 EX DG Fisheye",
+      "model": "Sigma 15mm F2.8 EX DG Fisheye",
+      "focal_length": 15,
+      "projection": "equisolid"
     },
     {
       "name": "NIKKOR Z 20mm f/1.8 S",
@@ -641,6 +643,11 @@
       "model": "RF 35mm f/1.8 Macro",
       "focal_length": 35,
       "projection": "rectilinear"
+    },
+    {
+      "name": "AstrHori 6.5mm F2.0 Fish-Eye",
+      "focal_length": 6.5,
+      "projection": "equidistant"
     },
     {
       "name": "William Optics RedCat 41 f/4.9",
@@ -770,9 +777,29 @@
       "projection": "rectilinear"
     },
     {
-      "name": "Custom",
-      "focal_length": 0,
-      "projection": "rectilinear"
+      "name": "8mm Fisheye Diagonal",
+      "focal_length": 8,
+      "projection": "equisolid"
+    },
+    {
+      "name": "10mm Fisheye Diagonal",
+      "focal_length": 10,
+      "projection": "equisolid"
+    },
+    {
+      "name": "6.5mm Fisheye Circular",
+      "focal_length": 6.5,
+      "projection": "equidistant"
+    },
+    {
+      "name": "7.5mm Fisheye Circular",
+      "focal_length": 7.5,
+      "projection": "equidistant"
+    },
+    {
+      "name": "8mm Fisheye Circular",
+      "focal_length": 8,
+      "projection": "equidistant"
     }
   ]
 }

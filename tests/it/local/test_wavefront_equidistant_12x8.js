@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * test_wavefront_equisolid_12x8.js — IT-Wavefront (equisolid 12x8, AstrHori 6.5mm fisheye)
+ * test_wavefront_equidistant_12x8.js — IT-Wavefront (equidistant 12x8, AstrHori 6.5mm fisheye)
  *
  * wavefront (solveWavefront) を通して equisolid 魚眼 12x8 タイルを逐次ソルブし、
  * ベースラインと同等以上のタイルが解けることを検証する。
  *
  * 前提:
  *   - /opt/homebrew/bin/solve-field (または SOLVE_FIELD_PATH) が存在すること
- *   - tests/fits_downsampling/equisolid_12x8/ に tile FITS が存在すること
+ *   - tests/fits_downsampling/equidistant_12x8/ に tile FITS が存在すること
  *
  * 実行:
- *   node tests/it/local/test_wavefront_equisolid_12x8.js
+ *   node tests/it/local/test_wavefront_equidistant_12x8.js
  */
 
 "use strict";
@@ -24,7 +24,7 @@ var child_process = require("child_process");
 // ============================================================
 // 設定
 // ============================================================
-var MODE            = "equisolid_12x8";
+var MODE            = "equidistant_12x8";
 var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../../fits_downsampling/" + MODE);
 var SOLVE_FIELD     = process.env.SOLVE_FIELD_PATH || "/opt/homebrew/bin/solve-field";
 var TIMEOUT_SEC     = parseInt(process.env.TIMEOUT_SEC || "120", 10);
@@ -38,7 +38,7 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equisolid_12x8.json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equidistant_12x8.json");
 if (!fs.existsSync(FIXTURE_FILE)) {
     console.error("ERROR: フィクスチャが見つかりません: " + FIXTURE_FILE);
     process.exit(1);
@@ -61,7 +61,7 @@ localBaseline.successTiles.forEach(function(rc) {
 });
 
 console.log("=".repeat(70));
-console.log("IT-Wavefront Local (equisolid 12x8, AstrHori 6.5mm fisheye)");
+console.log("IT-Wavefront Local (equidistant 12x8, AstrHori 6.5mm fisheye)");
 console.log("  fixture=" + FIXTURE_FILE);
 console.log("  TILE_DIR=" + TILE_DIR);
 console.log("  SOLVE_FIELD=" + SOLVE_FIELD);

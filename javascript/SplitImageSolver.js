@@ -31,7 +31,6 @@
 #include "wcs_math.js"
 #include "wcs_keywords.js"
 #include "astrometry_api.js"
-#include "equipment_data.jsh"
 
 #define TITLE "Split Image Solver"
 
@@ -45,7 +44,7 @@
 #include "imagesolver_bridge.jsh"
 #endif
 
-// Equipment data is loaded via #include "equipment_data.jsh" (sets __equipmentData__)
+// Equipment data is loaded at runtime from equipment.json (same directory as this script)
 
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
@@ -1941,17 +1940,19 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
    return 0;
 }
 
-// Load equipment database
-// Uses __equipmentData__ from #include "equipment_data.jsh"
+// Load equipment database from equipment.json (same directory as this script)
 function loadEquipmentDB() {
-   if (typeof __equipmentData__ !== "undefined" && __equipmentData__) {
+   var jsonPath = File.extractDirectory(#__FILE__) + "/equipment.json";
+   try {
+      var data = JSON.parse(File.readTextFile(jsonPath));
       console.writeln("Loaded equipment DB: " +
-         __equipmentData__.cameras.length + " cameras, " +
-         __equipmentData__.lenses.length + " lenses");
-      return __equipmentData__;
+         data.cameras.length + " cameras, " +
+         data.lenses.length + " lenses");
+      return data;
+   } catch (e) {
+      console.writeln("WARNING: Could not load equipment DB from: " + jsonPath + " (" + e.toString() + ")");
+      return null;
    }
-   console.writeln("WARNING: Equipment DB not available (__equipmentData__ not defined)");
-   return null;
 }
 
 // Compute pixel scale from camera pixel pitch and lens focal length
