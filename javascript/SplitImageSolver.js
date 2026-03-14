@@ -4489,13 +4489,17 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
       console.writeln("  RMS residual: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec");
    }
 
-   // Apply WCS: FITS keywords (including SIP distortion) + PCL properties.
-   // SplineWorldTransformation control points are NOT written here because
-   // regenerateAstrometricSolution() cannot properly compute spline coefficients
-   // from our control points, causing SPFC to fail. The SIP polynomial in FITS
-   // keywords provides sufficient distortion correction for SPCC/SPFC.
+   // Apply WCS: FITS keywords + PCL properties + SplineWorldTransformation control points.
+   // WCSFitter outputs WCS in bottom-up FITS convention (v = height - py - crpix2),
+   // but PixInsight stores FITS data top-first, so regenerateAstrometricSolution()
+   // interprets keywords in top-down convention (v = py + 1 - crpix2).
+   // This causes the Y-axis (DEC direction) to be inverted.
+   // Writing SplineWorldTransformation control points bypasses the CD matrix
+   // interpretation and maps PixInsight pixel coords directly to gnomonic coords.
+   // (Same fix as manual-image-solver commit 2eebfa7.)
    targetWindow.mainView.beginProcess(UndoFlag_Keywords);
    applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight);
+   setCustomControlPoints(targetWindow, wcsResult, [], imageWidth, imageHeight, "linear");
    targetWindow.regenerateAstrometricSolution();
    targetWindow.mainView.endProcess();
 
