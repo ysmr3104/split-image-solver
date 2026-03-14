@@ -1,30 +1,16 @@
 #!/usr/bin/env node
 /**
- * test_local_regression_b.js — リグレッションテスト B
+ * test_wavefront_8x6.js — IT-Wavefront (8x6, 14mm rectilinear)
  *
- * ■ 定義:
- *   wavefront (solveWavefront) を通して全タイルを逐次ソルブし、
- *   都度ヒントを再計算させることで計算能力の劣化が起きていないことを確認する。
- *   solve-field を Node.js から直接呼び出す (Python CLI は経由しない)。
- *
- * ■ 目的:
- *   JS wavefront のヒント伝播チェーン (buildTileHints → solve-field → refined ヒント)
- *   が正しく機能し、ベースラインと同等以上のタイルが解けることを検証する。
- *
- * ■ 関連テスト:
- *   - リグレッションテスト A (test_local_regression_a.py):
- *       wavefront なし、事前定義ヒントで per-tile ソルブの動作確認
- *   - パイプラインテスト E2E:
- *       PixInsight GUI から全パイプラインを通して問題ないことを確認 (手動)
+ * wavefront (solveWavefront) を通して 8x6 タイルを逐次ソルブし、
+ * ベースラインと同等以上のタイルが解けることを検証する。
  *
  * 前提:
  *   - /opt/homebrew/bin/solve-field (または SOLVE_FIELD_PATH) が存在すること
- *   - TILE_DIR に tile_{row}_{col}.fits が存在すること
- *   - フィクスチャ tests/javascript/fixtures/tile_wcs_api_{MODE}.json が存在すること
+ *   - tests/fits_downsampling/8x6/ に tile FITS が存在すること
  *
  * 実行:
- *   node tests/javascript/test_local_regression_b.js [2x2|8x6]
- *   TILE_DIR=/path/to/tiles node tests/javascript/test_local_regression_b.js 2x2
+ *   node tests/it/local/test_wavefront_8x6.js
  */
 
 "use strict";
@@ -38,8 +24,8 @@ var child_process = require("child_process");
 // ============================================================
 // 設定
 // ============================================================
-var MODE            = process.argv[2] || "2x2";
-var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../fits_downsampling/" + MODE);
+var MODE            = "8x6";
+var TILE_DIR        = process.env.TILE_DIR || path.join(__dirname, "../../fits_downsampling/" + MODE);
 var SOLVE_FIELD     = process.env.SOLVE_FIELD_PATH || "/opt/homebrew/bin/solve-field";
 var TIMEOUT_SEC     = parseInt(process.env.TIMEOUT_SEC || "120", 10);
 
@@ -52,7 +38,7 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "fixtures/tile_wcs_api_" + MODE + ".json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_api_" + MODE + ".json");
 if (!fs.existsSync(FIXTURE_FILE)) {
     console.error("ERROR: フィクスチャが見つかりません: " + FIXTURE_FILE);
     process.exit(1);
@@ -130,7 +116,7 @@ function loadSisContext() {
         "var ImageWindow={open:function(){return[];}};",
     ].join("\n"), ctx);
 
-    var jsDir = path.join(__dirname, "../../javascript");
+    var jsDir = path.join(__dirname, "../../../javascript");
 
     vm.runInContext(fs.readFileSync(path.join(jsDir, "wcs_math.js"), "utf8"), ctx);
     vm.runInContext(fs.readFileSync(path.join(jsDir, "wcs_keywords.js"), "utf8"), ctx);

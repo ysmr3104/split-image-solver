@@ -6,7 +6,7 @@
  *   - Captured with OLD architecture (before unify-split-solve-pipeline refactoring)
  *   - Contains per-tile WCS and calibration data logged by the old doSplitSolve()
  *
- * New data source: tests/javascript/fixtures/ (captured with new doSplitSolveCore())
+ * New data source: tests/fixtures/ (captured with new doSplitSolveCore())
  *
  * Test strategy (fully PixInsight-free):
  *   1. Re-compute tile-center RA/DEC from old-baseline WCS using pixelToRaDecTD
@@ -93,7 +93,7 @@ function pixelScaleFromCD(wcs) {
 // Fixtures
 // ============================================================
 function loadFixture(name) {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", name), "utf8"));
+    return JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures", name), "utf8"));
 }
 
 var f2x2 = loadFixture("tile_wcs_api_2x2.json");

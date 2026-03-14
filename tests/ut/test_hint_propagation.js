@@ -16,7 +16,7 @@
  *   3. ヒントを記録する recordingMockSolverFn でsolveWavefrontを実行
  *   4. 各タイルが受け取ったヒントを独立計算値と照合
  *
- * 実行方法: node tests/javascript/test_hint_computation.js
+ * 実行方法: node tests/ut/test_hint_propagation.js
  */
 
 "use strict";
@@ -101,6 +101,7 @@ function loadSplitImageSolver() {
     vm.runInContext(stubs, ctx);
 
     var jsDir = path.join(__dirname, "../../javascript");
+    // __dirname = tests/ut
 
     // 依存ファイルを先にロード
     vm.runInContext(fs.readFileSync(path.join(jsDir, "wcs_math.js"), "utf8"), ctx);
@@ -136,7 +137,7 @@ try {
 // ============================================================
 // フィクスチャ読み込み
 // ============================================================
-var FIXTURES_DIR = path.join(__dirname, "fixtures");
+var FIXTURES_DIR = path.join(__dirname, "../fixtures");
 function loadFixture(name) {
     return JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), "utf8"));
 }
@@ -542,6 +543,118 @@ test("8x6: all attempted tiles have valid scale_lower < scale_upper", function()
         assertTrue(rec.hints.scale_upper > rec.hints.scale_lower,
             tag + " scale_lower < scale_upper");
     });
+});
+
+// ============================================================
+// TEST GROUP 4: solveWavefront — 失敗タイル発生時の enqueue パターン (項目3)
+// ============================================================
+console.log("\n" + "=".repeat(60));
+console.log("GROUP 4: solveWavefront — 失敗タイル発生時の enqueue パターン");
+console.log("=".repeat(60));
+
+test("2x2: 失敗タイルの隣接タイルもキューイングされる", function() {
+    // seed タイルを失敗させても、隣接タイルは全てキューに入る
+    var tiles = buildMockTiles(f2x2);
+    var h = buildHints(f2x2);
+    var fixtureMap = buildFixtureMap(f2x2);
+
+    var attemptedKeys = [];
+    var failSeedMock = function(tile, tileHints, medianScale, expectedRaDec) {
+        var key = tile.row + "_" + tile.col;
+        attemptedKeys.push(key);
+
+        // seed タイル (最初の呼び出し) を失敗させる
+        if (attemptedKeys.length === 1) {
+            tile.status = "failed";
+            return false;
+        }
+
+        // 以降のタイルは成功させる (フィクスチャ WCS を返す)
+        var r = fixtureMap[key];
+        if (r && r.wcs) {
+            tile.wcs = r.wcs;
+            tile.calibration = r.calibration;
+            return true;
+        }
+        tile.status = "failed";
+        return false;
+    };
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f2x2.imageWidth, f2x2.imageHeight, h._projection);
+
+    sis.solveWavefront(null, tiles, h,
+        f2x2.imageWidth, f2x2.imageHeight, f2x2.gridX, f2x2.gridY,
+        function(){}, failSeedMock,
+        function(){return false;}, function(){return false;}, 0);
+
+    // 全 4 タイルが試行されるべき (seed 失敗後も隣接がキューイングされる)
+    assertTrue(attemptedKeys.length === 4,
+        "all 4 tiles attempted even when seed fails: " + attemptedKeys.length);
+    console.log("  attempted order: " + attemptedKeys.join(" → "));
+});
+
+test("2x2: 全タイル失敗でも wavefront は停止しない", function() {
+    var tiles = buildMockTiles(f2x2);
+    var h = buildHints(f2x2);
+    var attemptCount = 0;
+
+    var allFailMock = function(tile, tileHints, medianScale, expectedRaDec) {
+        attemptCount++;
+        tile.status = "failed";
+        return false;
+    };
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f2x2.imageWidth, f2x2.imageHeight, h._projection);
+
+    var result = sis.solveWavefront(null, tiles, h,
+        f2x2.imageWidth, f2x2.imageHeight, f2x2.gridX, f2x2.gridY,
+        function(){}, allFailMock,
+        function(){return false;}, function(){return false;}, 0);
+
+    assertEqual(result, 0, "0 tiles solved when all fail");
+    assertTrue(attemptCount === 4, "all 4 tiles attempted: " + attemptCount);
+});
+
+test("8x6: 部分的失敗でも wavefront は隣接タイルに伝播", function() {
+    var tiles = buildMockTiles(f8x6);
+    var h = buildHints(f8x6);
+    var fixtureMap = buildFixtureMap(f8x6);
+    var attemptCount = 0;
+    var successCount = 0;
+
+    // 偶数番目の試行を失敗させる
+    var partialFailMock = function(tile, tileHints, medianScale, expectedRaDec) {
+        attemptCount++;
+        if (attemptCount % 2 === 0) {
+            tile.status = "failed";
+            return false;
+        }
+        var key = tile.row + "_" + tile.col;
+        var r = fixtureMap[key];
+        if (r && r.wcs) {
+            tile.wcs = r.wcs;
+            tile.calibration = r.calibration;
+            successCount++;
+            return true;
+        }
+        tile.status = "failed";
+        return false;
+    };
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f8x6.imageWidth, f8x6.imageHeight, h._projection);
+
+    sis.solveWavefront(null, tiles, h,
+        f8x6.imageWidth, f8x6.imageHeight, f8x6.gridX, f8x6.gridY,
+        function(){}, partialFailMock,
+        function(){return false;}, function(){return false;}, 0);
+
+    // 全タイルが試行されるべき
+    assertEqual(attemptCount, tiles.length, "all tiles attempted despite partial failures");
+    assertTrue(successCount > 0, "some tiles succeeded: " + successCount);
+    console.log("  attempted=" + attemptCount + " succeeded=" + successCount);
 });
 
 // ============================================================
