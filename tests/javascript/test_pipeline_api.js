@@ -123,7 +123,9 @@ function loadSisContext() {
         if (l.match(/^\s*#/)) { skip = !!l.match(/\\\s*$/); continue; }
         filtered.push(l);
     }
-    vm.runInContext(filtered.join("\n").replace(/\nmain\(\);\s*$/, ""), ctx);
+    var cleanCode = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    cleanCode = cleanCode.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    vm.runInContext(cleanCode, ctx);
 
     // Node.js バインディング (ExternalProcess, File)
     ctx.ExternalProcess = function() { this.exitCode = 0; };
@@ -319,8 +321,8 @@ var waveStart = Date.now();
 
 var successCount = vm.runInContext([
     "(function(){",
-    "  var realSolverFn = function(tile, tileHints, medianScale, expectedRaDec) {",
-    "    return solveSingleTile(CLIENT, tile, tileHints, medianScale, expectedRaDec);",
+    "  var realSolverFn = function(tile, tileHints, scaleBounds, expectedRaDec) {",
+    "    return solveSingleTile(CLIENT, tile, tileHints, scaleBounds, expectedRaDec);",
     "  };",
     "  return solveWavefront(",
     "    null,",                              // client (abortCheck は abortCheckFn で代替)

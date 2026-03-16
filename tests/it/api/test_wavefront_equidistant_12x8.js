@@ -31,7 +31,7 @@ if (!fs.existsSync(TILE_DIR)) {
     process.exit(1);
 }
 
-var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_equidistant_12x8.json");
+var FIXTURE_FILE = path.join(__dirname, "../../fixtures/tile_wcs_api_equidistant_12x8.json");
 var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 
 console.log("=".repeat(70));
@@ -102,8 +102,8 @@ ctx.GRID_X = gridX; ctx.GRID_Y = gridY; ctx.RATE_MS = RATE_LIMIT_MS;
 var waveStart = Date.now();
 var successCount = vm.runInContext([
     "(function(){",
-    "  var realSolverFn = function(tile, tileHints, medianScale, expectedRaDec) {",
-    "    return solveSingleTile(CLIENT, tile, tileHints, medianScale, expectedRaDec);",
+    "  var realSolverFn = function(tile, tileHints, scaleBounds, expectedRaDec) {",
+    "    return solveSingleTile(CLIENT, tile, tileHints, scaleBounds, expectedRaDec);",
     "  };",
     "  return solveWavefront(null, TILES, HINTS, IMG_W, IMG_H, GRID_X, GRID_Y,",
     "    function(msg){ console_log(msg); }, realSolverFn,",

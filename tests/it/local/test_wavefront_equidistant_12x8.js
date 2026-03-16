@@ -50,9 +50,9 @@ var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 // Local ベースライン (PixInsight + astrometry.net API の実測結果)
 // ============================================================
 var LOCAL_BASELINE = {
-    // 4/96 成功 (AstrHori 6.5mm equisolid fisheye, Sony α6100, 12x8)
-    successTiles: [[3,7], [4,6], [4,7], [5,6]],
-    totalSolved: 4
+    // 9/96 成功 (AstrHori 6.5mm equidistant fisheye, Sony α6100, 12x8)
+    successTiles: [[2,4], [2,6], [3,6], [3,7], [4,4], [4,6], [4,7], [5,5], [5,6]],
+    totalSolved: 9
 };
 var localBaseline = LOCAL_BASELINE;
 var localBaselineMap = {};
@@ -118,7 +118,9 @@ function loadSisContext() {
         if (l.match(/^\s*#/)) { skip = !!l.match(/\\\s*$/); continue; }
         filtered.push(l);
     }
-    vm.runInContext(filtered.join("\n").replace(/\nmain\(\);\s*$/, ""), ctx);
+    var cleanCode = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    cleanCode = cleanCode.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    vm.runInContext(cleanCode, ctx);
 
     ctx.ExternalProcess = function() { this.exitCode = 0; };
     ctx.ExternalProcess.prototype.start = function(cmd, args) {
@@ -209,7 +211,7 @@ function parseWcsFromFits(fitsPath) {
 }
 
 function buildLocalSolverFn(solveFieldPath, timeoutSec) {
-    return function localSolverFn(tile, tileHints, medianScale, expectedRaDec) {
+    return function localSolverFn(tile, tileHints, scaleBounds, expectedRaDec) {
         var fitsPath = tile.filePath;
         var tmpDir = os.tmpdir();
         var origLonger = Math.max(tile.tileWidth || 0, tile.tileHeight || 0);
