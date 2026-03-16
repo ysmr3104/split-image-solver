@@ -1011,47 +1011,143 @@ test("convertISwcsToTD + convertToWcsResult: round-trip consistency", function()
 //   scaleRatio < 0.3 || scaleRatio > 3.0 → reject
 //============================================================================
 
-function falsePositiveScaleFilter(pixscale, medianScale) {
-   if (medianScale <= 0 || !pixscale) return "skip";
-   var scaleRatio = pixscale / medianScale;
-   if (scaleRatio < 0.3 || scaleRatio > 3.0) return "reject";
+function falsePositiveScaleFilter(pixscale, scaleBounds) {
+   if (!scaleBounds || scaleBounds.low <= 0 || !pixscale) return "skip";
+   if (pixscale < scaleBounds.low || pixscale > scaleBounds.high) return "reject";
    return "accept";
 }
 
-test("falsePositiveScaleFilter: medianScale=0 → skip (フィルタ無効)", function() {
-   assertEqual(falsePositiveScaleFilter(10.0, 0), "skip", "median=0 skips");
+test("falsePositiveScaleFilter: scaleBounds=null → skip (フィルタ無効)", function() {
+   assertEqual(falsePositiveScaleFilter(10.0, null), "skip", "null bounds skips");
+});
+
+test("falsePositiveScaleFilter: scaleBounds.low=0 → skip", function() {
+   assertEqual(falsePositiveScaleFilter(10.0, {low: 0, high: 20}), "skip", "low=0 skips");
 });
 
 test("falsePositiveScaleFilter: pixscale=null → skip", function() {
-   assertEqual(falsePositiveScaleFilter(null, 10.0), "skip", "null pixscale skips");
+   assertEqual(falsePositiveScaleFilter(null, {low: 5, high: 20}), "skip", "null pixscale skips");
 });
 
-test("falsePositiveScaleFilter: ratio=1.0 → accept", function() {
-   assertEqual(falsePositiveScaleFilter(10.0, 10.0), "accept", "ratio=1.0");
+test("falsePositiveScaleFilter: pixscale within bounds → accept", function() {
+   assertEqual(falsePositiveScaleFilter(10.0, {low: 5, high: 20}), "accept", "within bounds");
 });
 
-test("falsePositiveScaleFilter: ratio=0.3 → accept (境界値)", function() {
-   assertEqual(falsePositiveScaleFilter(3.0, 10.0), "accept", "ratio=0.3 exact");
+test("falsePositiveScaleFilter: pixscale at low boundary → accept", function() {
+   assertEqual(falsePositiveScaleFilter(5.0, {low: 5, high: 20}), "accept", "at low boundary");
 });
 
-test("falsePositiveScaleFilter: ratio=0.29 → reject (境界値超過)", function() {
-   assertEqual(falsePositiveScaleFilter(2.9, 10.0), "reject", "ratio=0.29");
+test("falsePositiveScaleFilter: pixscale below low boundary → reject", function() {
+   assertEqual(falsePositiveScaleFilter(4.9, {low: 5, high: 20}), "reject", "below low");
 });
 
-test("falsePositiveScaleFilter: ratio=3.0 → accept (境界値)", function() {
-   assertEqual(falsePositiveScaleFilter(30.0, 10.0), "accept", "ratio=3.0 exact");
+test("falsePositiveScaleFilter: pixscale at high boundary → accept", function() {
+   assertEqual(falsePositiveScaleFilter(20.0, {low: 5, high: 20}), "accept", "at high boundary");
 });
 
-test("falsePositiveScaleFilter: ratio=3.01 → reject (境界値超過)", function() {
-   assertEqual(falsePositiveScaleFilter(30.1, 10.0), "reject", "ratio=3.01");
+test("falsePositiveScaleFilter: pixscale above high boundary → reject", function() {
+   assertEqual(falsePositiveScaleFilter(20.1, {low: 5, high: 20}), "reject", "above high");
 });
 
-test("falsePositiveScaleFilter: ratio=0.5 → accept (安全な範囲)", function() {
-   assertEqual(falsePositiveScaleFilter(5.0, 10.0), "accept", "ratio=0.5");
+//============================================================================
+// computeScaleBounds — scale filter dynamic threshold calculation
+//============================================================================
+
+var SCALE_FILTER_MIN_TILES = 3;
+var SCALE_FILTER_MAD_K = 5.0;
+var SCALE_FILTER_MIN_MAD_RATIO = 0.05;
+var SCALE_FILTER_FALLBACK_LOW = 0.5;
+var SCALE_FILTER_FALLBACK_HIGH = 2.0;
+var SCALE_FILTER_ABSOLUTE_LOW = 0.3;
+var SCALE_FILTER_ABSOLUTE_HIGH = 3.0;
+
+function computeScaleBounds(pixscales) {
+   var scales = pixscales.slice().sort(function(a, b) { return a - b; });
+   var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
+
+   var scaleLow = 0;
+   var scaleHigh = 0;
+   if (medianScale > 0) {
+      if (scales.length >= SCALE_FILTER_MIN_TILES) {
+         var absDevs = [];
+         for (var i = 0; i < scales.length; i++) {
+            absDevs.push(Math.abs(scales[i] - medianScale));
+         }
+         absDevs.sort(function(a, b) { return a - b; });
+         var mad = absDevs[Math.floor(absDevs.length / 2)];
+         var madFloor = medianScale * SCALE_FILTER_MIN_MAD_RATIO;
+         if (mad < madFloor) mad = madFloor;
+         scaleLow = medianScale - SCALE_FILTER_MAD_K * mad;
+         scaleHigh = medianScale + SCALE_FILTER_MAD_K * mad;
+         var absLow = medianScale * SCALE_FILTER_ABSOLUTE_LOW;
+         var absHigh = medianScale * SCALE_FILTER_ABSOLUTE_HIGH;
+         if (scaleLow < absLow) scaleLow = absLow;
+         if (scaleHigh > absHigh) scaleHigh = absHigh;
+      } else {
+         scaleLow = medianScale * SCALE_FILTER_FALLBACK_LOW;
+         scaleHigh = medianScale * SCALE_FILTER_FALLBACK_HIGH;
+      }
+   }
+   return { medianScale: medianScale, scaleLow: scaleLow, scaleHigh: scaleHigh };
+}
+
+test("computeScaleBounds: 0 tiles → scaleLow=0, scaleHigh=0", function() {
+   var r = computeScaleBounds([]);
+   assertEqual(r.scaleLow, 0, "scaleLow=0");
+   assertEqual(r.scaleHigh, 0, "scaleHigh=0");
+   assertEqual(r.medianScale, 0, "medianScale=0");
 });
 
-test("falsePositiveScaleFilter: ratio=2.5 → accept (安全な範囲)", function() {
-   assertEqual(falsePositiveScaleFilter(25.0, 10.0), "accept", "ratio=2.5");
+test("computeScaleBounds: 1 tile → fallback (median*0.5 ~ 2.0)", function() {
+   var r = computeScaleBounds([10.0]);
+   assertEqual(r.medianScale, 10.0, "median=10", 0.001);
+   assertEqual(r.scaleLow, 5.0, "low=5.0", 0.001);
+   assertEqual(r.scaleHigh, 20.0, "high=20.0", 0.001);
+});
+
+test("computeScaleBounds: 2 tiles → fallback", function() {
+   // sorted: [9, 11], floor(2/2)=1 → median=11
+   var r = computeScaleBounds([9.0, 11.0]);
+   assertEqual(r.medianScale, 11.0, "median=11", 0.001);
+   assertEqual(r.scaleLow, 5.5, "low=5.5", 0.001);
+   assertEqual(r.scaleHigh, 22.0, "high=22.0", 0.001);
+});
+
+test("computeScaleBounds: 3+ tiles uniform → MAD floor gives median*0.75 ~ 1.25", function() {
+   // All identical: MAD=0 → floor=median*0.05, bounds=median±5*0.05*median=median±0.25*median
+   var r = computeScaleBounds([10.0, 10.0, 10.0]);
+   assertEqual(r.medianScale, 10.0, "median=10", 0.001);
+   assertEqual(r.scaleLow, 7.5, "low=7.5", 0.001);
+   assertEqual(r.scaleHigh, 12.5, "high=12.5", 0.001);
+});
+
+test("computeScaleBounds: 3+ tiles with variance → MAD-based bounds", function() {
+   // scales: [8, 10, 12], median=10, absDevs=[0,2,2], MAD=2
+   // bounds = 10 ± 5*2 = [0, 20], clamped by absolute: [3, 20]
+   var r = computeScaleBounds([8.0, 10.0, 12.0]);
+   assertEqual(r.medianScale, 10.0, "median=10", 0.001);
+   assertEqual(r.scaleLow, 3.0, "low=3.0 (abs clamp)", 0.01);
+   assertEqual(r.scaleHigh, 20.0, "high=20.0", 0.01);
+});
+
+test("computeScaleBounds: absolute high clamp", function() {
+   // scales: [10, 10, 100], median=10, absDevs=[0,0,90], MAD=0 → floor=0.5
+   // bounds = 10 ± 5*0.5 = [7.5, 12.5], abs high=30 → no clamp needed
+   var r = computeScaleBounds([10.0, 10.0, 100.0]);
+   assertEqual(r.medianScale, 10.0, "median=10", 0.001);
+   assertEqual(r.scaleLow, 7.5, "low=7.5", 0.01);
+   assertEqual(r.scaleHigh, 12.5, "high=12.5", 0.01);
+});
+
+test("computeScaleBounds: 5 tiles with moderate spread", function() {
+   // scales: [9.5, 9.8, 10.0, 10.2, 10.5], median=10.0
+   // absDevs: [0.0, 0.2, 0.5, 0.5, 0.8] → MAD=0.5
+   // floor = 10*0.05=0.5, mad=0.5 (at floor)
+   // bounds = 10 ± 5*0.5 = [7.5, 12.5]
+   var r = computeScaleBounds([9.5, 9.8, 10.0, 10.2, 10.5]);
+   assertEqual(r.medianScale, 10.0, "median=10", 0.001);
+   assertEqual(r.scaleLow, 7.5, "low=7.5", 0.01);
+   assertEqual(r.scaleHigh, 12.5, "high=12.5", 0.01);
 });
 
 //============================================================================

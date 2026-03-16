@@ -46,6 +46,15 @@
 
 // Equipment data is loaded at runtime from equipment.json (same directory as this script)
 
+// Scale filter constants for dynamic false-positive detection
+var SCALE_FILTER_MIN_TILES = 3;         // min tiles for MAD-based threshold
+var SCALE_FILTER_MAD_K = 5.0;           // MAD multiplier (~3.4 sigma)
+var SCALE_FILTER_MIN_MAD_RATIO = 0.05;  // MAD floor (5% of median)
+var SCALE_FILTER_FALLBACK_LOW = 0.5;    // fallback lower ratio
+var SCALE_FILTER_FALLBACK_HIGH = 2.0;   // fallback upper ratio
+var SCALE_FILTER_ABSOLUTE_LOW = 0.3;    // absolute lower ratio
+var SCALE_FILTER_ABSOLUTE_HIGH = 3.0;   // absolute upper ratio
+
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
 //============================================================================
@@ -1064,10 +1073,10 @@ function convertISwcsToBU(isWcs) {
 //
 // tile: tile object (modified in place: .wcs, .calibration, .status)
 // tileHints: hint parameters (center_ra, center_dec, scale_lower/upper)
-// medianScale: for false positive filter (0 to skip)
+// scaleBounds: {low, high} for false positive filter (null to skip)
 // expectedRaDec: [ra, dec] for false positive filter (null to skip)
 //----------------------------------------------------------------------------
-function solveSingleTileIS(tile, tileHints, medianScale, expectedRaDec) {
+function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec) {
    tile.status = "solving";
 
    // Open tile FITS as ImageWindow
@@ -1161,12 +1170,13 @@ function solveSingleTileIS(tile, tileHints, medianScale, expectedRaDec) {
          calibration.orientation = Math.atan2(isWcs.cd2_1 || 0, isWcs.cd2_2 || 0) * 180.0 / Math.PI;
       }
 
-      // False positive filter: scale ratio
-      if (medianScale > 0 && calibration.pixscale > 0) {
-         var scaleRatio = calibration.pixscale / medianScale;
-         if (scaleRatio < 0.3 || scaleRatio > 3.0) {
+      // False positive filter: scale bounds
+      if (scaleBounds && scaleBounds.low > 0 && calibration.pixscale > 0) {
+         if (calibration.pixscale < scaleBounds.low || calibration.pixscale > scaleBounds.high) {
             tile.status = "failed";
-            console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: scale ratio " + scaleRatio.toFixed(2));
+            console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row +
+               "] rejected: pixscale " + calibration.pixscale.toFixed(2) +
+               " outside [" + scaleBounds.low.toFixed(2) + "-" + scaleBounds.high.toFixed(2) + "]");
             return false;
          }
       }
@@ -1219,9 +1229,9 @@ function solveSingleTileIS(tile, tileHints, medianScale, expectedRaDec) {
 // tile: tile object (modified in place: .wcs, .calibration, .status)
 // tileHints: hint parameters for this tile
 // client: AstrometryClient
-// medianScale: for false positive filter (0 to skip)
+// scaleBounds: {low, high} for false positive filter (null to skip)
 // expectedRaDec: [ra, dec] for false positive filter (null to skip)
-function solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec) {
+function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec) {
    tile.status = "solving";
 
    // Upload
@@ -1269,12 +1279,13 @@ function solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec) {
       return false;
    }
 
-   // False positive filter: scale ratio
-   if (medianScale > 0 && calibration.pixscale) {
-      var scaleRatio = calibration.pixscale / medianScale;
-      if (scaleRatio < 0.3 || scaleRatio > 3.0) {
+   // False positive filter: scale bounds
+   if (scaleBounds && scaleBounds.low > 0 && calibration.pixscale) {
+      if (calibration.pixscale < scaleBounds.low || calibration.pixscale > scaleBounds.high) {
          tile.status = "failed";
-         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: scale ratio " + scaleRatio.toFixed(2));
+         console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row +
+            "] rejected: pixscale " + calibration.pixscale.toFixed(2) +
+            " outside [" + scaleBounds.low.toFixed(2) + "-" + scaleBounds.high.toFixed(2) + "]");
          return false;
       }
    }
@@ -1361,7 +1372,35 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
       }
       scales.sort(function(a, b) { return a - b; });
       var medianScale = scales.length > 0 ? scales[Math.floor(scales.length / 2)] : 0;
-      return { medianScale: medianScale };
+
+      var scaleLow = 0;
+      var scaleHigh = 0;
+      if (medianScale > 0) {
+         if (scales.length >= SCALE_FILTER_MIN_TILES) {
+            // MAD (Median Absolute Deviation)
+            var absDevs = [];
+            for (var i = 0; i < scales.length; i++) {
+               absDevs.push(Math.abs(scales[i] - medianScale));
+            }
+            absDevs.sort(function(a, b) { return a - b; });
+            var mad = absDevs[Math.floor(absDevs.length / 2)];
+            // MAD floor
+            var madFloor = medianScale * SCALE_FILTER_MIN_MAD_RATIO;
+            if (mad < madFloor) mad = madFloor;
+            scaleLow = medianScale - SCALE_FILTER_MAD_K * mad;
+            scaleHigh = medianScale + SCALE_FILTER_MAD_K * mad;
+            // Clamp to absolute bounds
+            var absLow = medianScale * SCALE_FILTER_ABSOLUTE_LOW;
+            var absHigh = medianScale * SCALE_FILTER_ABSOLUTE_HIGH;
+            if (scaleLow < absLow) scaleLow = absLow;
+            if (scaleHigh > absHigh) scaleHigh = absHigh;
+         } else {
+            // Fallback (insufficient tiles)
+            scaleLow = medianScale * SCALE_FILTER_FALLBACK_LOW;
+            scaleHigh = medianScale * SCALE_FILTER_FALLBACK_HIGH;
+         }
+      }
+      return { medianScale: medianScale, scaleLow: scaleLow, scaleHigh: scaleHigh };
    };
 
    // Helper: build hint object for API
@@ -1482,7 +1521,10 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          // Build hints: per-tile effective scale with projection correction
          var refinedInfo = (solvedTiles.length > 0) ? computeRefinedHints(solvedTiles) : null;
          var tileHints = buildTileHints(tile, hints);
-         var medianScale = refinedInfo ? refinedInfo.medianScale : 0;
+         var scaleBounds = (refinedInfo && refinedInfo.scaleLow > 0) ? { low: refinedInfo.scaleLow, high: refinedInfo.scaleHigh } : null;
+         if (scaleBounds) {
+            console.writeln("  Scale filter bounds: [" + scaleBounds.low.toFixed(2) + "-" + scaleBounds.high.toFixed(2) + "] arcsec/px");
+         }
 
          // Refine RA/DEC hints using nearest solved tile's WCS (Python 2nd pass equivalent)
          // Only use WCS extrapolation when the target point falls within or near
@@ -1531,9 +1573,9 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          // Use custom tile solver function if provided, otherwise default to API solver
          var solved;
          if (tileSolverFn) {
-            solved = tileSolverFn(tile, tileHints, medianScale, expectedRaDec);
+            solved = tileSolverFn(tile, tileHints, scaleBounds, expectedRaDec);
          } else {
-            solved = solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec);
+            solved = solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec);
          }
 
          if (solved) {
@@ -4155,8 +4197,8 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
 
    // solverFactory: bind client in closure, return solveSingleTile wrapper
    var solverFactory = function(tiles) {
-      return function(tile, tileHints, medianScale, expectedRaDec) {
-         return solveSingleTile(client, tile, tileHints, medianScale, expectedRaDec);
+      return function(tile, tileHints, scaleBounds, expectedRaDec) {
+         return solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec);
       };
    };
 
@@ -4313,7 +4355,7 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
 // after splitting and returns a solverFn:
 //
 //   solverFactory(tiles) -> solverFn
-//   solverFn(tile, tileHints, medianScale, expectedRaDec) -> bool
+//   solverFn(tile, tileHints, scaleBounds, expectedRaDec) -> bool
 //
 // Optional debugFixturePath: if set, writes per-tile snapshot JSON after
 // solveWavefront() completes (used to generate integration test fixtures).
@@ -4547,7 +4589,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
    // solverFactory: per-tile Python --solve-single-tile invocation.
    // Each call solves one tile using wavefront-refined hints from tileHints.
    var solverFactory = function(tiles) {
-      return function(tile, tileHints, medianScale, expectedRaDec) {
+      return function(tile, tileHints, scaleBounds, expectedRaDec) {
          var resultPath = File.systemTempDirectory + "/sis_tile_result_" + tile.row + "_" + tile.col + ".json";
          var stderrFile = File.systemTempDirectory + "/sis_tile_stderr_" + tile.row + "_" + tile.col + ".txt";
 
