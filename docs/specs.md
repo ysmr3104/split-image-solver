@@ -159,16 +159,52 @@ flowchart TD
 
     Wave --> Hints["buildTileHints()<br/>投影補正付きスケール範囲を計算<br/>effectiveScale = nativeScale × projectionFactor<br/>margin = 0.2 + 0.3 × (r / maxR)"]
 
-    Hints --> Refine{"成功済<br/>タイルあり?"}
-    Refine -- Yes --> WCS["最近傍タイルのWCSで<br/>RA/DEC ヒントを精緻化<br/>(pixelToRaDecTD)<br/>スケールマージン ±50% に拡大"]
-    Refine -- No --> Solve
-    WCS --> Solve["solverFn でソルブ実行"]
+    Hints --> ScaleFilter{"成功済<br/>タイル ≥ 1?"}
+    ScaleFilter -- Yes --> Dynamic["computeRefinedHints()<br/>MAD ベース動的スケールフィルタ<br/>+ IDW 加重平均 RA/DEC 精緻化"]
+    ScaleFilter -- No --> Solve
+    Dynamic --> Solve["solverFn でソルブ実行"]
 
-    Solve --> Enqueue["4近傍の未ソルブタイルを<br/>次の Wave に追加"]
-    Enqueue --> Next{"Wave 内の<br/>次タイル?"}
+    Solve --> Result{"成功?"}
+    Result -- Yes --> EnqueueOK["pending 隣接を enqueue<br/>+ failed 隣接を re-enqueue (1回のみ)"]
+    Result -- No --> EnqueueNG["failedTiles に追加<br/>(隣接は enqueue しない)"]
+    EnqueueOK --> Next{"Wave 内の<br/>次タイル?"}
+    EnqueueNG --> Next
     Next -- Yes --> Wave
-    Next -- No --> Check
+    Next -- No --> Fallback{"queue 空<br/>& solvedTiles 空?"}
+    Fallback -- Yes --> FB["フォールバック:<br/>failedTiles の pending 隣接を enqueue"]
+    Fallback -- No --> Check
+    FB --> Check
 ```
+
+**enqueue 戦略:**
+
+失敗タイルの隣接を即座に enqueue すると、精密ヒントなしでソルブされ失敗が連鎖する問題がありました。改善後の戦略:
+
+- **成功時**: pending 隣接を enqueue + 隣接の failed タイルを re-enqueue（1回限り）
+- **失敗時**: failedTiles に追加するのみ。隣接は enqueue しない
+- **リトライ制限**: `retried` マップで各タイル最大1回のリトライを保証
+- **フォールバック**: queue 空 かつ solvedTiles 空（seed 含む全タイル失敗）の場合は failedTiles の pending 隣接を enqueue（現行動作に退行）
+
+**IDW 加重平均ヒント精緻化:**
+
+成功済タイルが存在する場合、ターゲットタイルの RA/DEC ヒントを逆距離二乗加重 (IDW) で精緻化します:
+
+1. solvedTiles をターゲットタイルへのピクセル距離でソート
+2. 最近傍 K=4 タイルから `pixelToRaDecTD()` で各々 RA/DEC を外挿
+3. 各 RA/DEC を 3D 単位ベクトル `(cos(δ)cos(α), cos(δ)sin(α), sin(δ))` に変換
+4. 逆距離二乗加重 `w = 1/d²` で加重平均
+5. 平均ベクトルを RA/DEC に逆変換: `α = atan2(y, x)`, `δ = atan2(z, √(x²+y²))`
+
+K=4 の理由: wavefront は4方向（上下左右）に伝播するため直接隣接は最大4つ。3D ベクトル空間で平均することで RA 0°/360° 境界や極付近でも安全に計算できます。solvedTiles=1 の場合は最近傍1タイルのみの外挿と同一結果になります。
+
+**動的スケールフィルタ** (`computeRefinedHints()`):
+
+成功済タイルのピクセルスケール中央値と MAD (Median Absolute Deviation) から動的にスケール範囲を算出します:
+
+- **十分なタイル数 (≥3)**: `[median - K×MAD, median + K×MAD]` (K=5.0, ≈3.4σ)
+  - MAD 下限: `median × 0.005` (スケールが極端に均一な場合のフロア)
+  - 絶対範囲: `[median × 0.5, median × 2.0]` でクランプ
+- **タイル不足 (<3)**: `[median × 0.5, median × 2.0]` (固定フォールバック)
 
 **偽陽性フィルタ** (API / ImageSolver モード):
 
@@ -320,12 +356,28 @@ Step 3: 実効スケール
 
 画像端に近いタイルほどスケールの不確実性が大きいためマージンを広げます。
 
+**タイル個別マージン** (`buildTileHints()`):
 ```
 r_ratio = distance_from_center / max_distance  (0.0〜1.0)
 margin = 0.2 + 0.3 × r_ratio  (中心: ±20%, コーナー: ±50%)
 ```
 
 Wavefront の Wave 2 以降（WCS外挿ヒント使用時）はマージンを ±50% に拡大。
+
+**グローバルスケールフィルタ** (`computeRefinedHints()`):
+
+成功済タイルのピクセルスケール分布から動的に有効範囲を算出し、偽陽性フィルタのスケール整合性チェックに使用:
+
+```
+scales = [成功タイルの pixscale を昇順ソート]
+median = scales[N/2]
+MAD = median(|scales[i] - median|)
+MAD_floor = median × 0.005
+
+scaleLow  = median - 5.0 × max(MAD, MAD_floor)
+scaleHigh = median + 5.0 × max(MAD, MAD_floor)
+// 絶対範囲 [median×0.5, median×2.0] でクランプ
+```
 
 ### 5.4 RA/DEC ヒント計算
 
