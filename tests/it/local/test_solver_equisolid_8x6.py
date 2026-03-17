@@ -27,9 +27,9 @@ FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures"
 CONFIG_PATH = REPO_ROOT / "config" / "settings.json"
 
 # solve-field が存在しない環境ではスキップ
+import shutil
 pytestmark = pytest.mark.skipif(
-    not Path("/opt/homebrew/bin/solve-field").exists()
-    and not Path("/usr/local/bin/solve-field").exists(),
+    shutil.which("solve-field") is None,
     reason="solve-field not found",
 )
 
