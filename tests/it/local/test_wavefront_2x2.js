@@ -131,7 +131,9 @@ function loadSisContext() {
         if (l.match(/^\s*#/)) { skip = !!l.match(/\\\s*$/); continue; }
         filtered.push(l);
     }
-    vm.runInContext(filtered.join("\n").replace(/\nmain\(\);\s*$/, ""), ctx);
+    var cleanCode = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    cleanCode = cleanCode.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    vm.runInContext(cleanCode, ctx);
 
     // Node.js バインディング
     ctx.ExternalProcess = function() { this.exitCode = 0; };
@@ -241,8 +243,8 @@ function parseWcsFromFits(fitsPath) {
 
 function buildLocalSolverFn(solveFieldPath, timeoutSec) {
     // solveWavefront の solverFn シグネチャ:
-    //   solverFn(tile, tileHints, medianScale, expectedRaDec) -> bool
-    return function localSolverFn(tile, tileHints, medianScale, expectedRaDec) {
+    //   solverFn(tile, tileHints, scaleBounds, expectedRaDec) -> bool
+    return function localSolverFn(tile, tileHints, scaleBounds, expectedRaDec) {
         var fitsPath = tile.filePath;
         var tmpDir = os.tmpdir();
         var baseName = "sis_local_" + tile.row + "_" + tile.col;

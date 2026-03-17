@@ -120,6 +120,7 @@ function loadSplitImageSolver() {
         filtered.push(line);
     }
     code = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    code = code.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
     vm.runInContext(code, ctx);
     return ctx;
 }
@@ -207,7 +208,7 @@ function makeRecordingMock(fixture) {
     var solvedTiles = [];  // 成功タイルの配列 (呼び出し順)
     var attempts   = [];   // 全呼び出しの記録
 
-    var mockFn = function(tile, tileHints, medianScale, expectedRaDec) {
+    var mockFn = function(tile, tileHints, scaleBounds, expectedRaDec) {
         // 呼び出し時点での成功タイルをスナップショット
         var solvedBefore = solvedTiles.slice(0);
 
@@ -559,7 +560,7 @@ test("2x2: 失敗タイルの隣接タイルもキューイングされる", fun
     var fixtureMap = buildFixtureMap(f2x2);
 
     var attemptedKeys = [];
-    var failSeedMock = function(tile, tileHints, medianScale, expectedRaDec) {
+    var failSeedMock = function(tile, tileHints, scaleBounds, expectedRaDec) {
         var key = tile.row + "_" + tile.col;
         attemptedKeys.push(key);
 
@@ -599,7 +600,7 @@ test("2x2: 全タイル失敗でも wavefront は停止しない", function() {
     var h = buildHints(f2x2);
     var attemptCount = 0;
 
-    var allFailMock = function(tile, tileHints, medianScale, expectedRaDec) {
+    var allFailMock = function(tile, tileHints, scaleBounds, expectedRaDec) {
         attemptCount++;
         tile.status = "failed";
         return false;
@@ -625,7 +626,7 @@ test("8x6: 部分的失敗でも wavefront は隣接タイルに伝播", functio
     var successCount = 0;
 
     // 偶数番目の試行を失敗させる
-    var partialFailMock = function(tile, tileHints, medianScale, expectedRaDec) {
+    var partialFailMock = function(tile, tileHints, scaleBounds, expectedRaDec) {
         attemptCount++;
         if (attemptCount % 2 === 0) {
             tile.status = "failed";

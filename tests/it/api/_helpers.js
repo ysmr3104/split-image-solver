@@ -77,7 +77,9 @@ function loadSisContext() {
         if (l.match(/^\s*#/)) { skip = !!l.match(/\\\s*$/); continue; }
         filtered.push(l);
     }
-    vm.runInContext(filtered.join("\n").replace(/\nmain\(\);\s*$/, ""), ctx);
+    var cleanCode = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    cleanCode = cleanCode.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    vm.runInContext(cleanCode, ctx);
 
     // Node.js バインディング
     var TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || "120000", 10);
