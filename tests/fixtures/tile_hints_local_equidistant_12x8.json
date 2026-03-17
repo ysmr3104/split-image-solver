@@ -1,7 +1,7 @@
 {
   "mode": "equidistant_12x8",
   "source": "PixInsight SIS v1.1.0 API mode wavefront solve (AstrHori 6.5mm equisolid fisheye)",
-  "batch_solved": 9,
+  "batch_solved": 12,
   "batch_total": 96,
   "median_scale": 125.877372,
   "hints": {
@@ -393,15 +393,15 @@
     {
       "row": 2,
       "col": 5,
-      "ra_hint": 52.0686,
-      "dec_hint": 62.9997,
+      "ra_hint": 18.76,
+      "dec_hint": 9.98,
       "scale_lower": 100.2,
       "scale_upper": 172.7,
       "offset_x": 2410,
       "offset_y": 906,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 2,
@@ -536,28 +536,28 @@
     {
       "row": 3,
       "col": 4,
-      "ra_hint": 69.0137,
-      "dec_hint": 41.2632,
+      "ra_hint": 359.69,
+      "dec_hint": 23.83,
       "scale_lower": 100.2,
       "scale_upper": 172.7,
       "offset_x": 1908,
       "offset_y": 1409,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 3,
       "col": 5,
-      "ra_hint": 45.6936,
-      "dec_hint": 45.8939,
+      "ra_hint": 18.05,
+      "dec_hint": 26.99,
       "scale_lower": 97.5,
       "scale_upper": 155.6,
       "offset_x": 2410,
       "offset_y": 1409,
       "tile_width": 702,
       "tile_height": 703,
-      "batch_success": false
+      "batch_success": true
     },
     {
       "row": 3,
