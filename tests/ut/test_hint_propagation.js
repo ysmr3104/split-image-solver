@@ -202,6 +202,41 @@ function findNearest(tile, candidates) {
     return nearest;
 }
 
+// IDW加重平均ヒント計算 (SplitImageSolver.js の加重平均ロジックと同等)
+function computeWeightedHint(tile, solvedBefore) {
+    var tileCX = tile.offsetX + tile.tileWidth / 2.0;
+    var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+    var candidates = [];
+    solvedBefore.forEach(function(st) {
+        if (!st.wcs) return;
+        var stCX = st.offsetX + st.tileWidth / 2.0;
+        var stCY = st.offsetY + st.tileHeight / 2.0;
+        var d2 = (tileCX - stCX) * (tileCX - stCX) + (tileCY - stCY) * (tileCY - stCY);
+        candidates.push({ tile: st, dist2: d2 });
+    });
+    candidates.sort(function(a, b) { return a.dist2 - b.dist2; });
+    var K = 4;
+    var useCandidates = candidates.slice(0, K);
+    var sumX = 0, sumY = 0, sumZ = 0, sumW = 0;
+    useCandidates.forEach(function(cand) {
+        var refined = sis.pixelToRaDecTD(cand.tile.wcs, tileCX, tileCY);
+        if (!refined || !isFinite(refined[0]) || !isFinite(refined[1])) return;
+        var raRad = refined[0] * Math.PI / 180.0;
+        var decRad = refined[1] * Math.PI / 180.0;
+        var w = (cand.dist2 > 0) ? 1.0 / cand.dist2 : 1e12;
+        sumX += w * Math.cos(decRad) * Math.cos(raRad);
+        sumY += w * Math.cos(decRad) * Math.sin(raRad);
+        sumZ += w * Math.sin(decRad);
+        sumW += w;
+    });
+    if (sumW === 0) return null;
+    var avgX = sumX / sumW, avgY = sumY / sumW, avgZ = sumZ / sumW;
+    var avgRA = Math.atan2(avgY, avgX) * 180.0 / Math.PI;
+    if (avgRA < 0) avgRA += 360.0;
+    var avgDEC = Math.atan2(avgZ, Math.sqrt(avgX * avgX + avgY * avgY)) * 180.0 / Math.PI;
+    return [avgRA, avgDEC];
+}
+
 // ヒントを記録しながらフィクスチャWCSを返すモック
 function makeRecordingMock(fixture) {
     var fixtureMap = buildFixtureMap(fixture);
@@ -343,7 +378,7 @@ test("2x2: seed tile receives computeTileHints output as center hint", function(
     assertEqual(seedAttempt.hints.center_dec, seedFixtile.hintDEC, "seed center_dec = hintDEC", 0.001);
 });
 
-test("2x2: non-seed tiles receive refined_center from nearest solved tile WCS", function() {
+test("2x2: non-seed tiles receive refined_center from IDW-weighted average of solved tiles", function() {
     var tiles = buildMockTiles(f2x2);
     var h = buildHints(f2x2);
     var mock = makeRecordingMock(f2x2);
@@ -361,11 +396,10 @@ test("2x2: non-seed tiles receive refined_center from nearest solved tile WCS", 
         if (rec.solvedBefore.length === 0) return; // shouldn't happen for non-seed
 
         var tile = rec.tile;
-        var tileCX = tile.offsetX + tile.tileWidth / 2.0;
-        var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+        var expected = computeWeightedHint(tile, rec.solvedBefore);
         var nearest = findNearest(tile, rec.solvedBefore);
-        var expected = sis.pixelToRaDecTD(nearest.wcs, tileCX, tileCY);
-        var tag = "[" + tile.row + "][" + tile.col + "] (ref=[" + nearest.row + "][" + nearest.col + "])";
+        var tag = "[" + tile.row + "][" + tile.col + "] (nRef=" + Math.min(rec.solvedBefore.length, 4) +
+            " nearest=[" + nearest.row + "][" + nearest.col + "])";
 
         console.log("  " + tag);
         console.log("    expected center_ra=" + expected[0].toFixed(4) +
@@ -373,8 +407,7 @@ test("2x2: non-seed tiles receive refined_center from nearest solved tile WCS", 
         console.log("    expected center_dec=" + expected[1].toFixed(4) +
             " recorded=" + (rec.hints.center_dec !== undefined ? rec.hints.center_dec.toFixed(4) : "NONE"));
 
-        // pixelToRaDecTD の出力と記録値は完全一致するはず (同じ計算)
-        // 浮動小数点の差 < 1e-9 を許容
+        // IDW 加重平均の出力と記録値は完全一致するはず (同じ計算)
         assertEqual(rec.hints.center_ra,  expected[0], tag + " center_ra",  1e-6);
         assertEqual(rec.hints.center_dec, expected[1], tag + " center_dec", 1e-6);
     });
@@ -431,7 +464,7 @@ test("8x6: seed tile center hint matches computeTileHints output", function() {
     assertEqual(seed.hints.center_dec, seedFixTile.hintDEC, "seed center_dec = hintDEC", 0.001);
 });
 
-test("8x6: successful tiles receive correct refined_center from nearest solved WCS", function() {
+test("8x6: successful tiles receive correct refined_center from IDW-weighted average", function() {
     var tiles = buildMockTiles(f8x6);
     var h = buildHints(f8x6);
     var mock = makeRecordingMock(f8x6);
@@ -454,11 +487,10 @@ test("8x6: successful tiles receive correct refined_center from nearest solved W
     console.log("  Validating " + successAttempts.length + " non-seed successful tile hints");
     successAttempts.forEach(function(rec) {
         var tile = rec.tile;
-        var tileCX = tile.offsetX + tile.tileWidth / 2.0;
-        var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+        var expected = computeWeightedHint(tile, rec.solvedBefore);
         var nearest = findNearest(tile, rec.solvedBefore);
-        var expected = sis.pixelToRaDecTD(nearest.wcs, tileCX, tileCY);
-        var tag = "[" + tile.row + "][" + tile.col + "] ref=[" + nearest.row + "][" + nearest.col + "]";
+        var tag = "[" + tile.row + "][" + tile.col + "] nRef=" + Math.min(rec.solvedBefore.length, 4) +
+            " nearest=[" + nearest.row + "][" + nearest.col + "]";
 
         console.log("  " + tag + " expected_ra=" + expected[0].toFixed(4) +
             " recorded=" + (rec.hints.center_ra !== undefined ? rec.hints.center_ra.toFixed(4) : "NONE") +
@@ -553,8 +585,9 @@ console.log("\n" + "=".repeat(60));
 console.log("GROUP 4: solveWavefront — 失敗タイル発生時の enqueue パターン");
 console.log("=".repeat(60));
 
-test("2x2: 失敗タイルの隣接タイルもキューイングされる", function() {
-    // seed タイルを失敗させても、隣接タイルは全てキューに入る
+test("2x2: seed 失敗時フォールバックで隣接タイルがキューイングされ、seed がリトライされる", function() {
+    // seed タイルを失敗させても、フォールバックで隣接タイルがキューに入り、
+    // 隣接成功後に seed がリトライされる
     var tiles = buildMockTiles(f2x2);
     var h = buildHints(f2x2);
     var fixtureMap = buildFixtureMap(f2x2);
@@ -589,9 +622,14 @@ test("2x2: 失敗タイルの隣接タイルもキューイングされる", fun
         function(){}, failSeedMock,
         function(){return false;}, function(){return false;}, 0);
 
-    // 全 4 タイルが試行されるべき (seed 失敗後も隣接がキューイングされる)
-    assertTrue(attemptedKeys.length === 4,
-        "all 4 tiles attempted even when seed fails: " + attemptedKeys.length);
+    // seed 失敗 → フォールバックで隣接3タイルがキューイング → 成功後に seed リトライ
+    // 合計 5 回の試行 (seed + 3隣接 + seed retry)
+    assertTrue(attemptedKeys.length >= 4,
+        "at least 4 tiles attempted when seed fails (got " + attemptedKeys.length + ")");
+    // seed タイルのキーが2回出現する (初回失敗 + リトライ)
+    var seedKey = attemptedKeys[0];
+    var seedRetried = attemptedKeys.filter(function(k) { return k === seedKey; }).length >= 2;
+    assertTrue(seedRetried, "seed tile retried after adjacent success");
     console.log("  attempted order: " + attemptedKeys.join(" → "));
 });
 
@@ -618,7 +656,7 @@ test("2x2: 全タイル失敗でも wavefront は停止しない", function() {
     assertTrue(attemptCount === 4, "all 4 tiles attempted: " + attemptCount);
 });
 
-test("8x6: 部分的失敗でも wavefront は隣接タイルに伝播", function() {
+test("8x6: 部分的失敗でも wavefront は隣接タイルに伝播 + リトライ", function() {
     var tiles = buildMockTiles(f8x6);
     var h = buildHints(f8x6);
     var fixtureMap = buildFixtureMap(f8x6);
@@ -652,10 +690,157 @@ test("8x6: 部分的失敗でも wavefront は隣接タイルに伝播", functio
         function(){}, partialFailMock,
         function(){return false;}, function(){return false;}, 0);
 
-    // 全タイルが試行されるべき
-    assertEqual(attemptCount, tiles.length, "all tiles attempted despite partial failures");
+    // 新 enqueue 戦略: 失敗タイルは隣接を enqueue しない
+    // 成功タイルのみが wavefront を伝播するため、交互失敗ではタイル到達数が減少する
+    // リトライにより attemptCount > 到達タイル数 になり得る
+    assertTrue(attemptCount > 0, "wavefront ran (attempted=" + attemptCount + ")");
     assertTrue(successCount > 0, "some tiles succeeded: " + successCount);
+    // 成功が到達タイル数の一部であることを確認 (wavefront は停止せず伝播した)
+    assertTrue(successCount >= 3, "wavefront propagated beyond seed: " + successCount + " tiles solved");
     console.log("  attempted=" + attemptCount + " succeeded=" + successCount);
+});
+
+// ============================================================
+// TEST GROUP 5: enqueue 戦略改善 + リトライ制御
+// ============================================================
+console.log("\n" + "=".repeat(60));
+console.log("GROUP 5: enqueue 戦略改善 — リトライ・加重平均ヒント");
+console.log("=".repeat(60));
+
+test("2x2: 失敗タイルは隣接成功後にリトライされる", function() {
+    // タイル [1][0] を初回失敗させ、隣接タイル成功後にリトライで成功するか確認
+    var tiles = buildMockTiles(f2x2);
+    var h = buildHints(f2x2);
+    var fixtureMap = buildFixtureMap(f2x2);
+
+    var attemptedKeys = [];
+    var targetKey = "1_0"; // seed [0][0] の隣接
+    var targetFailCount = 0;
+    var mockFn = function(tile, tileHints, scaleBounds, expectedRaDec) {
+        var key = tile.row + "_" + tile.col;
+        attemptedKeys.push(key);
+
+        // targetKey の初回を失敗させる
+        if (key === targetKey && targetFailCount === 0) {
+            targetFailCount++;
+            tile.status = "failed";
+            return false;
+        }
+
+        var r = fixtureMap[key];
+        if (r && r.wcs) {
+            tile.wcs = r.wcs;
+            tile.calibration = r.calibration;
+            return true;
+        }
+        tile.status = "failed";
+        return false;
+    };
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f2x2.imageWidth, f2x2.imageHeight, h._projection);
+
+    var result = sis.solveWavefront(null, tiles, h,
+        f2x2.imageWidth, f2x2.imageHeight, f2x2.gridX, f2x2.gridY,
+        function(){}, mockFn,
+        function(){return false;}, function(){return false;}, 0);
+
+    // targetKey が2回出現する (初回失敗 + リトライ成功)
+    var targetAttempts = attemptedKeys.filter(function(k) { return k === targetKey; });
+    assertTrue(targetAttempts.length === 2,
+        "target tile [1][0] attempted twice (initial + retry): " + targetAttempts.length);
+    assertTrue(attemptedKeys.length > tiles.length,
+        "total attempts > tile count due to retry: " + attemptedKeys.length + " > " + tiles.length);
+    assertEqual(result, 4, "all 4 tiles solved (target succeeds on retry)");
+    console.log("  attempted order: " + attemptedKeys.join(" → "));
+});
+
+test("2x2: リトライは1回まで", function() {
+    // タイル [1][0] を常に失敗させ、3回目の試行がないことを確認
+    var tiles = buildMockTiles(f2x2);
+    var h = buildHints(f2x2);
+    var fixtureMap = buildFixtureMap(f2x2);
+
+    var attemptedKeys = [];
+    var targetKey = "1_0";
+    var mockFn = function(tile, tileHints, scaleBounds, expectedRaDec) {
+        var key = tile.row + "_" + tile.col;
+        attemptedKeys.push(key);
+
+        // targetKey は常に失敗
+        if (key === targetKey) {
+            tile.status = "failed";
+            return false;
+        }
+
+        var r = fixtureMap[key];
+        if (r && r.wcs) {
+            tile.wcs = r.wcs;
+            tile.calibration = r.calibration;
+            return true;
+        }
+        tile.status = "failed";
+        return false;
+    };
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f2x2.imageWidth, f2x2.imageHeight, h._projection);
+
+    sis.solveWavefront(null, tiles, h,
+        f2x2.imageWidth, f2x2.imageHeight, f2x2.gridX, f2x2.gridY,
+        function(){}, mockFn,
+        function(){return false;}, function(){return false;}, 0);
+
+    // targetKey は最大2回まで (初回 + 1回リトライ)
+    var targetAttempts = attemptedKeys.filter(function(k) { return k === targetKey; });
+    assertTrue(targetAttempts.length <= 2,
+        "target tile [1][0] attempted at most 2 times: " + targetAttempts.length);
+    console.log("  attempted order: " + attemptedKeys.join(" → "));
+    console.log("  target attempts: " + targetAttempts.length);
+});
+
+test("2x2: 加重平均ヒントが複数タイルの WCS を使用する", function() {
+    // solvedBefore が2以上のとき、最近傍のみの外挿値と異なることを検証
+    var tiles = buildMockTiles(f2x2);
+    var h = buildHints(f2x2);
+    var mock = makeRecordingMock(f2x2);
+
+    sis.computeTileHints(tiles, h.center_ra, h.center_dec, h.scale_est,
+        f2x2.imageWidth, f2x2.imageHeight, h._projection);
+
+    sis.solveWavefront(null, tiles, h,
+        f2x2.imageWidth, f2x2.imageHeight, f2x2.gridX, f2x2.gridY,
+        function(){}, mock,
+        function(){return false;}, function(){return false;}, 0);
+
+    // solvedBefore >= 2 のタイルを探す
+    var multiRefAttempts = mock.attempts.filter(function(rec) {
+        return rec.solvedBefore.length >= 2;
+    });
+
+    assertTrue(multiRefAttempts.length > 0,
+        "at least one tile has >= 2 solved predecessors: " + multiRefAttempts.length);
+
+    multiRefAttempts.forEach(function(rec) {
+        var tile = rec.tile;
+        var tileCX = tile.offsetX + tile.tileWidth / 2.0;
+        var tileCY = tile.offsetY + tile.tileHeight / 2.0;
+        var nearest = findNearest(tile, rec.solvedBefore);
+        var nearestOnly = sis.pixelToRaDecTD(nearest.wcs, tileCX, tileCY);
+        var weighted = computeWeightedHint(tile, rec.solvedBefore);
+
+        var tag = "[" + tile.row + "][" + tile.col + "] (nRef=" + rec.solvedBefore.length + ")";
+        var raDiff = Math.abs(weighted[0] - nearestOnly[0]);
+        var decDiff = Math.abs(weighted[1] - nearestOnly[1]);
+
+        console.log("  " + tag + " nearest_ra=" + nearestOnly[0].toFixed(4) +
+            " weighted_ra=" + weighted[0].toFixed(4) + " diff=" + raDiff.toFixed(6));
+
+        // 加重平均は最近傍のみとは異なるはず (複数タイルの影響)
+        assertTrue(raDiff > 1e-9 || decDiff > 1e-9,
+            tag + " weighted average differs from nearest-only (ra_diff=" + raDiff.toFixed(6) +
+            " dec_diff=" + decDiff.toFixed(6) + ")");
+    });
 });
 
 // ============================================================

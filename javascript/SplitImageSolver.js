@@ -1487,6 +1487,8 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 
    var wave = 0;
    var solvedTiles = [];
+   var failedTiles = [];
+   var retried = {}; // "col,row" → true: track tiles that have been re-enqueued once
 
    while (queue.length > 0) {
       wave++;
@@ -1526,48 +1528,77 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
             console.writeln("  Scale filter bounds: [" + scaleBounds.low.toFixed(2) + "-" + scaleBounds.high.toFixed(2) + "] arcsec/px");
          }
 
-         // Refine RA/DEC hints using nearest solved tile's WCS (Python 2nd pass equivalent)
-         // Only use WCS extrapolation when the target point falls within or near
-         // the solved tile's coverage area. TAN projection breaks down at large distances.
+         // Refine RA/DEC hints using inverse-distance-weighted average of nearest K solved tiles' WCS
+         // Uses 3D unit vectors for safe averaging across RA 0/360 boundary and near poles
          var expectedRaDec = null;
+         var nearestTile = null;
+         var nearestDist2 = Infinity;
+         var candidates = [];
          if (solvedTiles.length > 0) {
             var tileCX = tile.offsetX + tile.tileWidth / 2.0;
             var tileCY = tile.offsetY + tile.tileHeight / 2.0;
-            var nearestDist2 = Infinity;
-            var nearestTile = null;
+
+            // Build candidates sorted by pixel distance
+            candidates = [];
             for (var si = 0; si < solvedTiles.length; si++) {
                var st = solvedTiles[si];
+               if (!st.wcs) continue;
                var stCX = st.offsetX + st.tileWidth / 2.0;
                var stCY = st.offsetY + st.tileHeight / 2.0;
                var d2 = (tileCX - stCX) * (tileCX - stCX) + (tileCY - stCY) * (tileCY - stCY);
-               if (d2 < nearestDist2) {
-                  nearestDist2 = d2;
-                  nearestTile = st;
-               }
+               candidates.push({ tile: st, dist2: d2 });
             }
-            if (nearestTile && nearestTile.wcs) {
-               // Extrapolate RA/DEC from nearest solved tile's WCS (Python 2nd pass equivalent)
-               // Python does this without distance limit, using nearest solved tile regardless of distance
-               var refined = pixelToRaDecTD(nearestTile.wcs, tileCX, tileCY);
-               if (refined && isFinite(refined[0]) && isFinite(refined[1])) {
-                  var distPx = Math.sqrt(nearestDist2);
-                  tileHints.center_ra = refined[0];
-                  tileHints.center_dec = refined[1];
+            candidates.sort(function(a, b) { return a.dist2 - b.dist2; });
+
+            // Use up to K=4 nearest tiles
+            var K = 4;
+            var useCandidates = candidates.slice(0, K);
+
+            if (useCandidates.length > 0) {
+               nearestTile = useCandidates[0].tile;
+               nearestDist2 = useCandidates[0].dist2;
+
+               // Inverse-distance-squared weighted average in 3D unit vector space
+               var sumX = 0, sumY = 0, sumZ = 0, sumW = 0;
+               for (var ci = 0; ci < useCandidates.length; ci++) {
+                  var cand = useCandidates[ci];
+                  var refined = pixelToRaDecTD(cand.tile.wcs, tileCX, tileCY);
+                  if (!refined || !isFinite(refined[0]) || !isFinite(refined[1])) continue;
+                  var raRad = refined[0] * Math.PI / 180.0;
+                  var decRad = refined[1] * Math.PI / 180.0;
+                  var w = (cand.dist2 > 0) ? 1.0 / cand.dist2 : 1e12;
+                  sumX += w * Math.cos(decRad) * Math.cos(raRad);
+                  sumY += w * Math.cos(decRad) * Math.sin(raRad);
+                  sumZ += w * Math.sin(decRad);
+                  sumW += w;
+               }
+
+               if (sumW > 0) {
+                  var avgX = sumX / sumW;
+                  var avgY = sumY / sumW;
+                  var avgZ = sumZ / sumW;
+                  var avgRA = Math.atan2(avgY, avgX) * 180.0 / Math.PI;
+                  if (avgRA < 0) avgRA += 360.0;
+                  var avgDEC = Math.atan2(avgZ, Math.sqrt(avgX * avgX + avgY * avgY)) * 180.0 / Math.PI;
+
+                  tileHints.center_ra = avgRA;
+                  tileHints.center_dec = avgDEC;
                   // Widen scale range for WCS-extrapolated hints (Python 2nd pass: ±50%)
                   if (tileHints.scale_lower && tileHints.scale_upper) {
                      var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
                      tileHints.scale_lower = midScale * 0.5;
                      tileHints.scale_upper = midScale * 1.5;
                   }
-                  expectedRaDec = refined;
+                  expectedRaDec = [avgRA, avgDEC];
                }
             }
          }
 
+         var nRefTiles = Math.min(candidates.length, 4);
          console.writeln("  " + prefix + " start (wave " + wave + ")" +
             (tileHints.scale_lower ? " scale=[" + tileHints.scale_lower.toFixed(1) + "-" + tileHints.scale_upper.toFixed(1) + "]\"/px" : "") +
             (expectedRaDec ? " refined_center=(" + tileHints.center_ra.toFixed(2) + "," + tileHints.center_dec.toFixed(2) +
-               ")(ref=[" + nearestTile.col + "," + nearestTile.row + "] dist=" + Math.round(Math.sqrt(nearestDist2)) + "px)" : ""));
+               ")(ref=" + nRefTiles + " tiles, nearest=[" + nearestTile.col + "," + nearestTile.row + "] dist=" + Math.round(Math.sqrt(nearestDist2)) + "px)" : ""));
 
          // Solve
          // Use custom tile solver function if provided, otherwise default to API solver
@@ -1581,17 +1612,36 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          if (solved) {
             successCount++;
             solvedTiles.push(tile);
-         }
 
-         // Always enqueue unsolved neighbors (even on failure — don't stall wavefront)
-         var neighbors = getNeighbors(tile);
-         for (var ni = 0; ni < neighbors.length; ni++) {
-            var nb = neighbors[ni];
-            var nbKey = nb.col + "," + nb.row;
-            if (!queued[nbKey] && nb.status === "pending") {
-               queue.push(nb);
-               queued[nbKey] = true;
+            // Enqueue pending neighbors
+            var neighbors = getNeighbors(tile);
+            for (var ni = 0; ni < neighbors.length; ni++) {
+               var nb = neighbors[ni];
+               var nbKey = nb.col + "," + nb.row;
+               if (!queued[nbKey] && nb.status === "pending") {
+                  queue.push(nb);
+                  queued[nbKey] = true;
+               }
             }
+
+            // Re-enqueue adjacent failed tiles (retry once with better hints)
+            for (var fi = 0; fi < failedTiles.length; fi++) {
+               var ft = failedTiles[fi];
+               var ftKey = ft.col + "," + ft.row;
+               // Check if this failed tile is a neighbor of the current solved tile
+               var isNeighbor = (Math.abs(ft.col - tile.col) + Math.abs(ft.row - tile.row)) === 1;
+               if (isNeighbor && !retried[ftKey]) {
+                  ft.status = "pending";
+                  queued[ftKey] = false; // allow re-enqueue
+                  queue.push(ft);
+                  queued[ftKey] = true;
+                  retried[ftKey] = true;
+                  console.writeln("  Re-enqueue failed tile [" + ft.col + "," + ft.row + "] (adjacent success, retry with refined hints)");
+               }
+            }
+         } else {
+            // Failed: do NOT enqueue neighbors — wait for adjacent success
+            failedTiles.push(tile);
          }
 
          // Print grid
@@ -1601,6 +1651,25 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          // rateLimitMs: explicit value overrides default (API=2000ms, IS/Local=0ms)
          var rateMs = (rateLimitMs !== undefined) ? rateLimitMs : (tileSolverFn ? 0 : 2000);
          if (rateMs > 0) msleep(rateMs);
+      }
+
+      // Fallback: if queue is empty and no tiles solved this wave, enqueue pending neighbors of failed tiles
+      // This prevents stalling when seed or all wave tiles fail
+      if (queue.length === 0 && solvedTiles.length === 0) {
+         for (var ffi = 0; ffi < failedTiles.length; ffi++) {
+            var ffNeighbors = getNeighbors(failedTiles[ffi]);
+            for (var fni = 0; fni < ffNeighbors.length; fni++) {
+               var fnb = ffNeighbors[fni];
+               var fnbKey = fnb.col + "," + fnb.row;
+               if (!queued[fnbKey] && fnb.status === "pending") {
+                  queue.push(fnb);
+                  queued[fnbKey] = true;
+               }
+            }
+         }
+         if (queue.length > 0) {
+            console.writeln("  Fallback: enqueued " + queue.length + " pending neighbors from failed tiles");
+         }
       }
    }
 

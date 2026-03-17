@@ -50,9 +50,10 @@ var fixture = JSON.parse(fs.readFileSync(FIXTURE_FILE, "utf8"));
 // Local ベースライン (PixInsight + astrometry.net API の実測結果)
 // ============================================================
 var LOCAL_BASELINE = {
-    // 9/96 成功 (AstrHori 6.5mm equidistant fisheye, Sony α6100, 12x8)
-    successTiles: [[2,4], [2,6], [3,6], [3,7], [4,4], [4,6], [4,7], [5,5], [5,6]],
-    totalSolved: 9
+    // 12/96 成功 (AstrHori 6.5mm equidistant fisheye, Sony α6100, 12x8)
+    // Step 4 enqueue 戦略改善 + IDW 加重平均ヒントにより seed 失敗→リトライ回復で +3
+    successTiles: [[2,5], [2,6], [3,4], [3,5], [3,6], [3,7], [4,4], [4,5], [4,6], [4,7], [5,5], [5,6]],
+    totalSolved: 12
 };
 var localBaseline = LOCAL_BASELINE;
 var localBaselineMap = {};

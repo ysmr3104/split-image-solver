@@ -28,6 +28,10 @@ Split Image Solver は、広角星野写真をタイルに分割してプレー�
 - **IT テストは単独で実行する**: solve-field や astrometry.net API を使う IT テストは並列実行するとリソース競合で結果が不安定になる。必ず1テストずつ順番に実行すること。
 - **API テストの FAIL は即ノックアウトではないが必ず報告する**: astrometry.net API はサーバー側の状態に依存するため、Local と同じ成功率が出ないことがある。FAIL でも即座に原因とは断定せず報告すること。
 - **性能向上時はベースラインを更新する**: 修正により成功タイル数がベースラインを上回った場合は、テストコード内のベースライン値を新しい成功数に更新すること。
+- **性能向上時は IT-Solver フィクスチャも更新する**: IT-Wavefront で新たに成功したタイルがある場合、対応する `tile_hints_local_*.json` フィクスチャの `batch_success` を `true` に更新し、`ra_hint`/`dec_hint` を wavefront が算出した精緻化ヒントに置き換え、`batch_solved` を新しい成功数に更新すること。更新後に IT-Solver を実行して per-tile ソルブが通ることを確認する。
+- **IT-Solver は IT-Wavefront の結果に応じて実施する**: IT-Solver は個別タイルのソルブ動作を検証するテスト。wavefront の enqueue 戦略やヒント計算のみの変更では IT-Wavefront で十分であり、IT-Solver は以下の場合に実施する:
+  - IT-Wavefront で予期しない失敗タイルが出た場合（ソルバー本体の問題かヒントの問題かの切り分け）
+  - ソルバー呼び出しロジック（`solveSingleTile` 等）に直接変更を入れた場合
 
 ### テスト実行コマンド
 
