@@ -1154,13 +1154,13 @@ test("computeScaleBounds: 5 tiles with moderate spread", function() {
 // 偽陽性フィルタ — 座標乖離の閾値テスト (項目5)
 //
 // solveSingleTile 内のフィルタロジック:
-//   coordDev > 5.0° → reject
+//   coordDev > (coordThreshDeg || 5.0)° → reject
 //============================================================================
 
-function falsePositiveCoordFilter(expectedRaDec, actualRaDec) {
+function falsePositiveCoordFilter(expectedRaDec, actualRaDec, coordThreshDeg) {
    if (!expectedRaDec) return "skip";
    var coordDev = angularSeparation(expectedRaDec, actualRaDec);
-   if (coordDev > 5.0) return "reject";
+   if (coordDev > (coordThreshDeg || 5.0)) return "reject";
    return "accept";
 }
 
@@ -1325,6 +1325,64 @@ test("mergeWcsSolutions 制御点数: 0成功タイル → 0点", function() {
       { status: "failed", wcs: null, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 }
    ];
    assertEqual(countControlPoints(tiles, 2000, 2000), 0, "no success = 0 points");
+});
+
+//============================================================================
+// falsePositiveCoordFilter: 動的閾値 (coordThreshDeg)
+//============================================================================
+
+test("falsePositiveCoordFilter: coordThreshDeg=2.0, 1.9° → accept", function() {
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 1.9], 2.0), "accept", "1.9 deg < 2.0 threshold");
+});
+
+test("falsePositiveCoordFilter: coordThreshDeg=2.0, 2.1° → reject", function() {
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 2.1], 2.0), "reject", "2.1 deg > 2.0 threshold");
+});
+
+test("falsePositiveCoordFilter: coordThreshDeg=10.0, 8° → accept (固定5°では reject)", function() {
+   // With fixed 5° threshold this would reject, but dynamic 10° allows it
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 8.0], 10.0), "accept", "8 deg < 10.0 threshold");
+   assertEqual(falsePositiveCoordFilter([180.0, 0.0], [180.0, 8.0]), "reject", "8 deg > default 5.0 threshold");
+});
+
+//============================================================================
+// validateOverlap: 逸脱タイルの status/wcs 無効化
+//============================================================================
+
+test("validateOverlap: 逸脱タイルが status='failed' になる", function() {
+   // Tile 0,0 has consistent WCS; tile 1,0 has wildly wrong WCS
+   var wcsGood = { crval1: 180.0, crval2: 45.0, crpix1: 1624, crpix2: 1088,
+                   cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001 };
+   var wcsBad  = { crval1: 90.0,  crval2:  0.0, crpix1: 1624, crpix2: 1088,
+                   cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001 };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0,    offsetY: 0, tileWidth: 3300, tileHeight: 2200, status: "success", wcs: wcsGood },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3300, tileHeight: 2200, status: "success", wcs: wcsBad  }
+   ];
+   validateOverlap(tiles, 6248, 4176, 5.0);
+   // The bad tile should be invalidated
+   var failedCount = 0;
+   for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].status === "failed") failedCount++;
+   }
+   assertTrue(failedCount >= 1, "at least one tile should be invalidated");
+});
+
+test("validateOverlap: 逸脱タイルが wcs=null になる", function() {
+   var wcsGood = { crval1: 180.0, crval2: 45.0, crpix1: 1624, crpix2: 1088,
+                   cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001 };
+   var wcsBad  = { crval1: 90.0,  crval2:  0.0, crpix1: 1624, crpix2: 1088,
+                   cd1_1: -0.001, cd1_2: 0, cd2_1: 0, cd2_2: 0.001 };
+   var tiles = [
+      { col: 0, row: 0, offsetX: 0,    offsetY: 0, tileWidth: 3300, tileHeight: 2200, status: "success", wcs: wcsGood },
+      { col: 1, row: 0, offsetX: 3000, offsetY: 0, tileWidth: 3300, tileHeight: 2200, status: "success", wcs: wcsBad  }
+   ];
+   validateOverlap(tiles, 6248, 4176, 5.0);
+   var nullWcsCount = 0;
+   for (var i = 0; i < tiles.length; i++) {
+      if (tiles[i].wcs === null) nullWcsCount++;
+   }
+   assertTrue(nullWcsCount >= 1, "at least one invalidated tile should have wcs=null");
 });
 
 //============================================================================
