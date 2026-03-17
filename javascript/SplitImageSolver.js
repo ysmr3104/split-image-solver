@@ -55,6 +55,9 @@ var SCALE_FILTER_FALLBACK_HIGH = 2.0;   // fallback upper ratio
 var SCALE_FILTER_ABSOLUTE_LOW = 0.3;    // absolute lower ratio
 var SCALE_FILTER_ABSOLUTE_HIGH = 3.0;   // absolute upper ratio
 
+var COORD_DIVERGE_FOV_FACTOR = 0.5;  // coord divergence threshold as fraction of tile FOV
+var COORD_DIVERGE_MIN_DEG    = 0.5;  // minimum threshold to avoid over-rejection (degrees)
+
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
 //============================================================================
@@ -1076,7 +1079,7 @@ function convertISwcsToBU(isWcs) {
 // scaleBounds: {low, high} for false positive filter (null to skip)
 // expectedRaDec: [ra, dec] for false positive filter (null to skip)
 //----------------------------------------------------------------------------
-function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec) {
+function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg) {
    tile.status = "solving";
 
    // Open tile FITS as ImageWindow
@@ -1184,7 +1187,7 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec) {
       // False positive filter: coordinate deviation
       if (expectedRaDec) {
          var coordDev = angularSeparation(expectedRaDec, [calibration.ra, calibration.dec]);
-         if (coordDev > 5.0) {
+         if (coordDev > (coordThreshDeg || 5.0)) {
             tile.status = "failed";
             console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: coord deviation " + coordDev.toFixed(2) + " deg");
             return false;
@@ -1231,7 +1234,7 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec) {
 // client: AstrometryClient
 // scaleBounds: {low, high} for false positive filter (null to skip)
 // expectedRaDec: [ra, dec] for false positive filter (null to skip)
-function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec) {
+function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg) {
    tile.status = "solving";
 
    // Upload
@@ -1293,7 +1296,7 @@ function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec) {
    // False positive filter: coordinate deviation
    if (expectedRaDec) {
       var coordDev = angularSeparation(expectedRaDec, [calibration.ra, calibration.dec]);
-      if (coordDev > 5.0) {
+      if (coordDev > (coordThreshDeg || 5.0)) {
          tile.status = "failed";
          console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] rejected: coord deviation " + coordDev.toFixed(2) + " deg");
          return false;
@@ -1528,6 +1531,15 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
             console.writeln("  Scale filter bounds: [" + scaleBounds.low.toFixed(2) + "-" + scaleBounds.high.toFixed(2) + "] arcsec/px");
          }
 
+         // Dynamic coord divergence threshold: fraction of tile FOV (use pre-widened scale)
+         var coordThreshDeg = 5.0;
+         if (tileHints.scale_lower && tileHints.scale_upper) {
+            var _midScale   = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
+            var _tileFovDeg = _midScale * tile.tileWidth / 3600.0;
+            var _dynThresh  = _tileFovDeg * COORD_DIVERGE_FOV_FACTOR;
+            if (_dynThresh > COORD_DIVERGE_MIN_DEG) coordThreshDeg = _dynThresh;
+         }
+
          // Refine RA/DEC hints using inverse-distance-weighted average of nearest K solved tiles' WCS
          // Uses 3D unit vectors for safe averaging across RA 0/360 boundary and near poles
          var expectedRaDec = null;
@@ -1604,9 +1616,9 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
          // Use custom tile solver function if provided, otherwise default to API solver
          var solved;
          if (tileSolverFn) {
-            solved = tileSolverFn(tile, tileHints, scaleBounds, expectedRaDec);
+            solved = tileSolverFn(tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg);
          } else {
-            solved = solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec);
+            solved = solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg);
          }
 
          if (solved) {
@@ -2034,21 +2046,22 @@ function validateOverlap(tiles, imageWidth, imageHeight, toleranceArcsec) {
       }
    }
 
-   // Report tiles with consistently high deviation (warning only, no invalidation)
-   // Python version also does not invalidate tiles — WCSFitter handles outliers via least-squares
-   var warnings = 0;
+   // Invalidate tiles with consistently high deviation
+   var invalidated = 0;
    for (var i = 0; i < successTiles.length; i++) {
       if (deviations[i].pairCount === 0) continue;
       var avgDev = deviations[i].totalDev / deviations[i].pairCount;
       if (avgDev > toleranceArcsec * 3) {
          console.writeln("  Tile [" + successTiles[i].col + "," + successTiles[i].row +
-            "] WARNING: avg deviation " + avgDev.toFixed(1) + "\" exceeds threshold");
-         warnings++;
+            "] INVALIDATED: avg deviation " + avgDev.toFixed(1) + "\" exceeds threshold");
+         successTiles[i].status = "failed";
+         successTiles[i].wcs = null;
+         invalidated++;
       }
    }
 
-   console.writeln("Overlap validation: " + pairsChecked + " pairs checked, " + warnings + " tiles with high deviation");
-   return 0;
+   console.writeln("Overlap validation: " + pairsChecked + " pairs checked, " + invalidated + " tiles invalidated");
+   return invalidated;
 }
 
 // Load equipment database from equipment.json (same directory as this script)
@@ -4266,8 +4279,8 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
 
    // solverFactory: bind client in closure, return solveSingleTile wrapper
    var solverFactory = function(tiles) {
-      return function(tile, tileHints, scaleBounds, expectedRaDec) {
-         return solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec);
+      return function(tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg) {
+         return solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg);
       };
    };
 
@@ -4658,7 +4671,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
    // solverFactory: per-tile Python --solve-single-tile invocation.
    // Each call solves one tile using wavefront-refined hints from tileHints.
    var solverFactory = function(tiles) {
-      return function(tile, tileHints, scaleBounds, expectedRaDec) {
+      return function(tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg) {
          var resultPath = File.systemTempDirectory + "/sis_tile_result_" + tile.row + "_" + tile.col + ".json";
          var stderrFile = File.systemTempDirectory + "/sis_tile_stderr_" + tile.row + "_" + tile.col + ".txt";
 
@@ -4778,6 +4791,17 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
             tile.wcs.sip = { order: r.sip_order, a: r.sip_a, b: r.sip_b };
          }
          tile.calibration = { pixscale: r.pixel_scale, ra: r.crval1, dec: r.crval2 };
+
+         // False positive filter: coordinate deviation
+         if (expectedRaDec) {
+            var coordDev = angularSeparation(expectedRaDec, [r.crval1, r.crval2]);
+            if (coordDev > (coordThreshDeg || 5.0)) {
+               tile.status = "failed";
+               console.writeln("  [" + tile.row + "][" + tile.col + "] rejected: coord deviation " + coordDev.toFixed(2) + " deg");
+               return false;
+            }
+         }
+
          tile.status = "success";
          return true;
       };
