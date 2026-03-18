@@ -156,8 +156,9 @@ function loadContext(extraStubs) {
         if (l.match(/^\s*#/)) { skip = !!l.match(/\\\s*$/); continue; }
         filtered.push(l);
     }
-    var cleanCode = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    var cleanCode = filtered.join("\n");
     cleanCode = cleanCode.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    ctx.__SPLIT_SOLVER_LIBRARY_MODE = true;
     vm.runInContext(cleanCode, ctx);
 
     return ctx;
