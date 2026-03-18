@@ -84,15 +84,24 @@ function getWavefrontResult() {
     if (_wavefrontResult !== null) { return _wavefrontResult; }
 
     var tiles = buildTilesFromFixture(fixture, TILE_DIR);
-    var hints = fixture.hints;
+
+    // solveWavefront の buildTileHints はスネークケースキーを期待するため変換
+    var fh = fixture.hints;
+    var hints = {
+        center_ra:   fh.centerRA,
+        center_dec:  fh.centerDEC,
+        scale_est:   fh.scaleEst,
+        _nativeScale: fh.scaleEst,
+        _projection: fh.projection || "rectilinear"
+    };
 
     // computeTileHints でヒントを付与（フィクスチャ値で上書きされるが一応実行）
     computeTileHints(
         tiles,
-        hints.centerRA, hints.centerDEC,
-        hints.scaleEst,
+        fh.centerRA, fh.centerDEC,
+        fh.scaleEst,
         fixture.imageWidth, fixture.imageHeight,
-        hints.projection
+        fh.projection
     );
     // フィクスチャのヒントで上書き
     for (var i = 0; i < tiles.length; i++) {
