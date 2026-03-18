@@ -1413,7 +1413,7 @@ test("validateOverlap: 逸脱タイルが wcs=null になる", function() {
 //============================================================================
 
 function computeExtrapolateMargin(medianScale, mad, nTiles) {
-   var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.2;
+   var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.3;
    var SCALE_EXTRAPOLATE_IQR_FACTOR = 3.0;
    var SCALE_EXTRAPOLATE_FALLBACK_MARGIN = 0.5;
    if (nTiles < 3 || medianScale <= 0) return SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
@@ -1431,11 +1431,11 @@ test("computeExtrapolateMargin: medianScale<=0 → fallback 0.5", function() {
    assertEqual(computeExtrapolateMargin(0, 0.05, 5), 0.5, "medianScale=0 returns fallback");
 });
 
-test("computeExtrapolateMargin: 均一スケール → 最小マージン 0.2", function() {
-   // mad/median very small → margin < MIN → clamped to 0.2
+test("computeExtrapolateMargin: 均一スケール → 最小マージン 0.3", function() {
+   // mad/median very small → margin < MIN → clamped to 0.3
    var result = computeExtrapolateMargin(1.5, 0.01, 10);
-   // 3.0 * (0.01/1.5) = 0.02 → clamped to 0.2
-   assertEqual(result, 0.2, "uniform scale → min margin 0.2", 0.001);
+   // 3.0 * (0.01/1.5) = 0.02 → clamped to 0.3
+   assertEqual(result, 0.3, "uniform scale → min margin 0.3", 0.001);
 });
 
 test("computeExtrapolateMargin: 高分散 → fallback上限 0.5", function() {
@@ -1446,9 +1446,9 @@ test("computeExtrapolateMargin: 高分散 → fallback上限 0.5", function() {
 });
 
 test("computeExtrapolateMargin: 中間分散 → 期待値", function() {
-   // mad/median = 0.15/1.5 = 0.1 → margin = 3.0 * 0.1 = 0.3
-   var result = computeExtrapolateMargin(1.5, 0.15, 10);
-   assertEqual(result, 0.3, "mid variance → 0.3", 0.001);
+   // mad/median = 0.2/1.5 = 0.133 → margin = 3.0 * 0.133 = 0.4
+   var result = computeExtrapolateMargin(1.5, 0.2, 10);
+   assertEqual(result, 0.4, "mid variance → 0.4", 0.001);
 });
 
 //============================================================================

@@ -59,7 +59,7 @@ var COORD_DIVERGE_FOV_FACTOR = 0.5;  // coord divergence threshold as fraction o
 var COORD_DIVERGE_MIN_DEG    = 0.5;  // minimum threshold to avoid over-rejection (degrees)
 
 // Scale extrapolation margin constants (adaptive WCS-extrapolated scale range)
-var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.2;      // minimum ±20%
+var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.3;      // minimum ±30%
 var SCALE_EXTRAPOLATE_IQR_FACTOR = 3.0;      // margin = k * (MAD/median)
 var SCALE_EXTRAPOLATE_FALLBACK_MARGIN = 0.5;  // ±50% fallback
 

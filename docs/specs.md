@@ -211,7 +211,7 @@ K=4 の理由: wavefront は4方向（上下左右）に伝播するため直接
 WCS 外挿ヒントのスケール範囲を、成功タイルのスケール分散に基づいて適応的に調整します:
 
 - `margin = SCALE_EXTRAPOLATE_IQR_FACTOR × (MAD / medianScale)` (IQR_FACTOR=3.0)
-- 下限クランプ: `SCALE_EXTRAPOLATE_MIN_MARGIN` (±20%)
+- 下限クランプ: `SCALE_EXTRAPOLATE_MIN_MARGIN` (±30%)
 - 上限クランプ: `SCALE_EXTRAPOLATE_FALLBACK_MARGIN` (±50%)
 - タイル不足 (<3) または medianScale ≤ 0: フォールバック ±50%
 
