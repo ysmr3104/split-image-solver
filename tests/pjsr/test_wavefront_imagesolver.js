@@ -52,6 +52,8 @@ function buildTilesFromFixture(fx, tileDir) {
     var tiles = [];
     for (var i = 0; i < fx.tiles.length; i++) {
         var t = fx.tiles[i];
+        var maxEdge = Math.max(t.tile_width, t.tile_height);
+        var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
         tiles.push({
             filePath:       tileDir + "/tile_" + t.col + "_" + t.row + ".fits",
             col:            t.col,
@@ -60,7 +62,7 @@ function buildTilesFromFixture(fx, tileDir) {
             offsetY:        t.offset_y,
             tileWidth:      t.tile_width,
             tileHeight:     t.tile_height,
-            scaleFactor:    1.0,
+            scaleFactor:    sf,
             origOffsetX:    t.offset_x,
             origOffsetY:    t.offset_y,
             origTileWidth:  t.tile_width,
