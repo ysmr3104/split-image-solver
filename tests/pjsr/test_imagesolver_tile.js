@@ -18,6 +18,10 @@ var __SPLIT_SOLVER_LIBRARY_MODE = true;
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdCursor.jsh>
 
+// ImageSolver をライブラリモードで読み込む（main() / UI の実行を抑制）
+#define USE_SOLVER_LIBRARY
+#include "/Applications/PixInsight/src/scripts/AdP/ImageSolver.js"
+
 #include "../../javascript/SplitImageSolver.js"
 #include "pjsr_test_framework.js"
 
