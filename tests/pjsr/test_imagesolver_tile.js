@@ -53,9 +53,11 @@ for (var fi = 0; fi < fixture.tiles.length; fi++) {
 }
 
 // ============================================================
-// ヘルパー: タイルオブジェクトを生成
+// ヘルパー: タイルオブジェクトを生成（scaleFactor を自動計算）
 // ============================================================
 function makeTileObject(col, row, filePath, fx) {
+    var maxEdge = Math.max(fx.tile_width, fx.tile_height);
+    var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
     return {
         filePath:        filePath,
         col:             col,
@@ -64,7 +66,7 @@ function makeTileObject(col, row, filePath, fx) {
         offsetY:         fx.offset_y,
         tileWidth:       fx.tile_width,
         tileHeight:      fx.tile_height,
-        scaleFactor:     1.0,
+        scaleFactor:     sf,
         origOffsetX:     fx.offset_x,
         origOffsetY:     fx.offset_y,
         origTileWidth:   fx.tile_width,
@@ -73,6 +75,13 @@ function makeTileObject(col, row, filePath, fx) {
         calibration:     null,
         status:          "pending"
     };
+}
+
+// ダウンサンプル後の FITS に対する実効スケール（arcsec/px）を計算する
+function effectiveTileScale(fx) {
+    var maxEdge = Math.max(fx.tile_width, fx.tile_height);
+    var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
+    return fixture.hints.scaleEst / sf;
 }
 
 // ============================================================
@@ -86,10 +95,9 @@ test("tile[0,0] のソルブが true を返す", function() {
 
     var tile = makeTileObject(0, 0, fp, tile00Fixture);
     var tileHints = {
-        center_ra:   tile00Fixture.ra_hint,
-        center_dec:  tile00Fixture.dec_hint,
-        scale_lower: tile00Fixture.scale_lower,
-        scale_upper: tile00Fixture.scale_upper
+        center_ra:  tile00Fixture.ra_hint,
+        center_dec: tile00Fixture.dec_hint,
+        scale_est:  effectiveTileScale(tile00Fixture)
     };
     var result = solveSingleTileIS(tile, tileHints, null, null, null);
     assertTrue(result, "ソルブが true を返すこと");
@@ -102,10 +110,9 @@ test("ソルブ成功時に tile.wcs が設定される", function() {
 
     var tile = makeTileObject(0, 0, fp, tile00Fixture);
     var tileHints = {
-        center_ra:   tile00Fixture.ra_hint,
-        center_dec:  tile00Fixture.dec_hint,
-        scale_lower: tile00Fixture.scale_lower,
-        scale_upper: tile00Fixture.scale_upper
+        center_ra:  tile00Fixture.ra_hint,
+        center_dec: tile00Fixture.dec_hint,
+        scale_est:  effectiveTileScale(tile00Fixture)
     };
     solveSingleTileIS(tile, tileHints, null, null, null);
     assertTrue(tile.wcs !== null, "tile.wcs が設定されること");
@@ -119,10 +126,9 @@ test("解RA が ra_hint から5度以内", function() {
 
     var tile = makeTileObject(0, 0, fp, tile00Fixture);
     var tileHints = {
-        center_ra:   tile00Fixture.ra_hint,
-        center_dec:  tile00Fixture.dec_hint,
-        scale_lower: tile00Fixture.scale_lower,
-        scale_upper: tile00Fixture.scale_upper
+        center_ra:  tile00Fixture.ra_hint,
+        center_dec: tile00Fixture.dec_hint,
+        scale_est:  effectiveTileScale(tile00Fixture)
     };
     solveSingleTileIS(tile, tileHints, null, null, null);
     assertTrue(tile.wcs !== null, "WCSが存在すること");
@@ -150,10 +156,9 @@ test("coordThreshDeg=1.0 + 遠方座標で偽陽性フィルタが拒否する",
 
     var tile = makeTileObject(0, 0, fp, tile00Fixture);
     var tileHints = {
-        center_ra:   tile00Fixture.ra_hint,
-        center_dec:  tile00Fixture.dec_hint,
-        scale_lower: tile00Fixture.scale_lower,
-        scale_upper: tile00Fixture.scale_upper
+        center_ra:  tile00Fixture.ra_hint,
+        center_dec: tile00Fixture.dec_hint,
+        scale_est:  effectiveTileScale(tile00Fixture)
     };
     // 遠方の期待座標（+30度ずらし） + 厳しい閾値1度 → 偽陽性フィルタで拒否
     var farExpected = {

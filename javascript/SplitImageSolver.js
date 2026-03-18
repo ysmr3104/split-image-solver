@@ -1082,6 +1082,13 @@ function convertISwcsToBU(isWcs) {
 function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThreshDeg) {
    tile.status = "solving";
 
+   // Check file exists before opening to prevent error dialogs in automation-mode
+   if (!File.exists(tile.filePath)) {
+      tile.status = "failed";
+      console.writeln("  [" + timestamp() + "] Tile [" + tile.col + "," + tile.row + "] file not found: " + tile.filePath);
+      return false;
+   }
+
    // Open tile FITS as ImageWindow
    var tileWindows;
    try {
