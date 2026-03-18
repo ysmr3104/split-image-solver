@@ -1146,6 +1146,11 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThr
       solver.metadata.width = tileWindow.mainView.image.width;
       solver.metadata.height = tileWindow.mainView.image.height;
 
+      // Force Gaia DR3 XPSD local catalog (avoids VizieR dependency, better coverage)
+      // CatalogMode: LocalText=0, Online=1, Automatic=2, LocalXPSDServer=3
+      solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+      solver.solverCfg.catalog = "GaiaDR3_XPSD";
+
       // Configure solver: suppress output images, disable distortion correction for tiles
       solver.solverCfg.showStars = false;
       solver.solverCfg.showStarMatches = false;
