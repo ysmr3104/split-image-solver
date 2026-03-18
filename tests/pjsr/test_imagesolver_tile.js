@@ -161,10 +161,8 @@ test("coordThreshDeg=1.0 + 遠方座標で偽陽性フィルタが拒否する",
         scale_est:  effectiveTileScale(tile00Fixture)
     };
     // 遠方の期待座標（+30度ずらし） + 厳しい閾値1度 → 偽陽性フィルタで拒否
-    var farExpected = {
-        ra:  tile00Fixture.ra_hint,
-        dec: tile00Fixture.dec_hint + 30.0
-    };
+    // angularSeparation は [ra, dec] 配列形式を期待する
+    var farExpected = [tile00Fixture.ra_hint, tile00Fixture.dec_hint + 30.0];
     var result = solveSingleTileIS(tile, tileHints, null, farExpected, 1.0);
     assertFalse(result, "遠方座標では偽陽性フィルタにより拒否されること");
 });
