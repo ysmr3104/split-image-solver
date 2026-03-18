@@ -11,6 +11,10 @@
 //   });
 //
 //   runAllTests(PROJECT_ROOT + "tests/pjsr/results/my_result.json");
+//
+// ログ:
+//   runAllTests() 実行後、outputPath と同じディレクトリに
+//   <テスト名>.log が生成される（console.writeln の全出力を含む）
 
 (function() {
 
@@ -18,6 +22,29 @@ var _tests = [];
 var _passed = 0;
 var _failed = 0;
 var _errors = [];
+var _logLines = [];
+
+// console.writeln をオーバーライドして全出力をバッファに蓄積する。
+// SplitImageSolver.js 内の出力も含めて全てキャプチャできる。
+var _origWriteln    = console.writeln;
+var _origWarningln  = console.warningln;
+var _origCriticalln = console.criticalln;
+
+console.writeln = function(msg) {
+    var s = String(msg === undefined ? "" : msg);
+    _logLines.push(s);
+    _origWriteln.call(console, msg);
+};
+console.warningln = function(msg) {
+    var s = "[WARN] " + String(msg === undefined ? "" : msg);
+    _logLines.push(s);
+    _origWarningln.call(console, msg);
+};
+console.criticalln = function(msg) {
+    var s = "[CRIT] " + String(msg === undefined ? "" : msg);
+    _logLines.push(s);
+    _origCriticalln.call(console, msg);
+};
 
 /**
  * テストを登録する
@@ -70,8 +97,9 @@ function assertFalse(val, msg) {
 }
 
 /**
- * 全テストを実行し、結果を JSON ファイルに書き出す
+ * 全テストを実行し、結果を JSON ファイルとログファイルに書き出す
  * @param {string} outputPath  結果JSONファイルのフルパス
+ *                             ログは同ディレクトリに <basename>.log として出力
  */
 function runAllTests(outputPath) {
     _passed = 0;
@@ -118,8 +146,16 @@ function runAllTests(outputPath) {
     f.createForWriting(outputPath);
     f.outText(JSON.stringify(result, null, 2));
     f.close();
-
     console.writeln("Result written to: " + outputPath);
+
+    // ログファイルに全コンソール出力を書き出す
+    var baseName = File.extractName(outputPath);  // e.g. "test_foo_result"
+    var logPath = dir + baseName.replace(/_result$/, "") + ".log";
+    var lf = new File();
+    lf.createForWriting(logPath);
+    lf.outText(_logLines.join("\n"));
+    lf.close();
+    _origWriteln.call(console, "Log written to: " + logPath);
 }
 
 // グローバルに公開

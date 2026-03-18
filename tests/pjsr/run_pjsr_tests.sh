@@ -46,10 +46,12 @@ for SCRIPT_REL in "$@"; do
 
     SCRIPT_NAME="$(basename "$SCRIPT_ABS" .js)"
     RESULT_FILE="${RESULT_DIR}/${SCRIPT_NAME}_result.json"
+    LOG_FILE="${RESULT_DIR}/${SCRIPT_NAME}.log"
 
     echo "=== 実行: $SCRIPT_NAME ==="
     echo "  script: $SCRIPT_ABS"
     echo "  result: $RESULT_FILE"
+    echo "  log:    $LOG_FILE"
 
     # PixInsight を automation-mode で実行
     "$PIXINSIGHT" \
@@ -83,6 +85,14 @@ for e in d.get('errors', []):
     print('    ' + e.get('error','?'))
 " 2>/dev/null || true
         OVERALL_EXIT=1
+    fi
+
+    # ログファイルが存在すれば内容を表示
+    if [ -f "$LOG_FILE" ]; then
+        echo ""
+        echo "--- Console Log ($SCRIPT_NAME) ---"
+        cat "$LOG_FILE"
+        echo "--- End Log ---"
     fi
     echo "==================================="
 done
