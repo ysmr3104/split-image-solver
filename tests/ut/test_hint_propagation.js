@@ -119,8 +119,9 @@ function loadSplitImageSolver() {
         if (line.match(/^\s*#/)) { skipNext = !!line.match(/\\\s*$/); continue; }
         filtered.push(line);
     }
-    code = filtered.join("\n").replace(/\nmain\(\);\s*$/, "");
+    code = filtered.join("\n");
     code = code.replace(/#__FILE__/g, '"' + path.join(jsDir, "SplitImageSolver.js") + '"');
+    ctx.__SPLIT_SOLVER_LIBRARY_MODE = true;
     vm.runInContext(code, ctx);
     return ctx;
 }

@@ -5265,4 +5265,6 @@ function main() {
    dialog.execute();
 }
 
-main();
+if (typeof __SPLIT_SOLVER_LIBRARY_MODE === "undefined" || !__SPLIT_SOLVER_LIBRARY_MODE) {
+   main();
+}
