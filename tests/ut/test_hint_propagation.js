@@ -413,7 +413,7 @@ test("2x2: non-seed tiles receive refined_center from IDW-weighted average of so
     });
 });
 
-test("2x2: WCS-extrapolated tiles get widened scale range (midScale * 0.5 ~ 1.5)", function() {
+test("2x2: WCS-extrapolated tiles get adaptive scale range", function() {
     var tiles = buildMockTiles(f2x2);
     var h = buildHints(f2x2);
     var mock = makeRecordingMock(f2x2);
@@ -426,7 +426,7 @@ test("2x2: WCS-extrapolated tiles get widened scale range (midScale * 0.5 ~ 1.5)
         function(){}, mock,
         function(){return false;}, function(){return false;}, 0);
 
-    // Wave2以降のタイル: scale_lower/upper は midScale * 0.5 / 1.5
+    // Wave2以降のタイル: adaptive margin (fallback=±50% when <3 tiles, narrower when >=3)
     mock.attempts.slice(1).forEach(function(rec) {
         if (rec.solvedBefore.length === 0) return;
         if (!rec.hints.scale_lower || !rec.hints.scale_upper) return;
@@ -436,10 +436,11 @@ test("2x2: WCS-extrapolated tiles get widened scale range (midScale * 0.5 ~ 1.5)
 
         console.log("  " + tag + " scale=[" + rec.hints.scale_lower.toFixed(1) + "-" + rec.hints.scale_upper.toFixed(1) + "]\"/px mid=" + mid.toFixed(1));
 
-        // WCS-extrapolated: lower = mid*0.5, upper = mid*1.5 → ratio = 3.0
+        // Adaptive margin: ratio = (1+m)/(1-m), where m in [0.1, 0.5]
+        // Max ratio (m=0.5): 1.5/0.5 = 3.0, Min ratio (m=0.1): 1.1/0.9 ≈ 1.22
         var ratio = rec.hints.scale_upper / rec.hints.scale_lower;
-        assertTrue(Math.abs(ratio - 3.0) < 0.01,
-            tag + " scale range ratio = 3.0 (midScale*0.5 ~ midScale*1.5)");
+        assertTrue(ratio >= 1.2 && ratio <= 3.01,
+            tag + " scale range ratio in [1.2, 3.0], got " + ratio.toFixed(3));
     });
 });
 

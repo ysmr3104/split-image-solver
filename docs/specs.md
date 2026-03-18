@@ -206,6 +206,17 @@ K=4 の理由: wavefront は4方向（上下左右）に伝播するため直接
   - 絶対範囲: `[median × 0.5, median × 2.0]` でクランプ
 - **タイル不足 (<3)**: `[median × 0.5, median × 2.0]` (固定フォールバック)
 
+**WCS外挿スケールマージンの適応化** (`computeExtrapolateMargin()`):
+
+WCS 外挿ヒントのスケール範囲を、成功タイルのスケール分散に基づいて適応的に調整します:
+
+- `margin = SCALE_EXTRAPOLATE_IQR_FACTOR × (MAD / medianScale)` (IQR_FACTOR=3.0)
+- 下限クランプ: `SCALE_EXTRAPOLATE_MIN_MARGIN` (±30%)
+- 上限クランプ: `SCALE_EXTRAPOLATE_FALLBACK_MARGIN` (±50%)
+- タイル不足 (<3) または medianScale ≤ 0: フォールバック ±50%
+
+スケール分散が安定している場合はマージンを狭めて偽陽性を減らし、分散が大きい場合は従来の ±50% を維持します。
+
 **偽陽性フィルタ** (API / ImageSolver モード):
 
 各タイルのソルブ結果に対して:
@@ -235,12 +246,24 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["各成功タイルに<br/>6×6 グリッドの<br/>制御点を配置"] --> B["ローカル座標 →<br/>フル画像座標に変換<br/>(+offsetX, +offsetY)"]
+    A["各成功タイルに<br/>適応グリッドの<br/>制御点を配置"] --> B["ローカル座標 →<br/>フル画像座標に変換<br/>(+offsetX, +offsetY)"]
     B --> C["タイルWCS で<br/>天球座標を取得<br/>(pixelToRaDecTD)"]
     C --> D["WCSFitter で<br/>統一WCS生成"]
     D --> E["CRVAL + CD行列<br/>+ SIP多項式"]
     D --> F["RMS残差算出<br/>(arcsec)"]
 ```
+
+**制御点密度の適応化** (`computeGridStep()`):
+
+タイル中心の画像中心からの正規化距離 `r` に基づいて、制御点グリッドの密度を動的に調整します:
+
+| 距離 r | グリッドステップ | 制御点数/タイル |
+|--------|-----------------|----------------|
+| r < 0.5 | 5 (CENTER) | 6×6 = 36 |
+| 0.5 ≤ r < 0.75 | 7 (MID) | 8×8 = 64 |
+| r ≥ 0.75 | 9 (EDGE) | 10×10 = 100 |
+
+画像周辺タイルほど投影歪みが大きいため、制御点を密に配置して SplineWorldTransformation の精度を向上させます。
 
 ### 3.7 Step 7: WCS適用 — `applyAndDisplay()`
 
