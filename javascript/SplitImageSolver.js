@@ -1146,14 +1146,22 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThr
       solver.metadata.width = tileWindow.mainView.image.width;
       solver.metadata.height = tileWindow.mainView.image.height;
 
-      // Configure solver: suppress output images, disable distortion correction for tiles
+      // Force local XPSD catalog (Automatic mode picks the best installed catalog,
+      // e.g. GaiaDR3SP_XPSD or GaiaDR3_XPSD, avoiding VizieR dependency)
+      // CatalogMode: LocalText=0, Online=1, Automatic=2, LocalXPSDServer=3
+      solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+      // GaiaDR3SP_XPSD is the spectrophotometric subset (~34M stars, faster).
+      // Falls back gracefully if only the full GaiaDR3_XPSD is installed.
+      solver.solverCfg.catalog = "GaiaDR3SP_XPSD";
+
+      // Configure solver: suppress output images
       solver.solverCfg.showStars = false;
       solver.solverCfg.showStarMatches = false;
       solver.solverCfg.showDistortion = false;
       solver.solverCfg.showSimplifiedSurfaces = false;
       solver.solverCfg.generateErrorImg = false;
       solver.solverCfg.generateDistortModel = false;
-      solver.solverCfg.distortionCorrection = false; // linear WCS only for tiles
+      // Keep distortion correction enabled (wide-angle tiles need it)
 
       // Solve
       if (!solver.SolveImage(tileWindow)) {
