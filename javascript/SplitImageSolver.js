@@ -1357,6 +1357,24 @@ function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, co
 }
 
 //----------------------------------------------------------------------------
+// computeGridStep
+//
+// Returns adaptive grid step size based on tile distance from image center.
+// Used by both solveWavefront and mergeWcsSolutions.
+//----------------------------------------------------------------------------
+function computeGridStep(tileCX, tileCY, imageWidth, imageHeight) {
+   var cx = imageWidth / 2.0;
+   var cy = imageHeight / 2.0;
+   var maxDist = Math.sqrt(cx * cx + cy * cy);
+   if (maxDist <= 0) return GRID_STEP_CENTER;
+   var dx = tileCX - cx;
+   var dy = tileCY - cy;
+   var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
+   if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
+   if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
+   return GRID_STEP_CENTER;
+}
+
 // solveWavefront
 //
 // Wavefront (ripple) tile solving: start from center, expand outward.
@@ -1442,20 +1460,6 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
       if (margin < SCALE_EXTRAPOLATE_MIN_MARGIN) margin = SCALE_EXTRAPOLATE_MIN_MARGIN;
       if (margin > SCALE_EXTRAPOLATE_FALLBACK_MARGIN) margin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
       return margin;
-   };
-
-   // Helper: compute adaptive grid step based on tile distance from image center
-   var computeGridStep = function(tileCX, tileCY, imageWidth, imageHeight) {
-      var cx = imageWidth / 2.0;
-      var cy = imageHeight / 2.0;
-      var maxDist = Math.sqrt(cx * cx + cy * cy);
-      if (maxDist <= 0) return GRID_STEP_CENTER;
-      var dx = tileCX - cx;
-      var dy = tileCY - cy;
-      var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
-      if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
-      if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
-      return GRID_STEP_CENTER;
    };
 
    // Helper: build hint object for API
