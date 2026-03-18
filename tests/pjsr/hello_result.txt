@@ -1,0 +1,3 @@
+=== automation-mode hello world ===
+jsArguments: []
+=== OK ===
