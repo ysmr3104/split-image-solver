@@ -1636,9 +1636,11 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
                   if (tileHints.scale_lower && tileHints.scale_upper) {
                      var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
                      var extraMargin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
-                     if (refinedInfo) {
+                     if (refinedInfo && refinedInfo.medianScale > 0) {
                         extraMargin = computeExtrapolateMargin(
                            refinedInfo.medianScale, refinedInfo.mad, solvedTiles.length);
+                        // Use median of solved scales as center (raw scale, no projection correction)
+                        midScale = refinedInfo.medianScale;
                      }
                      tileHints.scale_lower = midScale * (1.0 - extraMargin);
                      tileHints.scale_upper = midScale * (1.0 + extraMargin);
