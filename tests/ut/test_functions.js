@@ -1276,14 +1276,34 @@ test("validateOverlap: toleranceArcsec のデフォルト値=5 で動作", funct
 // WCSFitter は context 内にあるため、制御点の収集ロジックのみテスト
 //============================================================================
 
+function computeGridStep(tileCX, tileCY, imageWidth, imageHeight) {
+   var GRID_STEP_CENTER = 5;
+   var GRID_STEP_MID    = 7;
+   var GRID_STEP_EDGE   = 9;
+   var GRID_DIST_MID_THRESHOLD  = 0.5;
+   var GRID_DIST_EDGE_THRESHOLD = 0.75;
+   var cx = imageWidth / 2.0;
+   var cy = imageHeight / 2.0;
+   var maxDist = Math.sqrt(cx * cx + cy * cy);
+   if (maxDist <= 0) return GRID_STEP_CENTER;
+   var dx = tileCX - cx;
+   var dy = tileCY - cy;
+   var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
+   if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
+   if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
+   return GRID_STEP_CENTER;
+}
+
 function countControlPoints(tiles, imageWidth, imageHeight) {
-   // mergeWcsSolutions と同じロジックで制御点数をカウント
+   // mergeWcsSolutions と同じロジックで制御点数をカウント（適応グリッド対応）
    var count = 0;
-   var GRID_STEP = 5;
    for (var t = 0; t < tiles.length; t++) {
       if (tiles[t].status !== "success" || !tiles[t].wcs) continue;
-      for (var gy = 0; gy <= GRID_STEP; gy++) {
-         for (var gx = 0; gx <= GRID_STEP; gx++) {
+      var tileCX = tiles[t].offsetX + tiles[t].tileWidth / 2.0;
+      var tileCY = tiles[t].offsetY + tiles[t].tileHeight / 2.0;
+      var gridStep = computeGridStep(tileCX, tileCY, imageWidth, imageHeight);
+      for (var gy = 0; gy <= gridStep; gy++) {
+         for (var gx = 0; gx <= gridStep; gx++) {
             count++;
          }
       }
@@ -1291,15 +1311,16 @@ function countControlPoints(tiles, imageWidth, imageHeight) {
    return count;
 }
 
-test("mergeWcsSolutions 制御点数: 1タイル → 36点 (6x6)", function() {
+test("mergeWcsSolutions 制御点数: 1タイル (r=0.5 → MID 8x8=64点)", function() {
    var tiles = [
       { status: "success", wcs: { crval1: 180, crval2: 45, crpix1: 100, crpix2: 100, cd1_1: -0.001, cd2_2: 0.001 },
         tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 }
    ];
-   assertEqual(countControlPoints(tiles, 2000, 2000), 36, "1 tile = 36 points");
+   // tileCX=500, tileCY=500, imgCenter=(1000,1000), r=sqrt(500^2+500^2)/sqrt(1000^2+1000^2)=0.5 → MID(7) → 8x8=64
+   assertEqual(countControlPoints(tiles, 2000, 2000), 64, "1 tile at r=0.5 = 64 points");
 });
 
-test("mergeWcsSolutions 制御点数: 4タイル → 144点", function() {
+test("mergeWcsSolutions 制御点数: 4タイル (all r=0.5 → 4*64=256点)", function() {
    var wcs = { crval1: 180, crval2: 45, crpix1: 100, crpix2: 100, cd1_1: -0.001, cd2_2: 0.001 };
    var tiles = [
       { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 0 },
@@ -1307,7 +1328,8 @@ test("mergeWcsSolutions 制御点数: 4タイル → 144点", function() {
       { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 1000 },
       { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 1000, offsetY: 1000 }
    ];
-   assertEqual(countControlPoints(tiles, 2000, 2000), 144, "4 tiles = 144 points");
+   // All tile centers at r=0.5 → MID(7) → 64 points each
+   assertEqual(countControlPoints(tiles, 2000, 2000), 256, "4 tiles at r=0.5 = 256 points");
 });
 
 test("mergeWcsSolutions 制御点数: 失敗タイルは除外", function() {
@@ -1317,7 +1339,8 @@ test("mergeWcsSolutions 制御点数: 失敗タイルは除外", function() {
       { status: "failed", wcs: null, tileWidth: 1000, tileHeight: 1000, offsetX: 1000, offsetY: 0 },
       { status: "success", wcs: wcs, tileWidth: 1000, tileHeight: 1000, offsetX: 0, offsetY: 1000 }
    ];
-   assertEqual(countControlPoints(tiles, 2000, 2000), 72, "2 success tiles = 72 points");
+   // 2 success tiles at r=0.5 → 2*64=128
+   assertEqual(countControlPoints(tiles, 2000, 2000), 128, "2 success tiles = 128 points");
 });
 
 test("mergeWcsSolutions 制御点数: 0成功タイル → 0点", function() {
@@ -1383,6 +1406,82 @@ test("validateOverlap: 逸脱タイルが wcs=null になる", function() {
       if (tiles[i].wcs === null) nullWcsCount++;
    }
    assertTrue(nullWcsCount >= 1, "at least one invalidated tile should have wcs=null");
+});
+
+//============================================================================
+// computeExtrapolateMargin: WCS外挿スケールマージン適応化
+//============================================================================
+
+function computeExtrapolateMargin(medianScale, mad, nTiles) {
+   var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.1;
+   var SCALE_EXTRAPOLATE_IQR_FACTOR = 3.0;
+   var SCALE_EXTRAPOLATE_FALLBACK_MARGIN = 0.5;
+   if (nTiles < 3 || medianScale <= 0) return SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
+   var margin = SCALE_EXTRAPOLATE_IQR_FACTOR * (mad / medianScale);
+   if (margin < SCALE_EXTRAPOLATE_MIN_MARGIN) margin = SCALE_EXTRAPOLATE_MIN_MARGIN;
+   if (margin > SCALE_EXTRAPOLATE_FALLBACK_MARGIN) margin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
+   return margin;
+}
+
+test("computeExtrapolateMargin: タイル不足 → fallback 0.5", function() {
+   assertEqual(computeExtrapolateMargin(1.5, 0.05, 2), 0.5, "nTiles<3 returns fallback");
+});
+
+test("computeExtrapolateMargin: medianScale<=0 → fallback 0.5", function() {
+   assertEqual(computeExtrapolateMargin(0, 0.05, 5), 0.5, "medianScale=0 returns fallback");
+});
+
+test("computeExtrapolateMargin: 均一スケール → 最小マージン 0.1", function() {
+   // mad/median very small → margin < MIN → clamped to 0.1
+   var result = computeExtrapolateMargin(1.5, 0.01, 10);
+   // 3.0 * (0.01/1.5) = 0.02 → clamped to 0.1
+   assertEqual(result, 0.1, "uniform scale → min margin 0.1", 0.001);
+});
+
+test("computeExtrapolateMargin: 高分散 → fallback上限 0.5", function() {
+   // mad/median very large → margin > FALLBACK → clamped to 0.5
+   var result = computeExtrapolateMargin(1.5, 1.0, 10);
+   // 3.0 * (1.0/1.5) = 2.0 → clamped to 0.5
+   assertEqual(result, 0.5, "high variance → fallback 0.5", 0.001);
+});
+
+test("computeExtrapolateMargin: 中間分散 → 期待値", function() {
+   // mad/median = 0.075/1.5 = 0.05 → margin = 3.0 * 0.05 = 0.15
+   var result = computeExtrapolateMargin(1.5, 0.075, 10);
+   assertEqual(result, 0.15, "mid variance → 0.15", 0.001);
+});
+
+//============================================================================
+// computeGridStep: 制御点密度の適応化
+//============================================================================
+
+test("computeGridStep: 中心タイル → 5 (CENTER)", function() {
+   // Tile center at image center: r=0
+   assertEqual(computeGridStep(1000, 1000, 2000, 2000), 5, "center tile → 5");
+});
+
+test("computeGridStep: 中間タイル → 7 (MID)", function() {
+   // r=0.5: tileCX=500, tileCY=500, image 2000x2000
+   // dx=-500, dy=-500, dist=707.1, maxDist=1414.2, r=0.5
+   assertEqual(computeGridStep(500, 500, 2000, 2000), 7, "r=0.5 → 7");
+});
+
+test("computeGridStep: 端タイル → 9 (EDGE)", function() {
+   // Tile at corner: tileCX=100, tileCY=100, image 2000x2000
+   // dx=-900, dy=-900, dist=1272.8, maxDist=1414.2, r=0.9
+   assertEqual(computeGridStep(100, 100, 2000, 2000), 9, "corner tile → 9");
+});
+
+test("computeGridStep: 境界値 r>=0.75 → 9 (EDGE)", function() {
+   // tileCX=200, tileCY=200, image 2000x2000
+   // dx=-800, dy=-800, dist=1131.4, maxDist=1414.2, r=0.8 → EDGE
+   assertEqual(computeGridStep(200, 200, 2000, 2000), 9, "r=0.8 → 9");
+});
+
+test("computeGridStep: 境界値 r<0.5 → 5 (CENTER)", function() {
+   // tileCX=800, tileCY=800, image 2000x2000
+   // dx=-200, dy=-200, dist=282.8, maxDist=1414.2, r=0.2
+   assertEqual(computeGridStep(800, 800, 2000, 2000), 5, "r=0.2 → 5");
 });
 
 //============================================================================
