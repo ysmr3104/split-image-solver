@@ -58,6 +58,18 @@ var SCALE_FILTER_ABSOLUTE_HIGH = 3.0;   // absolute upper ratio
 var COORD_DIVERGE_FOV_FACTOR = 0.5;  // coord divergence threshold as fraction of tile FOV
 var COORD_DIVERGE_MIN_DEG    = 0.5;  // minimum threshold to avoid over-rejection (degrees)
 
+// Scale extrapolation margin constants (adaptive WCS-extrapolated scale range)
+var SCALE_EXTRAPOLATE_MIN_MARGIN = 0.1;      // minimum ±10%
+var SCALE_EXTRAPOLATE_IQR_FACTOR = 3.0;      // margin = k * (MAD/median)
+var SCALE_EXTRAPOLATE_FALLBACK_MARGIN = 0.5;  // ±50% fallback
+
+// Adaptive grid step constants for control point density
+var GRID_STEP_CENTER = 5;   // 6x6=36 points (r < 0.5)
+var GRID_STEP_MID    = 7;   // 8x8=64 points (0.5 <= r < 0.75)
+var GRID_STEP_EDGE   = 9;   // 10x10=100 points (r >= 0.75)
+var GRID_DIST_MID_THRESHOLD  = 0.5;
+var GRID_DIST_EDGE_THRESHOLD = 0.75;
+
 //============================================================================
 // Ported utility functions from ManualImageSolver.js
 //============================================================================
@@ -1378,6 +1390,7 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 
       var scaleLow = 0;
       var scaleHigh = 0;
+      var madValue = 0;
       if (medianScale > 0) {
          if (scales.length >= SCALE_FILTER_MIN_TILES) {
             // MAD (Median Absolute Deviation)
@@ -1390,6 +1403,7 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
             // MAD floor
             var madFloor = medianScale * SCALE_FILTER_MIN_MAD_RATIO;
             if (mad < madFloor) mad = madFloor;
+            madValue = mad;
             scaleLow = medianScale - SCALE_FILTER_MAD_K * mad;
             scaleHigh = medianScale + SCALE_FILTER_MAD_K * mad;
             // Clamp to absolute bounds
@@ -1403,7 +1417,30 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
             scaleHigh = medianScale * SCALE_FILTER_FALLBACK_HIGH;
          }
       }
-      return { medianScale: medianScale, scaleLow: scaleLow, scaleHigh: scaleHigh };
+      return { medianScale: medianScale, scaleLow: scaleLow, scaleHigh: scaleHigh, mad: madValue };
+   };
+
+   // Helper: compute adaptive scale margin for WCS-extrapolated hints
+   var computeExtrapolateMargin = function(medianScale, mad, nTiles) {
+      if (nTiles < 3 || medianScale <= 0) return SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
+      var margin = SCALE_EXTRAPOLATE_IQR_FACTOR * (mad / medianScale);
+      if (margin < SCALE_EXTRAPOLATE_MIN_MARGIN) margin = SCALE_EXTRAPOLATE_MIN_MARGIN;
+      if (margin > SCALE_EXTRAPOLATE_FALLBACK_MARGIN) margin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
+      return margin;
+   };
+
+   // Helper: compute adaptive grid step based on tile distance from image center
+   var computeGridStep = function(tileCX, tileCY, imageWidth, imageHeight) {
+      var cx = imageWidth / 2.0;
+      var cy = imageHeight / 2.0;
+      var maxDist = Math.sqrt(cx * cx + cy * cy);
+      if (maxDist <= 0) return GRID_STEP_CENTER;
+      var dx = tileCX - cx;
+      var dy = tileCY - cy;
+      var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
+      if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
+      if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
+      return GRID_STEP_CENTER;
    };
 
    // Helper: build hint object for API
@@ -1595,11 +1632,16 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 
                   tileHints.center_ra = avgRA;
                   tileHints.center_dec = avgDEC;
-                  // Widen scale range for WCS-extrapolated hints (Python 2nd pass: ±50%)
+                  // Adaptive scale range for WCS-extrapolated hints
                   if (tileHints.scale_lower && tileHints.scale_upper) {
                      var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
-                     tileHints.scale_lower = midScale * 0.5;
-                     tileHints.scale_upper = midScale * 1.5;
+                     var extraMargin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
+                     if (refinedInfo) {
+                        extraMargin = computeExtrapolateMargin(
+                           refinedInfo.medianScale, refinedInfo.mad, solvedTiles.length);
+                     }
+                     tileHints.scale_lower = midScale * (1.0 - extraMargin);
+                     tileHints.scale_upper = midScale * (1.0 + extraMargin);
                   }
                   expectedRaDec = [avgRA, avgDEC];
                }
@@ -1707,7 +1749,6 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
    // 1. Collect control points from all successful tiles
    var controlPoints = [];  // [{px, py, ra, dec}]
-   var GRID_STEP = 5;  // 5x5 grid per tile
 
    for (var t = 0; t < tiles.length; t++) {
       if (tiles[t].status !== "success" || !tiles[t].wcs) continue;
@@ -1717,6 +1758,11 @@ function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
       var tileH = tiles[t].tileHeight;
       var offX = tiles[t].offsetX;
       var offY = tiles[t].offsetY;
+
+      // Adaptive grid step based on tile distance from image center
+      var tileCX = offX + tileW / 2.0;
+      var tileCY = offY + tileH / 2.0;
+      var gridStep = computeGridStep(tileCX, tileCY, imageWidth, imageHeight);
 
       // Build WCS object for pixelToRaDec conversion
       // Note: tile.wcs has CRPIX already adjusted to full-image coords
@@ -1737,11 +1783,11 @@ function mergeWcsSolutions(tiles, imageWidth, imageHeight) {
       }
 
       // Generate grid points within tile boundaries
-      for (var gy = 0; gy <= GRID_STEP; gy++) {
-         for (var gx = 0; gx <= GRID_STEP; gx++) {
+      for (var gy = 0; gy <= gridStep; gy++) {
+         for (var gx = 0; gx <= gridStep; gx++) {
             // Local tile pixel coordinates
-            var localPx = gx * (tileW - 1) / GRID_STEP;
-            var localPy = gy * (tileH - 1) / GRID_STEP;
+            var localPx = gx * (tileW - 1) / gridStep;
+            var localPy = gy * (tileH - 1) / gridStep;
 
             // Full image pixel coordinates
             var fullPx = localPx + offX;
