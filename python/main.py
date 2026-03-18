@@ -144,10 +144,7 @@ def _handle_list_equipment(args) -> int:
 
 def _handle_recommend_grid(args) -> int:
     """--recommend-grid: 推奨グリッドサイズをJSON出力"""
-    from utils.coordinate_transform import (
-        LENS_TYPE_TO_PROJECTION,
-        _pixel_radius_to_angle,
-    )
+    from utils.coordinate_transform import LENS_TYPE_TO_PROJECTION
 
     focal_length = args.focal_length
     pixel_pitch = args.pixel_pitch
@@ -178,13 +175,19 @@ def _handle_recommend_grid(args) -> int:
     if image_width and image_height:
         # 対角ピクセル数
         diag_pixels = (image_width**2 + image_height**2) ** 0.5
-        scale_rad = np.radians(pixel_scale / 3600.0)
+        scale_rad = math.radians(pixel_scale / 3600.0)
+        rs = (diag_pixels / 2.0) * scale_rad
 
-        # 投影型に応じた正確な対角FOV計算
-        diag_angle_rad = _pixel_radius_to_angle(
-            diag_pixels / 2.0, scale_rad, projection
-        )
-        diag_fov = np.degrees(diag_angle_rad) * 2.0
+        # 投影型に応じた正確な対角FOV計算 (pixel radius → angle)
+        if projection == "equisolid":
+            diag_angle_rad = 2.0 * math.asin(min(rs / 2.0, 1.0))
+        elif projection == "equidistant":
+            diag_angle_rad = rs
+        elif projection == "stereographic":
+            diag_angle_rad = 2.0 * math.atan(rs / 2.0)
+        else:  # gnomonic
+            diag_angle_rad = math.atan(rs)
+        diag_fov = math.degrees(diag_angle_rad) * 2.0
 
         # 推奨グリッドサイズ（対角FOV基準）
         if diag_fov > 150:
@@ -819,96 +822,35 @@ def main():
                 f"Calculated from FOCALLEN={focal_length}mm: pixel_scale={pixel_scale:.2f} arcsec/pixel"
             )
 
-        # タイルごとの実効スケール・FOV・マージンを計算
-        from utils.coordinate_transform import (
-            pixel_offset_to_radec,
-            calculate_tile_center_offset,
-            calculate_tile_pixel_scale,
-        )
-
-        image_width = image_data.shape[1]
-        image_height = image_data.shape[0]
-        image_center_x = image_width / 2.0
-        image_center_y = image_height / 2.0
-        # 画像コーナーまでの最大距離（マージン計算用）
-        max_r_pixels = np.sqrt(image_center_x**2 + image_center_y**2)
-
+        # タイルごとのFOV・マージン（投影補正なし、均一値を使用）
+        # 投影補正は JS 側 buildTileHints() が --solve-single-tile 呼び出し時に担当
         tile_fov_hints = []
         tile_scale_margins = []
         for sf in split_files:
             region = sf["region"]
-            tile_cx = (region["x_start"] + region["x_end"]) / 2.0
-            tile_cy = (region["y_start"] + region["y_end"]) / 2.0
             tile_w = region["x_end"] - region["x_start"]
             tile_h = region["y_end"] - region["y_start"]
             tile_longer = max(tile_w, tile_h)
 
             if pixel_scale:
-                # タイル位置での実効ピクセルスケール
-                effective_scale = calculate_tile_pixel_scale(
-                    pixel_scale,
-                    tile_cx,
-                    tile_cy,
-                    image_center_x,
-                    image_center_y,
-                    projection=projection,
-                )
-                tile_fov = (effective_scale * tile_longer) / 3600.0  # degrees
+                tile_fov = (pixel_scale * tile_longer) / 3600.0  # degrees
                 tile_fov_hints.append(tile_fov)
-
-                # 中心からの距離に応じた動的マージン: 0.2（中心）〜0.5（コーナー）
-                r_pixels = np.sqrt(
-                    (tile_cx - image_center_x) ** 2 + (tile_cy - image_center_y) ** 2
-                )
-                r_ratio = r_pixels / max_r_pixels if max_r_pixels > 0 else 0
-                tile_margin = 0.2 + 0.3 * r_ratio
-                tile_scale_margins.append(tile_margin)
-
-                logger.info(
-                    f"Tile {region['index']}: effective_scale={effective_scale:.2f}\"/px "
-                    f"(x{effective_scale/pixel_scale:.2f}), FOV={tile_fov:.1f}°, "
-                    f"margin=±{tile_margin:.0%}"
-                )
+                tile_scale_margins.append(0.2)
             else:
                 tile_fov_hints.append(None)
                 tile_scale_margins.append(0.2)
 
-        # RA/DECヒント
+        # RA/DECヒント（投影補正なし、全タイルに画像中心の値を使用）
+        # 投影補正は JS 側 buildTileHints() が --solve-single-tile 呼び出し時に担当
         ra_hint = args.ra  # degrees (画像全体の中心)
         dec_hint = args.dec  # degrees (画像全体の中心)
 
-        # タイルごとのRA/DECヒントを計算
         tile_ra_hints = []
         tile_dec_hints = []
-        if ra_hint is not None and dec_hint is not None and pixel_scale:
-            logger.info(
-                f"Using RA/DEC hint for image center: RA={ra_hint:.2f}°, DEC={dec_hint:+.2f}°"
-            )
-            logger.info(
-                f"Calculating per-tile RA/DEC hints using {projection} projection..."
-            )
-
-            for sf in split_files:
-                offset_x, offset_y = calculate_tile_center_offset(
-                    sf["region"], image_width, image_height
-                )
-                tile_ra, tile_dec = pixel_offset_to_radec(
-                    ra_hint,
-                    dec_hint,
-                    pixel_scale,
-                    offset_x,
-                    offset_y,
-                    projection=projection,
-                )
-                tile_ra_hints.append(tile_ra)
-                tile_dec_hints.append(tile_dec)
-                logger.info(
-                    f"Tile {sf['region']['index']}: "
-                    f"offset=({offset_x:.0f}, {offset_y:.0f})px, "
-                    f"hint=RA={tile_ra:.2f}° DEC={tile_dec:+.2f}°"
-                )
+        if ra_hint is not None and dec_hint is not None:
+            tile_ra_hints = [ra_hint] * len(split_files)
+            tile_dec_hints = [dec_hint] * len(split_files)
         else:
-            # RA/DECヒントなし
             tile_ra_hints = [None] * len(split_files)
             tile_dec_hints = [None] * len(split_files)
 
