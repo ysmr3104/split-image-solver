@@ -1649,9 +1649,25 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
                   if (avgRA < 0) avgRA += 360.0;
                   var avgDEC = Math.atan2(avgZ, Math.sqrt(avgX * avgX + avgY * avgY)) * 180.0 / Math.PI;
 
-                  tileHints.center_ra = avgRA;
-                  tileHints.center_dec = avgDEC;
-                  // Adaptive scale range for WCS-extrapolated hints
+                  // IDW center refinement: require ≥2 solved reference tiles.
+                  // With only 1 tile, TAN-projection extrapolation can introduce 1-2° errors
+                  // for wide-angle lenses (projection center diverges from image center).
+                  // The initial computeTileHints hint (based on global geometry) is more
+                  // reliable in that case, so we keep it and skip the IDW RA/DEC override.
+                  if (useCandidates.length >= 2) {
+                     tileHints.center_ra = avgRA;
+                     tileHints.center_dec = avgDEC;
+                     expectedRaDec = [avgRA, avgDEC];
+                  } else {
+                     // Keep initial hintRA/hintDEC; use them for false-positive filtering too
+                     if (tile.hintRA !== undefined && tile.hintDEC !== undefined) {
+                        expectedRaDec = [tile.hintRA, tile.hintDEC];
+                     } else {
+                        expectedRaDec = [avgRA, avgDEC];
+                     }
+                  }
+
+                  // Adaptive scale range: always refine from actual solved-tile scales
                   if (tileHints.scale_lower && tileHints.scale_upper) {
                      var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
                      var extraMargin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
@@ -1664,7 +1680,6 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
                      tileHints.scale_lower = midScale * (1.0 - extraMargin);
                      tileHints.scale_upper = midScale * (1.0 + extraMargin);
                   }
-                  expectedRaDec = [avgRA, avgDEC];
                }
             }
          }
