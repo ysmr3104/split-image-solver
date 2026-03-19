@@ -31,11 +31,11 @@ var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_solver_is_equidistant_
 var FIXTURE_PATH = PROJECT_ROOT + "tests/fixtures/tile_hints_local_equidistant_12x8.json";
 var TILE_DIR     = PROJECT_ROOT + "tests/fits_downsampling/equidistant_12x8";
 
-// BASELINE: IS 実測値（要キャリブレーション）
+// BASELINE: IS 実測値 (2026-03-19)
 // Local solver (solve-field) baseline: 12/12 (batch_success タイル全成功)
 // Note: equidistant 魚眼は IS と local solver で解が大きく異なる場合があるため
-//       IS standalone では fixture hints で解けないタイルが多い可能性がある
-var BASELINE_MIN_SOLVED = 1;
+//       IS standalone では fixture hints で解けないタイルが多い
+var BASELINE_MIN_SOLVED = 4;
 
 if (!File.exists(FIXTURE_PATH)) {
     console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
@@ -106,7 +106,11 @@ function _runTileSolve(fx, tileDir) {
     for (var j = 0; j < tileResults.length; j++) {
         if (tileResults[j].success) { solved++; }
     }
-    return { tilesTotal: requests.length, tilesSolved: solved, tileResults: tileResults };
+    var ret = { tilesTotal: requests.length, tilesSolved: solved, tileResults: tileResults };
+    var tilesJsonPath = PROJECT_ROOT + "tests/pjsr/results/test_solver_is_equidistant_12x8_tiles.json";
+    var tf = new File(); tf.createForWriting(tilesJsonPath);
+    tf.outText(JSON.stringify(ret, null, 2)); tf.close();
+    return ret;
 }
 
 // ============================================================
