@@ -2989,7 +2989,7 @@ function SplitSolverDialog() {
    this.modeISRadio = new RadioButton(this);
    this.modeISRadio.text = "ImageSolver";
    this.modeISRadio.checked = (this._solveMode === "imagesolver");
-   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver (Single only)";
+   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver";
    this.modeISRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "imagesolver"; updateModeUI(); }
    };
@@ -3524,16 +3524,8 @@ function SplitSolverDialog() {
    gridSizer.add(this.recommendButton);
    gridSizer.addStretch();
 
-   // Note label for ImageSolver mode (Single only)
-   this.gridNoteLabel = new Label(this);
-   this.gridNoteLabel.text = "* ImageSolver (built-in) supports Single mode only. Use API or Local for Split.";
-   this.gridNoteLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
-   this.gridNoteLabel.visible = false;
-
    var gridNoteSizer = new HorizontalSizer;
    gridNoteSizer.spacing = 6;
-   gridNoteSizer.addSpacing(120 + 6);
-   gridNoteSizer.add(this.gridNoteLabel, 100);
 
    var fovSizer = new HorizontalSizer;
    fovSizer.spacing = 6;
@@ -3742,33 +3734,16 @@ function SplitSolverDialog() {
       self.radiusUnitLabel.enabled = isApi;
       self.scaleErrorLabel.enabled = isApi || isLocal;
       self.scaleErrorUnitLabel.enabled = isApi || isLocal;
-      // ImageSolver: Single only (no split support)
-      if (isImageSolver) {
-         self.gridCombo.currentItem = 0; // Force "1x1 (Single)"
-         self.gridCombo.enabled = false;
-         self.recommendButton.visible = false;
-         self.gridNoteLabel.visible = true;
-         self.overlapEdit.enabled = false;
-         self.overlapLabel.enabled = false;
-         self.overlapUnitLabel.enabled = false;
-         self.skipLabel.enabled = false;
-         self.skipTopSpin.enabled = false;
-         self.skipBottomSpin.enabled = false;
-         self.skipLeftSpin.enabled = false;
-         self.skipRightSpin.enabled = false;
-      } else {
-         self.gridCombo.enabled = true;
-         self.recommendButton.visible = true;
-         self.gridNoteLabel.visible = false;
-         self.overlapEdit.enabled = true;
-         self.overlapLabel.enabled = true;
-         self.overlapUnitLabel.enabled = true;
-         self.skipLabel.enabled = true;
-         self.skipTopSpin.enabled = true;
-         self.skipBottomSpin.enabled = true;
-         self.skipLeftSpin.enabled = true;
-         self.skipRightSpin.enabled = true;
-      }
+      self.gridCombo.enabled = true;
+      self.recommendButton.visible = true;
+      self.overlapEdit.enabled = true;
+      self.overlapLabel.enabled = true;
+      self.overlapUnitLabel.enabled = true;
+      self.skipLabel.enabled = true;
+      self.skipTopSpin.enabled = true;
+      self.skipBottomSpin.enabled = true;
+      self.skipLeftSpin.enabled = true;
+      self.skipRightSpin.enabled = true;
       updateScaleAndFov();
       if (typeof updatePreviewGrid === "function") updatePreviewGrid();
    };
