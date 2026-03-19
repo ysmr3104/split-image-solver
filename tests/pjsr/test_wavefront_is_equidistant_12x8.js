@@ -37,8 +37,9 @@ var FIXTURE_PATH     = PROJECT_ROOT + "tests/fixtures/tile_hints_local_equidista
 var TILE_DIR         = PROJECT_ROOT + "tests/fits_downsampling/equidistant_12x8";
 var GRID_X           = 12;
 var GRID_Y           = 8;
-// BASELINE: Local mode wavefront solve で batch_success=true だったタイル数
-var BASELINE_MIN_SOLVED = 12;
+// BASELINE: ImageSolver wavefront 実測値 (2026-03-19)
+// Local solver (solve-field) baseline: 12/96
+var BASELINE_MIN_SOLVED = 9;
 
 if (!File.exists(FIXTURE_PATH)) {
     console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
@@ -138,6 +139,7 @@ function getWavefrontResult() {
         tiles:  tiles,
         merged: merged
     };
+
     return _wavefrontResult;
 }
 

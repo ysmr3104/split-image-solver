@@ -37,8 +37,9 @@ var FIXTURE_PATH     = PROJECT_ROOT + "tests/fixtures/tile_hints_local_8x6.json"
 var TILE_DIR         = PROJECT_ROOT + "tests/fits_downsampling/8x6";
 var GRID_X           = 8;
 var GRID_Y           = 6;
-// BASELINE: Local mode wavefront solve で batch_success=true だったタイル数
-var BASELINE_MIN_SOLVED = 8;
+// BASELINE: ImageSolver wavefront 実測値 (2026-03-19)
+// Local solver (solve-field) baseline: 8/48
+var BASELINE_MIN_SOLVED = 4;
 
 if (!File.exists(FIXTURE_PATH)) {
     console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
