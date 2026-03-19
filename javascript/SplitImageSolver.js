@@ -1146,13 +1146,15 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThr
       solver.metadata.width = tileWindow.mainView.image.width;
       solver.metadata.height = tileWindow.mainView.image.height;
 
-      // Force local XPSD catalog (Automatic mode picks the best installed catalog,
-      // e.g. GaiaDR3SP_XPSD or GaiaDR3_XPSD, avoiding VizieR dependency)
+      // Apply catalog setting from hints (set by user in Settings dialog)
       // CatalogMode: LocalText=0, Online=1, Automatic=2, LocalXPSDServer=3
-      solver.solverCfg.catalogMode = 3; // LocalXPSDServer
-      // GaiaDR3SP_XPSD is the spectrophotometric subset (~34M stars, faster).
-      // Falls back gracefully if only the full GaiaDR3_XPSD is installed.
-      solver.solverCfg.catalog = "GaiaDR3SP_XPSD";
+      var catalogId = tileHints.isCatalog || "auto";
+      if (catalogId === "auto") {
+         solver.solverCfg.catalogMode = 2; // Automatic: PixInsight picks best installed catalog
+      } else {
+         solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+         solver.solverCfg.catalog = catalogId;
+      }
 
       // Configure solver: suppress output images
       solver.solverCfg.showStars = false;
@@ -2227,12 +2229,14 @@ function SolverSettingsDialog(parent) {
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
    var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
    var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
+   var savedIsCatalog = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
    this._saveTiles = (savedSaveTiles === null || savedSaveTiles === undefined) ? false : savedSaveTiles;
+   this._isCatalog = savedIsCatalog || "auto";
    this._tileOutputDir = savedTileOutputDir || "";
 
    // ---- Solve Mode ----
@@ -2368,6 +2372,45 @@ function SolverSettingsDialog(parent) {
    localGroup.sizer.add(pythonSizer);
    localGroup.sizer.add(scriptDirSizer);
 
+   // ---- ImageSolver Settings ----
+   var isGroup = new GroupBox(this);
+   isGroup.title = "ImageSolver Settings";
+
+   var catalogLabel = new Label(isGroup);
+   catalogLabel.text = "Catalog:";
+   catalogLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   catalogLabel.setFixedWidth(120);
+
+   this.catalogCombo = new ComboBox(isGroup);
+   this.catalogCombo.addItem("自動 (Automatic)");
+   this.catalogCombo.addItem("Gaia DR3/SP XPSD  (~220M stars, recommended)");
+   this.catalogCombo.addItem("Gaia DR3 XPSD     (~1.8B stars, full)");
+   this.catalogCombo.addItem("Gaia EDR3 XPSD    (~1.8B stars)");
+   this.catalogCombo.addItem("Gaia DR2 XPSD     (~1.7B stars)");
+   var _catalogIds = ["auto", "GaiaDR3SP_XPSD", "GaiaDR3_XPSD", "GaiaEDR3_XPSD", "GaiaDR2_XPSD"];
+   var _catalogInitIdx = 0;
+   for (var _ci = 0; _ci < _catalogIds.length; _ci++) {
+      if (_catalogIds[_ci] === d._isCatalog) { _catalogInitIdx = _ci; break; }
+   }
+   this.catalogCombo.currentItem = _catalogInitIdx;
+   this.catalogCombo.toolTip =
+      "自動: PixInsight がインストール済みの最良カタログを自動選択します。\n" +
+      "Gaia DR3/SP XPSD: スペクトル測光サブセット（約2.2億星）。速度重視。\n" +
+      "Gaia DR3 XPSD: フル版（約18億星）。星密度の高い領域に有効。\n" +
+      "GaiaDR3SP_XPSD・GaiaDR3_XPSD は PixInsight の Gaia プロセスが必要です。";
+
+   var catalogSizer = new HorizontalSizer;
+   catalogSizer.spacing = 4;
+   catalogSizer.add(catalogLabel);
+   catalogSizer.add(this.catalogCombo, 100);
+
+   isGroup.sizer = new VerticalSizer;
+   isGroup.sizer.margin = 6;
+   isGroup.sizer.spacing = 4;
+   isGroup.sizer.add(catalogSizer);
+
+   this._catalogIds = _catalogIds;
+
    // ---- Tile Output Settings ----
    var tileGroup = new GroupBox(this);
    tileGroup.title = "Tile Output";
@@ -2444,6 +2487,7 @@ function SolverSettingsDialog(parent) {
    this.sizer.add(modeGroup);
    this.sizer.add(apiGroup);
    this.sizer.add(localGroup);
+   this.sizer.add(isGroup);
    this.sizer.add(tileGroup);
    this.sizer.addSpacing(4);
    this.sizer.add(btnSizer);
@@ -2461,6 +2505,7 @@ SolverSettingsDialog.prototype.getSettings = function() {
    var scriptDir = this.scriptDirEdit.text.trim();
    var saveTiles = this.saveTilesCheck.checked;
    var tileOutputDir = this.tileOutputDirEdit.text.trim();
+   var isCatalog = this._catalogIds[this.catalogCombo.currentItem] || "auto";
 
    Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
    Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
@@ -2468,6 +2513,7 @@ SolverSettingsDialog.prototype.getSettings = function() {
    Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
    Settings.write(SETTINGS_KEY + "/saveTiles", DataType_Boolean, saveTiles);
    Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType_String, tileOutputDir);
+   Settings.write(SETTINGS_KEY + "/isCatalog", DataType_String, isCatalog);
 
    return {
       solveMode: mode,
@@ -2475,7 +2521,8 @@ SolverSettingsDialog.prototype.getSettings = function() {
       pythonPath: pythonPath,
       scriptDir: scriptDir,
       saveTiles: saveTiles,
-      tileOutputDir: tileOutputDir
+      tileOutputDir: tileOutputDir,
+      isCatalog: isCatalog
    };
 };
 
@@ -2954,6 +3001,7 @@ function SplitSolverDialog() {
    var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
    var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
    var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
+   var savedIsCatalog2 = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
@@ -2961,6 +3009,7 @@ function SplitSolverDialog() {
    this._scriptDir = savedScriptDir || "";
    this._saveTiles = (savedSaveTiles2 === null || savedSaveTiles2 === undefined) ? false : savedSaveTiles2;
    this._tileOutputDir = savedTileOutputDir2 || "";
+   this._isCatalog = savedIsCatalog2 || "auto";
 
    // ---- Target image ----
    var targetWindow = ImageWindow.activeWindow;
@@ -3772,6 +3821,7 @@ function SplitSolverDialog() {
          self._scriptDir = s.scriptDir;
          self._saveTiles = s.saveTiles;
          self._tileOutputDir = s.tileOutputDir;
+         self._isCatalog = s.isCatalog;
          // Reflect default mode from Settings onto radio buttons (only if changed)
          if (s.solveMode !== self._solveMode) {
             self._solveMode = s.solveMode;
@@ -4142,7 +4192,16 @@ SplitSolverDialog.prototype.doSolve = function() {
    console.writeln("========================================");
    console.writeln("Solve Parameters");
    console.writeln("========================================");
+   // Pass catalog selection to hints (used by solveSingleTileIS and doSingleSolveIS)
+   if (solveMode === "imagesolver") {
+      hints.isCatalog = this._isCatalog || "auto";
+   }
+
    console.writeln("  Solve mode:  " + (solveMode === "local" ? "Local (solve-field)" : solveMode === "imagesolver" ? "ImageSolver (built-in)" : "API (astrometry.net)"));
+   if (solveMode === "imagesolver") {
+      var _catLabel = hints.isCatalog === "auto" ? "自動 (Automatic)" : hints.isCatalog;
+      console.writeln("  Catalog:     " + _catLabel);
+   }
    console.writeln("  Target:      " + targetWindow.mainView.id + " (" + imageWidth + "x" + imageHeight + ")");
    console.writeln("  Camera:      " + this.cameraCombo.itemText(this.cameraCombo.currentItem));
    console.writeln("  Lens:        " + this.lensCombo.itemText(this.lensCombo.currentItem));
@@ -4382,6 +4441,15 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       solver.solverCfg.showSimplifiedSurfaces = false;
       solver.solverCfg.generateErrorImg = false;
       solver.solverCfg.generateDistortModel = false;
+
+      // Apply catalog setting
+      var singleCatalogId = hints.isCatalog || "auto";
+      if (singleCatalogId === "auto") {
+         solver.solverCfg.catalogMode = 2; // Automatic
+      } else {
+         solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+         solver.solverCfg.catalog = singleCatalogId;
+      }
 
       // Solve
       this.progressLabel.text = "ImageSolver: detecting stars and matching catalog...";
