@@ -70,6 +70,9 @@ node tests/it/api/test_wavefront_equidistant_12x8.js
 
 # IT-Solver IS（PixInsight + ImageSolver 必要、手動実行専用）
 bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equidistant_12x8.js
 
 # IT-Wavefront IS（PixInsight + ImageSolver 必要、手動実行専用）
 bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_2x2.js
