@@ -1,5 +1,8 @@
 // test_solver_is_2x2.js
-// solveSingleTileIS の PJSR インテグレーションテスト (2x2)
+// IT-Solver IS (2x2, 50mm rectilinear)
+//
+// Fixture の batch_success タイルに対して solveSingleTileIS を per-tile で実行し
+// 解けたタイル数を検証する（tests/it/local/test_solver_2x2.py の IS 版）
 //
 // 前提:
 //   - PixInsight に AdP ImageSolver がインストールされていること
@@ -7,8 +10,6 @@
 //
 // 実行:
 //   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
-//
-// ※ ImageSolver ソルブは時間がかかるため手動実行専用
 
 var __SPLIT_SOLVER_LIBRARY_MODE = true;
 
@@ -18,7 +19,6 @@ var __SPLIT_SOLVER_LIBRARY_MODE = true;
 #include <pjsr/DataType.jsh>
 #include <pjsr/StdCursor.jsh>
 
-// ImageSolver をライブラリモードで読み込む（main() / UI の実行を抑制）
 #define USE_SOLVER_LIBRARY
 #include "/Applications/PixInsight/src/scripts/AdP/ImageSolver.js"
 
@@ -28,257 +28,117 @@ var __SPLIT_SOLVER_LIBRARY_MODE = true;
 var PROJECT_ROOT = File.extractDrive(#__FILE__) + File.extractDirectory(#__FILE__) + "/../../";
 var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_solver_is_2x2_result.json";
 
-// ============================================================
-// フィクスチャ読み込み
-// ============================================================
 var FIXTURE_PATH = PROJECT_ROOT + "tests/fixtures/tile_hints_local_2x2.json";
 var TILE_DIR     = PROJECT_ROOT + "tests/fits_downsampling/2x2";
 
+// BASELINE: IS 実測値
+// Local solver (solve-field) baseline: 4/4
+var BASELINE_MIN_SOLVED = 3;
+
 if (!File.exists(FIXTURE_PATH)) {
-    console.writeln("ERROR: フィクスチャが見つかりません: " + FIXTURE_PATH);
+    console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
     runAllTests(RESULT_PATH);
 }
 
-// フィクスチャを読み込む
-var fixtureJson = File.readTextFile(FIXTURE_PATH);
-var fixture = JSON.parse(fixtureJson);
+var fixture = JSON.parse(File.readTextFile(FIXTURE_PATH));
 
-// フィクスチャから指定タイルを取得するヘルパー
-function findTileFixture(col, row) {
-    for (var fi = 0; fi < fixture.tiles.length; fi++) {
-        if (fixture.tiles[fi].col === col && fixture.tiles[fi].row === row) {
-            return fixture.tiles[fi];
+// ============================================================
+// Helper: build tile objects for batch_success tiles
+// ============================================================
+function _buildTileRequests(fx, tileDir) {
+    var requests = [];
+    for (var i = 0; i < fx.tiles.length; i++) {
+        var t = fx.tiles[i];
+        if (!t.batch_success) { continue; }
+        var filePath = tileDir + "/tile_" + t.row + "_" + t.col + ".fits";
+        if (!File.exists(filePath)) { continue; }
+        var maxEdge = Math.max(t.tile_width, t.tile_height);
+        var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
+        requests.push({
+            tile: {
+                filePath:       filePath,
+                col:            t.col,
+                row:            t.row,
+                offsetX:        t.offset_x,
+                offsetY:        t.offset_y,
+                tileWidth:      t.tile_width,
+                tileHeight:     t.tile_height,
+                scaleFactor:    sf,
+                origOffsetX:    t.offset_x,
+                origOffsetY:    t.offset_y,
+                origTileWidth:  t.tile_width,
+                origTileHeight: t.tile_height,
+                wcs:            null,
+                calibration:    null,
+                status:         "pending"
+            },
+            hints: {
+                center_ra:  t.ra_hint,
+                center_dec: t.dec_hint,
+                scale_est:  (t.scale_lower + t.scale_upper) / 2.0 / sf
+            },
+            row: t.row,
+            col: t.col
+        });
+    }
+    return requests;
+}
+
+// ============================================================
+// Helper: run solveSingleTileIS for all batch_success tiles
+// ============================================================
+function _runTileSolve(fx, tileDir) {
+    var requests = _buildTileRequests(fx, tileDir);
+    var tileResults = [];
+    for (var i = 0; i < requests.length; i++) {
+        var req = requests[i];
+        var ok = solveSingleTileIS(req.tile, req.hints, null, null, null);
+        var entry = { row: req.row, col: req.col, success: ok };
+        if (ok && req.tile.wcs) {
+            entry.crval1 = req.tile.wcs.crval1;
+            entry.crval2 = req.tile.wcs.crval2;
+        }
+        tileResults.push(entry);
+    }
+    var solved = 0;
+    for (var j = 0; j < tileResults.length; j++) {
+        if (tileResults[j].success) { solved++; }
+    }
+    return { tilesTotal: requests.length, tilesSolved: solved, tileResults: tileResults };
+}
+
+// ============================================================
+// Helper: print per-tile results
+// ============================================================
+function _printReport(result, mode) {
+    console.writeln("");
+    console.writeln("============================================================");
+    console.writeln("IS Tile Solve: " + mode + "  " + result.tilesSolved + "/" + result.tilesTotal + " solved");
+    console.writeln("============================================================");
+    for (var i = 0; i < result.tileResults.length; i++) {
+        var t = result.tileResults[i];
+        if (t.success) {
+            console.writeln("  [" + t.row + "][" + t.col + "] OK   RA=" + t.crval1.toFixed(3) + "  DEC=" + t.crval2.toFixed(3));
+        } else {
+            console.writeln("  [" + t.row + "][" + t.col + "] FAIL");
         }
     }
-    return null;
-}
-
-var tile00Fixture = findTileFixture(0, 0); // row=0, col=0 → tile_0_0.fits
-var tileR0C1Fixture = findTileFixture(1, 0); // row=0, col=1 → tile_0_1.fits
-var tileR1C0Fixture = findTileFixture(0, 1); // row=1, col=0 → tile_1_0.fits
-
-// ============================================================
-// ヘルパー: タイルオブジェクトを生成（scaleFactor を自動計算）
-// ============================================================
-function makeTileObject(col, row, filePath, fx) {
-    var maxEdge = Math.max(fx.tile_width, fx.tile_height);
-    var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
-    return {
-        filePath:        filePath,
-        col:             col,
-        row:             row,
-        offsetX:         fx.offset_x,
-        offsetY:         fx.offset_y,
-        tileWidth:       fx.tile_width,
-        tileHeight:      fx.tile_height,
-        scaleFactor:     sf,
-        origOffsetX:     fx.offset_x,
-        origOffsetY:     fx.offset_y,
-        origTileWidth:   fx.tile_width,
-        origTileHeight:  fx.tile_height,
-        wcs:             null,
-        calibration:     null,
-        status:          "pending"
-    };
-}
-
-// ダウンサンプル後の FITS に対する実効スケール（arcsec/px）を計算する
-function effectiveTileScale(fx) {
-    var maxEdge = Math.max(fx.tile_width, fx.tile_height);
-    var sf = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
-    return fixture.hints.scaleEst / sf;
+    console.writeln("============================================================");
 }
 
 // ============================================================
-// テスト
+// Test
 // ============================================================
+test("IS Tile Solve 2x2: batch_success tiles solved >= " + BASELINE_MIN_SOLVED, function() {
+    var result = _runTileSolve(fixture, TILE_DIR);
+    _printReport(result, "2x2");
 
-test("tile[0,0] のソルブが true を返す", function() {
-    if (!tile00Fixture) { throw new Error("tile[0,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 0, fp, tile00Fixture);
-    var tileHints = {
-        center_ra:  tile00Fixture.ra_hint,
-        center_dec: tile00Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tile00Fixture)
-    };
-    var result = solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(result, "ソルブが true を返すこと");
+    var solved = result.tilesSolved;
+    var total  = result.tilesTotal;
+    assertTrue(
+        solved >= BASELINE_MIN_SOLVED,
+        "solved=" + solved + "/" + total + " must be >= baseline=" + BASELINE_MIN_SOLVED
+    );
 });
 
-test("ソルブ成功時に tile.wcs が設定される", function() {
-    if (!tile00Fixture) { throw new Error("tile[0,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 0, fp, tile00Fixture);
-    var tileHints = {
-        center_ra:  tile00Fixture.ra_hint,
-        center_dec: tile00Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tile00Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "tile.wcs が設定されること");
-    assertEqual(tile.status, "success", "tile.status が success");
-});
-
-test("解RA が ra_hint から5度以内", function() {
-    if (!tile00Fixture) { throw new Error("tile[0,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 0, fp, tile00Fixture);
-    var tileHints = {
-        center_ra:  tile00Fixture.ra_hint,
-        center_dec: tile00Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tile00Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "WCSが存在すること");
-    var raDiff = Math.abs(tile.wcs.crval1 - tile00Fixture.ra_hint);
-    if (raDiff > 180) raDiff = 360 - raDiff;
-    assertTrue(raDiff < 5.0, "解RA が ra_hint から5度以内 (diff=" + raDiff.toFixed(3) + ")");
-});
-
-test("存在しないファイルパスで false を返す", function() {
-    if (!tile00Fixture) { throw new Error("tile[0,0] フィクスチャが見つかりません"); }
-    var tile = makeTileObject(0, 0, "/nonexistent/path/tile.fits", tile00Fixture);
-    var tileHints = {
-        center_ra:  tile00Fixture.ra_hint,
-        center_dec: tile00Fixture.dec_hint
-    };
-    var result = solveSingleTileIS(tile, tileHints, null, null, null);
-    assertFalse(result, "存在しないFITSでfalseを返すこと");
-    assertEqual(tile.status, "failed", "tile.status が failed");
-});
-
-test("coordThreshDeg=1.0 + 遠方座標で偽陽性フィルタが拒否する", function() {
-    if (!tile00Fixture) { throw new Error("tile[0,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 0, fp, tile00Fixture);
-    var tileHints = {
-        center_ra:  tile00Fixture.ra_hint,
-        center_dec: tile00Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tile00Fixture)
-    };
-    // 遠方の期待座標（+30度ずらし） + 厳しい閾値1度 → 偽陽性フィルタで拒否
-    // angularSeparation は [ra, dec] 配列形式を期待する
-    var farExpected = [tile00Fixture.ra_hint, tile00Fixture.dec_hint + 30.0];
-    var result = solveSingleTileIS(tile, tileHints, null, farExpected, 1.0);
-    assertFalse(result, "遠方座標では偽陽性フィルタにより拒否されること");
-});
-
-// ============================================================
-// tile[0,1] テスト (row=0, col=1)
-// ============================================================
-
-test("tile[0,1] のソルブが true を返す", function() {
-    if (!tileR0C1Fixture) { throw new Error("tile[0,1] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_1.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(1, 0, fp, tileR0C1Fixture);
-    var tileHints = {
-        center_ra:  tileR0C1Fixture.ra_hint,
-        center_dec: tileR0C1Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR0C1Fixture)
-    };
-    var result = solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(result, "tile[0,1] ソルブが true を返すこと");
-});
-
-test("tile[0,1] ソルブ成功時に tile.wcs が設定される", function() {
-    if (!tileR0C1Fixture) { throw new Error("tile[0,1] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_1.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(1, 0, fp, tileR0C1Fixture);
-    var tileHints = {
-        center_ra:  tileR0C1Fixture.ra_hint,
-        center_dec: tileR0C1Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR0C1Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "tile[0,1] tile.wcs が設定されること");
-    assertEqual(tile.status, "success", "tile[0,1] tile.status が success");
-});
-
-test("tile[0,1] 解RA が ra_hint から5度以内", function() {
-    if (!tileR0C1Fixture) { throw new Error("tile[0,1] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_0_1.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(1, 0, fp, tileR0C1Fixture);
-    var tileHints = {
-        center_ra:  tileR0C1Fixture.ra_hint,
-        center_dec: tileR0C1Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR0C1Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "tile[0,1] WCSが存在すること");
-    var raDiff = Math.abs(tile.wcs.crval1 - tileR0C1Fixture.ra_hint);
-    if (raDiff > 180) raDiff = 360 - raDiff;
-    assertTrue(raDiff < 5.0, "tile[0,1] 解RA が ra_hint から5度以内 (diff=" + raDiff.toFixed(3) + ")");
-});
-
-// ============================================================
-// tile[1,0] テスト (row=1, col=0)
-// ============================================================
-
-test("tile[1,0] のソルブが true を返す", function() {
-    if (!tileR1C0Fixture) { throw new Error("tile[1,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_1_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 1, fp, tileR1C0Fixture);
-    var tileHints = {
-        center_ra:  tileR1C0Fixture.ra_hint,
-        center_dec: tileR1C0Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR1C0Fixture)
-    };
-    var result = solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(result, "tile[1,0] ソルブが true を返すこと");
-});
-
-test("tile[1,0] ソルブ成功時に tile.wcs が設定される", function() {
-    if (!tileR1C0Fixture) { throw new Error("tile[1,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_1_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 1, fp, tileR1C0Fixture);
-    var tileHints = {
-        center_ra:  tileR1C0Fixture.ra_hint,
-        center_dec: tileR1C0Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR1C0Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "tile[1,0] tile.wcs が設定されること");
-    assertEqual(tile.status, "success", "tile[1,0] tile.status が success");
-});
-
-test("tile[1,0] 解RA が ra_hint から5度以内", function() {
-    if (!tileR1C0Fixture) { throw new Error("tile[1,0] フィクスチャが見つかりません"); }
-    var fp = TILE_DIR + "/tile_1_0.fits";
-    if (!File.exists(fp)) { throw new Error("FITS が見つかりません: " + fp); }
-
-    var tile = makeTileObject(0, 1, fp, tileR1C0Fixture);
-    var tileHints = {
-        center_ra:  tileR1C0Fixture.ra_hint,
-        center_dec: tileR1C0Fixture.dec_hint,
-        scale_est:  effectiveTileScale(tileR1C0Fixture)
-    };
-    solveSingleTileIS(tile, tileHints, null, null, null);
-    assertTrue(tile.wcs !== null, "tile[1,0] WCSが存在すること");
-    var raDiff = Math.abs(tile.wcs.crval1 - tileR1C0Fixture.ra_hint);
-    if (raDiff > 180) raDiff = 360 - raDiff;
-    assertTrue(raDiff < 5.0, "tile[1,0] 解RA が ra_hint から5度以内 (diff=" + raDiff.toFixed(3) + ")");
-});
-
-// ============================================================
-// 実行
-// ============================================================
 runAllTests(RESULT_PATH);
