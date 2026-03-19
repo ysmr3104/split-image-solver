@@ -40,7 +40,7 @@ Split Image Solver は、広角星野写真をタイルに分割してプレー�
 node tests/ut/test_functions.js
 node tests/ut/test_hint_propagation.js
 node tests/ut/test_api_regression.js
-PYTHONPATH="." .venv/bin/pytest tests/python/test_coordinate_transform.py -v
+PYTHONPATH="." .venv/bin/pytest tests/ut/ -v
 
 # IT-Solver（solve-field + タイル FITS 必要）
 PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_2x2.py -v -s
