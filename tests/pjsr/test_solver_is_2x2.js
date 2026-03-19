@@ -1,12 +1,12 @@
-// test_imagesolver_tile.js
-// solveSingleTileIS の PJSR インテグレーションテスト
+// test_solver_is_2x2.js
+// solveSingleTileIS の PJSR インテグレーションテスト (2x2)
 //
 // 前提:
 //   - PixInsight に AdP ImageSolver がインストールされていること
 //   - tests/fits_downsampling/2x2/ に tile FITS が存在すること
 //
 // 実行:
-//   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_imagesolver_tile.js
+//   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
 //
 // ※ ImageSolver ソルブは時間がかかるため手動実行専用
 
@@ -26,7 +26,7 @@ var __SPLIT_SOLVER_LIBRARY_MODE = true;
 #include "pjsr_test_framework.js"
 
 var PROJECT_ROOT = File.extractDrive(#__FILE__) + File.extractDirectory(#__FILE__) + "/../../";
-var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_imagesolver_tile_result.json";
+var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_solver_is_2x2_result.json";
 
 // ============================================================
 // フィクスチャ読み込み

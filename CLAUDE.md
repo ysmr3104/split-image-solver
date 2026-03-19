@@ -15,6 +15,8 @@ Split Image Solver は、広角星野写真をタイルに分割してプレー�
 | UT | ユニットテスト | 純粋関数の数学的正しさ。外部依存なし | Node.js / pytest |
 | IT-Solver | インテグレーションテスト Solver | 正しいヒントを与えて per-tile ソルブの動作確認 | solve-field 必要 |
 | IT-Wavefront | インテグレーションテスト Wavefront | wavefront パイプライン全体の性能ゲート | solve-field 必要 |
+| IT-Solver IS | インテグレーションテスト Solver (ImageSolver) | per-tile IS ソルブの動作確認 | PixInsight 必要（手動） |
+| IT-Wavefront IS | インテグレーションテスト Wavefront (ImageSolver) | IS wavefront パイプライン全体の性能ゲート | PixInsight 必要（手動） |
 | E2E | E2Eテスト | PixInsight GUI から全パイプライン | PixInsight 必要（手動） |
 
 ### テスト実施ルール
@@ -65,6 +67,15 @@ node tests/it/api/test_wavefront_2x2.js
 node tests/it/api/test_wavefront_8x6.js
 node tests/it/api/test_wavefront_equisolid_8x6.js
 node tests/it/api/test_wavefront_equidistant_12x8.js
+
+# IT-Solver IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
+
+# IT-Wavefront IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equidistant_12x8.js
 
 # リリースビルド
 bash build-split-release.sh

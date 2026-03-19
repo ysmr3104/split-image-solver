@@ -1,16 +1,16 @@
-// test_wavefront_imagesolver.js
-// Wavefront grid E2E test using ImageSolver (2x2)
+// test_wavefront_is_equidistant_12x8.js
+// Wavefront grid test using ImageSolver (12x8, AstrHori 6.5mm equidistant fisheye)
 //
 // Prerequisites:
 //   - AdP ImageSolver must be installed in PixInsight
-//   - Tile FITS files must exist in tests/fits_downsampling/2x2/
+//   - Tile FITS files must exist in tests/fits_downsampling/equidistant_12x8/
 //
 // Test strategy:
 //   Bypass UI-dependent doSplitSolveCore and call standalone functions directly:
 //     buildTilesFromFixture -> computeTileHints -> solveWavefront -> mergeWcsSolutions
 //
 // Run:
-//   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_imagesolver.js
+//   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equidistant_12x8.js
 
 var __SPLIT_SOLVER_LIBRARY_MODE = true;
 
@@ -28,16 +28,17 @@ var __SPLIT_SOLVER_LIBRARY_MODE = true;
 #include "pjsr_test_framework.js"
 
 var PROJECT_ROOT = File.extractDrive(#__FILE__) + File.extractDirectory(#__FILE__) + "/../../";
-var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_wavefront_imagesolver_result.json";
+var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_wavefront_is_equidistant_12x8_result.json";
 
 // ============================================================
 // Fixture and configuration
 // ============================================================
-var FIXTURE_PATH     = PROJECT_ROOT + "tests/fixtures/tile_hints_local_2x2.json";
-var TILE_DIR         = PROJECT_ROOT + "tests/fits_downsampling/2x2";
-// BASELINE: ImageSolver + GaiaDR3SP_XPSD + wavefront (IDW fix + correct FITS paths)
-// consistently solves all 4 tiles of this 2x2 wide-angle image.
-var BASELINE_MIN_SOLVED = 4;
+var FIXTURE_PATH     = PROJECT_ROOT + "tests/fixtures/tile_hints_local_equidistant_12x8.json";
+var TILE_DIR         = PROJECT_ROOT + "tests/fits_downsampling/equidistant_12x8";
+var GRID_X           = 12;
+var GRID_Y           = 8;
+// BASELINE: Local mode wavefront solve で batch_success=true だったタイル数
+var BASELINE_MIN_SOLVED = 12;
 
 if (!File.exists(FIXTURE_PATH)) {
     console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
@@ -95,7 +96,7 @@ function getWavefrontResult() {
         center_dec:   fh.centerDEC,
         scale_est:    fh.scaleEst,
         _nativeScale: fh.scaleEst,
-        _projection:  fh.projection || "rectilinear"
+        _projection:  fh.projection || "equidistant"
     };
 
     // Apply computeTileHints (overridden by fixture values below)
@@ -123,7 +124,7 @@ function getWavefrontResult() {
         hints,
         fixture.imageWidth,
         fixture.imageHeight,
-        2, 2,              // gridX, gridY
+        GRID_X, GRID_Y,
         null,              // progressCallback
         solveSingleTileIS, // tileSolverFn
         function() { return false; }, // abortCheckFn
@@ -144,7 +145,7 @@ function getWavefrontResult() {
 // Tests
 // ============================================================
 
-test("wavefront 2x2: solved tile count >= baseline (" + BASELINE_MIN_SOLVED + ")", function() {
+test("wavefront equidistant_12x8: solved tile count >= baseline (" + BASELINE_MIN_SOLVED + ")", function() {
     var r = getWavefrontResult();
     var solved = 0;
     for (var i = 0; i < r.tiles.length; i++) {
@@ -165,11 +166,6 @@ test("mergeWcsSolutions returns non-null WCS result with crval and cd matrix", f
 test("WCS RMS is defined and within expected range for wide-angle multi-tile", function() {
     var r = getWavefrontResult();
     assertTrue(r.merged !== null, "mergeWcsSolutions result must not be null");
-    // For a ~20°x14° wide-angle image, the linear WCS fitting residual from
-    // 4 independent tile TAN-WCS solutions can be ~500-1000 arcsec due to the
-    // gnomonic projection approximation error across a wide field.
-    // This is expected and handled by SplineWorldTransformation in production.
-    // We only check that RMS is defined and within a reasonable sanity bound.
     if (typeof r.merged.rms_arcsec === "number") {
         assertTrue(r.merged.rms_arcsec < 3600,
             "WCS RMS=" + r.merged.rms_arcsec.toFixed(2) + "arcsec must be < 3600arcsec (1 degree)");
