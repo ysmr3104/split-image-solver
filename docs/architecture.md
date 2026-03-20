@@ -24,7 +24,7 @@ split-image-solver/
 
 - **API mode** (default): PJSR only. Communicates with astrometry.net API via ExternalProcess + curl. No Python required.
 - **Local mode**: PJSR calls Python `main.py` via ExternalProcess. Uses local solve-field for solving.
-- **ImageSolver mode**: PJSR uses PixInsight's built-in ImageSolver via `imagesolver_bridge.jsh`. Single (1x1) mode only — split solving is not supported because individual tiles from wide-angle images cannot be reliably solved by ImageSolver.
+- **ImageSolver mode**: PJSR uses PixInsight's built-in ImageSolver via `imagesolver_bridge.jsh`. Supports both Single (1x1) and Grid (NxM) modes. Overlap validation is skipped in this mode because the linear CD-matrix WCS (no SIP) produced by ImageSolver diverges significantly at tile boundaries for wide-angle lenses.
 
 ## Processing Pipeline
 
@@ -52,12 +52,19 @@ split-image-solver/
 4. Parse result JSON (`--result-file`) to get `wcs_keywords` and `tile_grid`
 5. Apply FITS keywords + PCL:AstrometricSolution properties to image + `regenerateAstrometricSolution()`
 
-### ImageSolver Mode — Single Image Only
+### ImageSolver Mode — Single / Split Solve
 
+**Single (1x1):**
 1. Create temporary ImageSolver instance via `imagesolver_bridge.jsh`
 2. Configure solver parameters (focal length, pixel pitch, RA/DEC hints)
 3. Execute ImageSolver on the active image
 4. Apply WCS + PCL:AstrometricSolution properties to image
+
+**Grid (NxM):**
+1–2. Same tile split and wavefront solve pipeline as API/Local mode
+3. Per-tile: `solveSingleTileIS` — ImageSolver instance per tile; extracts linear CD matrix WCS via `extractWcsFromMetadata`
+4. Overlap validation is **skipped** (linear WCS cannot model wide-angle lens distortion at tile boundaries)
+5. Collect control points from solved tiles → generate unified WCS via WCSFitter
 
 ## Key Modules
 
