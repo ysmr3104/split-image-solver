@@ -150,7 +150,7 @@ Settings are persisted. The script will automatically start in Local mode on sub
 ## Notes
 
 - In Local mode, Downsample / SIP Order / Timeout / Radius / Scale Error are grayed out (handled automatically by Python)
-- In ImageSolver mode, Grid is restricted to Single (1x1) only. Split solving is not supported because individual tiles from wide-angle images cannot be reliably solved by the built-in ImageSolver
+- In ImageSolver mode, Grid (NxM) solve is supported. Note that WCS accuracy is lower than Local/API modes for wide-angle lenses because ImageSolver outputs a linear WCS (no SIP distortion correction)
 - Focal length / Pixel pitch are available in all modes (for manual input when equipment is not in the DB)
 - Settings for all modes (API key, Python environment) are always preserved regardless of which mode is selected
 

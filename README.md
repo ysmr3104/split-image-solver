@@ -29,9 +29,9 @@ Handles ultra-wide-field images that PixInsight's built-in ImageSolver cannot so
 |------|-------------|-------------|----------|-------|
 | **API** (default) | Solve via astrometry.net API | API key only (no Python) | Good | Yes |
 | **Local** | Solve via local solve-field | Python + solve-field + star catalogs | Best | Yes |
-| **ImageSolver** | Solve via PixInsight built-in ImageSolver | None (PixInsight only) | — | Single only |
+| **ImageSolver** | Solve via PixInsight built-in ImageSolver | None (PixInsight only) | — | Yes |
 
-Accuracy ranking: **Local > API > ImageSolver**. Local mode uses locally installed solve-field with star catalogs, providing the most accurate results. API mode sends tiles to astrometry.net servers. ImageSolver (built-in) is limited to Single (1x1) mode because it cannot reliably solve individual tiles from split wide-angle images.
+Accuracy ranking: **Local > API > ImageSolver**. Local mode uses locally installed solve-field with star catalogs, providing the most accurate results. API mode sends tiles to astrometry.net servers. ImageSolver (built-in) supports both Single (1x1) and Grid (NxM) modes; note that WCS accuracy is lower than Local/API for wide-angle lenses because ImageSolver outputs a linear WCS without SIP distortion correction.
 
 **ImageSolver mode** is still highly recommended for single-image plate solving — it requires no API key, no Python, and works entirely within PixInsight. It is the easiest way to get started.
 
@@ -120,7 +120,6 @@ Access from the "Settings..." button at the bottom-left. Switch between solve mo
 6. Optionally enter an **object name** and click "Search" to fill RA/DEC
 7. Click "Solve"
 
-> **Note**: ImageSolver (built-in) mode is restricted to Single (1x1) grid only. Use API or Local mode for split solving.
 
 ### Parameters
 

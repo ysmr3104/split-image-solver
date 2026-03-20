@@ -106,3 +106,4 @@ AdP
 # WCS JSON output
 *.wcs.json
 .env
+tests/pjsr/results/

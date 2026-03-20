@@ -393,14 +393,24 @@ test("2x2: non-seed tiles receive refined_center from IDW-weighted average of so
         function(){return false;}, function(){return false;}, 0);
 
     // seed tile 以外の全試行を検証
+    // nRef >= 2: IDW 加重平均を使う / nRef < 2: computeTileHints 由来の hintRA/hintDEC を維持
     mock.attempts.slice(1).forEach(function(rec) {
         if (rec.solvedBefore.length === 0) return; // shouldn't happen for non-seed
 
         var tile = rec.tile;
-        var expected = computeWeightedHint(tile, rec.solvedBefore);
+        var nRef = Math.min(rec.solvedBefore.length, 4);
         var nearest = findNearest(tile, rec.solvedBefore);
-        var tag = "[" + tile.row + "][" + tile.col + "] (nRef=" + Math.min(rec.solvedBefore.length, 4) +
+        var tag = "[" + tile.row + "][" + tile.col + "] (nRef=" + nRef +
             " nearest=[" + nearest.row + "][" + nearest.col + "])";
+
+        var expected;
+        if (rec.solvedBefore.length >= 2) {
+            // IDW 加重平均を期待
+            expected = computeWeightedHint(tile, rec.solvedBefore);
+        } else {
+            // nRef=1: IDW 上書きなし → computeTileHints 由来の hintRA/hintDEC を期待
+            expected = [tile.hintRA, tile.hintDEC];
+        }
 
         console.log("  " + tag);
         console.log("    expected center_ra=" + expected[0].toFixed(4) +
@@ -408,7 +418,6 @@ test("2x2: non-seed tiles receive refined_center from IDW-weighted average of so
         console.log("    expected center_dec=" + expected[1].toFixed(4) +
             " recorded=" + (rec.hints.center_dec !== undefined ? rec.hints.center_dec.toFixed(4) : "NONE"));
 
-        // IDW 加重平均の出力と記録値は完全一致するはず (同じ計算)
         assertEqual(rec.hints.center_ra,  expected[0], tag + " center_ra",  1e-6);
         assertEqual(rec.hints.center_dec, expected[1], tag + " center_dec", 1e-6);
     });
@@ -481,6 +490,7 @@ test("8x6: successful tiles receive correct refined_center from IDW-weighted ave
         function(){return false;}, function(){return false;}, 0);
 
     // 成功タイル (seed以外) のヒントを検証
+    // nRef >= 2: IDW 加重平均を使う / nRef < 2: computeTileHints 由来の hintRA/hintDEC を維持
     var successAttempts = mock.attempts.filter(function(rec) {
         var r = fixMap[rec.tileKey];
         return r && r.status === "success" && rec.solvedBefore.length > 0;
@@ -489,10 +499,17 @@ test("8x6: successful tiles receive correct refined_center from IDW-weighted ave
     console.log("  Validating " + successAttempts.length + " non-seed successful tile hints");
     successAttempts.forEach(function(rec) {
         var tile = rec.tile;
-        var expected = computeWeightedHint(tile, rec.solvedBefore);
         var nearest = findNearest(tile, rec.solvedBefore);
         var tag = "[" + tile.row + "][" + tile.col + "] nRef=" + Math.min(rec.solvedBefore.length, 4) +
             " nearest=[" + nearest.row + "][" + nearest.col + "]";
+
+        var expected;
+        if (rec.solvedBefore.length >= 2) {
+            expected = computeWeightedHint(tile, rec.solvedBefore);
+        } else {
+            // nRef=1: IDW 上書きなし → computeTileHints 由来の hintRA/hintDEC を期待
+            expected = [tile.hintRA, tile.hintDEC];
+        }
 
         console.log("  " + tag + " expected_ra=" + expected[0].toFixed(4) +
             " recorded=" + (rec.hints.center_ra !== undefined ? rec.hints.center_ra.toFixed(4) : "NONE") +

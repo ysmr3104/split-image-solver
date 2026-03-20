@@ -187,7 +187,8 @@ class TestAstrometryLocalSolverSolveImage:
 
         mock_fits.open.side_effect = [mock_hdul_dim, mock_hdul_wcs, mock_hdul_update]
 
-        with patch("solvers.astrometry_local_solver.WCS") as mock_wcs_class:
+        with patch("solvers.astrometry_local_solver.WCS") as mock_wcs_class, \
+             patch("solvers.astrometry_local_solver.tempfile.mkdtemp", return_value=str(tmp_path)):
             mock_wcs = MagicMock()
             mock_wcs.has_celestial = True
             mock_wcs.pixel_to_world_values.return_value = (180.0, 45.0)

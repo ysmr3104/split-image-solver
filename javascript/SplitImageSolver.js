@@ -11,7 +11,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.1.1"
+#define VERSION "1.2.0"
 #define VERSION_SUFFIX ""
 
 #include <pjsr/DataType.jsh>
@@ -1146,13 +1146,15 @@ function solveSingleTileIS(tile, tileHints, scaleBounds, expectedRaDec, coordThr
       solver.metadata.width = tileWindow.mainView.image.width;
       solver.metadata.height = tileWindow.mainView.image.height;
 
-      // Force local XPSD catalog (Automatic mode picks the best installed catalog,
-      // e.g. GaiaDR3SP_XPSD or GaiaDR3_XPSD, avoiding VizieR dependency)
+      // Apply catalog setting from hints (set by user in Settings dialog)
       // CatalogMode: LocalText=0, Online=1, Automatic=2, LocalXPSDServer=3
-      solver.solverCfg.catalogMode = 3; // LocalXPSDServer
-      // GaiaDR3SP_XPSD is the spectrophotometric subset (~34M stars, faster).
-      // Falls back gracefully if only the full GaiaDR3_XPSD is installed.
-      solver.solverCfg.catalog = "GaiaDR3SP_XPSD";
+      var catalogId = tileHints.isCatalog || "auto";
+      if (catalogId === "auto") {
+         solver.solverCfg.catalogMode = 2; // Automatic: PixInsight picks best installed catalog
+      } else {
+         solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+         solver.solverCfg.catalog = catalogId;
+      }
 
       // Configure solver: suppress output images
       solver.solverCfg.showStars = false;
@@ -1340,6 +1342,23 @@ function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, co
          wcsData.cd2_1 *= tile.scaleFactor;
          wcsData.cd2_2 *= tile.scaleFactor;
       }
+      // Rescale SIP coefficients from downsampled to original pixel space.
+      // A_pq was fitted for downsampled coords (u_down = u_orig * sf).
+      // A_pq_orig = A_pq_down * sf^(p+q-1) so that the correction in
+      // original pixels is: sum(A_pq_orig * u_orig^p * v_orig^q) = delta_u_down / sf
+      if (wcsData.sipCoeffs) {
+         var sipSf = tile.scaleFactor;
+         var rescaleSip = function(coeffs) {
+            if (!coeffs) return;
+            for (var k = 0; k < coeffs.length; k++) {
+               coeffs[k][2] *= Math.pow(sipSf, coeffs[k][0] + coeffs[k][1] - 1);
+            }
+         };
+         rescaleSip(wcsData.sipCoeffs.a);
+         rescaleSip(wcsData.sipCoeffs.b);
+         rescaleSip(wcsData.sipCoeffs.ap);
+         rescaleSip(wcsData.sipCoeffs.bp);
+      }
    }
 
    // Apply tile offset (top-down convention, same as Python)
@@ -1357,6 +1376,24 @@ function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, co
 }
 
 //----------------------------------------------------------------------------
+// computeGridStep
+//
+// Returns adaptive grid step size based on tile distance from image center.
+// Used by both solveWavefront and mergeWcsSolutions.
+//----------------------------------------------------------------------------
+function computeGridStep(tileCX, tileCY, imageWidth, imageHeight) {
+   var cx = imageWidth / 2.0;
+   var cy = imageHeight / 2.0;
+   var maxDist = Math.sqrt(cx * cx + cy * cy);
+   if (maxDist <= 0) return GRID_STEP_CENTER;
+   var dx = tileCX - cx;
+   var dy = tileCY - cy;
+   var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
+   if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
+   if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
+   return GRID_STEP_CENTER;
+}
+
 // solveWavefront
 //
 // Wavefront (ripple) tile solving: start from center, expand outward.
@@ -1442,20 +1479,6 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
       if (margin < SCALE_EXTRAPOLATE_MIN_MARGIN) margin = SCALE_EXTRAPOLATE_MIN_MARGIN;
       if (margin > SCALE_EXTRAPOLATE_FALLBACK_MARGIN) margin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
       return margin;
-   };
-
-   // Helper: compute adaptive grid step based on tile distance from image center
-   var computeGridStep = function(tileCX, tileCY, imageWidth, imageHeight) {
-      var cx = imageWidth / 2.0;
-      var cy = imageHeight / 2.0;
-      var maxDist = Math.sqrt(cx * cx + cy * cy);
-      if (maxDist <= 0) return GRID_STEP_CENTER;
-      var dx = tileCX - cx;
-      var dy = tileCY - cy;
-      var r = Math.sqrt(dx * dx + dy * dy) / maxDist;
-      if (r >= GRID_DIST_EDGE_THRESHOLD) return GRID_STEP_EDGE;
-      if (r >= GRID_DIST_MID_THRESHOLD) return GRID_STEP_MID;
-      return GRID_STEP_CENTER;
    };
 
    // Helper: build hint object for API
@@ -1645,9 +1668,25 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
                   if (avgRA < 0) avgRA += 360.0;
                   var avgDEC = Math.atan2(avgZ, Math.sqrt(avgX * avgX + avgY * avgY)) * 180.0 / Math.PI;
 
-                  tileHints.center_ra = avgRA;
-                  tileHints.center_dec = avgDEC;
-                  // Adaptive scale range for WCS-extrapolated hints
+                  // IDW center refinement: require ≥2 solved reference tiles.
+                  // With only 1 tile, TAN-projection extrapolation can introduce 1-2° errors
+                  // for wide-angle lenses (projection center diverges from image center).
+                  // The initial computeTileHints hint (based on global geometry) is more
+                  // reliable in that case, so we keep it and skip the IDW RA/DEC override.
+                  if (useCandidates.length >= 2) {
+                     tileHints.center_ra = avgRA;
+                     tileHints.center_dec = avgDEC;
+                     expectedRaDec = [avgRA, avgDEC];
+                  } else {
+                     // Keep initial hintRA/hintDEC; use them for false-positive filtering too
+                     if (tile.hintRA !== undefined && tile.hintDEC !== undefined) {
+                        expectedRaDec = [tile.hintRA, tile.hintDEC];
+                     } else {
+                        expectedRaDec = [avgRA, avgDEC];
+                     }
+                  }
+
+                  // Adaptive scale range: always refine from actual solved-tile scales
                   if (tileHints.scale_lower && tileHints.scale_upper) {
                      var midScale = (tileHints.scale_lower + tileHints.scale_upper) / 2.0;
                      var extraMargin = SCALE_EXTRAPOLATE_FALLBACK_MARGIN;
@@ -1660,7 +1699,6 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
                      tileHints.scale_lower = midScale * (1.0 - extraMargin);
                      tileHints.scale_upper = midScale * (1.0 + extraMargin);
                   }
-                  expectedRaDec = [avgRA, avgDEC];
                }
             }
          }
@@ -2208,12 +2246,14 @@ function SolverSettingsDialog(parent) {
    var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
    var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
    var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
+   var savedIsCatalog = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
    this._pythonPath = savedPythonPath || "";
    this._scriptDir = savedScriptDir || "";
    this._saveTiles = (savedSaveTiles === null || savedSaveTiles === undefined) ? false : savedSaveTiles;
+   this._isCatalog = savedIsCatalog || "auto";
    this._tileOutputDir = savedTileOutputDir || "";
 
    // ---- Solve Mode ----
@@ -2230,7 +2270,7 @@ function SolverSettingsDialog(parent) {
    this.modeCombo.addItem("Local (solve-field)");
    this.modeCombo.addItem("ImageSolver (built-in)");
    this.modeCombo.currentItem = (this._solveMode === "local") ? 1 : (this._solveMode === "imagesolver") ? 2 : 0;
-   this.modeCombo.toolTip = "API: astrometry.net API (Python不要)\nLocal: ローカル solve-field (Python必須)\nImageSolver: PixInsight内蔵ソルバー (カタログ自動取得)";
+   this.modeCombo.toolTip = "API: astrometry.net API (no Python required)\nLocal: local solve-field (Python required)\nImageSolver: PixInsight built-in solver (auto catalog selection)";
 
    var modeSizer = new HorizontalSizer;
    modeSizer.spacing = 4;
@@ -2349,6 +2389,45 @@ function SolverSettingsDialog(parent) {
    localGroup.sizer.add(pythonSizer);
    localGroup.sizer.add(scriptDirSizer);
 
+   // ---- ImageSolver Settings ----
+   var isGroup = new GroupBox(this);
+   isGroup.title = "ImageSolver Settings";
+
+   var catalogLabel = new Label(isGroup);
+   catalogLabel.text = "Catalog:";
+   catalogLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   catalogLabel.setFixedWidth(120);
+
+   this.catalogCombo = new ComboBox(isGroup);
+   this.catalogCombo.addItem("Automatic");
+   this.catalogCombo.addItem("Gaia DR3/SP XPSD  (~220M stars, recommended)");
+   this.catalogCombo.addItem("Gaia DR3 XPSD     (~1.8B stars, full)");
+   this.catalogCombo.addItem("Gaia EDR3 XPSD    (~1.8B stars)");
+   this.catalogCombo.addItem("Gaia DR2 XPSD     (~1.7B stars)");
+   var _catalogIds = ["auto", "GaiaDR3SP_XPSD", "GaiaDR3_XPSD", "GaiaEDR3_XPSD", "GaiaDR2_XPSD"];
+   var _catalogInitIdx = 0;
+   for (var _ci = 0; _ci < _catalogIds.length; _ci++) {
+      if (_catalogIds[_ci] === d._isCatalog) { _catalogInitIdx = _ci; break; }
+   }
+   this.catalogCombo.currentItem = _catalogInitIdx;
+   this.catalogCombo.toolTip =
+      "Automatic: PixInsight selects the best installed catalog automatically.\n" +
+      "Gaia DR3/SP XPSD: Spectro-photometric subset (~220M stars). Faster.\n" +
+      "Gaia DR3 XPSD: Full catalog (~1.8B stars). Better for dense star fields.\n" +
+      "GaiaDR3SP_XPSD and GaiaDR3_XPSD require the Gaia process in PixInsight.";
+
+   var catalogSizer = new HorizontalSizer;
+   catalogSizer.spacing = 4;
+   catalogSizer.add(catalogLabel);
+   catalogSizer.add(this.catalogCombo, 100);
+
+   isGroup.sizer = new VerticalSizer;
+   isGroup.sizer.margin = 6;
+   isGroup.sizer.spacing = 4;
+   isGroup.sizer.add(catalogSizer);
+
+   this._catalogIds = _catalogIds;
+
    // ---- Tile Output Settings ----
    var tileGroup = new GroupBox(this);
    tileGroup.title = "Tile Output";
@@ -2425,6 +2504,7 @@ function SolverSettingsDialog(parent) {
    this.sizer.add(modeGroup);
    this.sizer.add(apiGroup);
    this.sizer.add(localGroup);
+   this.sizer.add(isGroup);
    this.sizer.add(tileGroup);
    this.sizer.addSpacing(4);
    this.sizer.add(btnSizer);
@@ -2442,6 +2522,7 @@ SolverSettingsDialog.prototype.getSettings = function() {
    var scriptDir = this.scriptDirEdit.text.trim();
    var saveTiles = this.saveTilesCheck.checked;
    var tileOutputDir = this.tileOutputDirEdit.text.trim();
+   var isCatalog = this._catalogIds[this.catalogCombo.currentItem] || "auto";
 
    Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
    Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
@@ -2449,6 +2530,7 @@ SolverSettingsDialog.prototype.getSettings = function() {
    Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
    Settings.write(SETTINGS_KEY + "/saveTiles", DataType_Boolean, saveTiles);
    Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType_String, tileOutputDir);
+   Settings.write(SETTINGS_KEY + "/isCatalog", DataType_String, isCatalog);
 
    return {
       solveMode: mode,
@@ -2456,7 +2538,8 @@ SolverSettingsDialog.prototype.getSettings = function() {
       pythonPath: pythonPath,
       scriptDir: scriptDir,
       saveTiles: saveTiles,
-      tileOutputDir: tileOutputDir
+      tileOutputDir: tileOutputDir,
+      isCatalog: isCatalog
    };
 };
 
@@ -2935,6 +3018,7 @@ function SplitSolverDialog() {
    var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
    var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
    var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
+   var savedIsCatalog2 = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
@@ -2942,6 +3026,7 @@ function SplitSolverDialog() {
    this._scriptDir = savedScriptDir || "";
    this._saveTiles = (savedSaveTiles2 === null || savedSaveTiles2 === undefined) ? false : savedSaveTiles2;
    this._tileOutputDir = savedTileOutputDir2 || "";
+   this._isCatalog = savedIsCatalog2 || "auto";
 
    // ---- Target image ----
    var targetWindow = ImageWindow.activeWindow;
@@ -2969,7 +3054,7 @@ function SplitSolverDialog() {
    this.modeApiRadio = new RadioButton(this);
    this.modeApiRadio.text = "API";
    this.modeApiRadio.checked = (this._solveMode === "api");
-   this.modeApiRadio.toolTip = "astrometry.net API (APIキー必要)";
+   this.modeApiRadio.toolTip = "astrometry.net API (API key required)";
    this.modeApiRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "api"; updateModeUI(); }
    };
@@ -2977,7 +3062,7 @@ function SplitSolverDialog() {
    this.modeLocalRadio = new RadioButton(this);
    this.modeLocalRadio.text = "Local";
    this.modeLocalRadio.checked = (this._solveMode === "local");
-   this.modeLocalRadio.toolTip = "ローカル solve-field (Python必要)";
+   this.modeLocalRadio.toolTip = "Local solve-field (Python required)";
    this.modeLocalRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "local"; updateModeUI(); }
    };
@@ -2985,7 +3070,7 @@ function SplitSolverDialog() {
    this.modeISRadio = new RadioButton(this);
    this.modeISRadio.text = "ImageSolver";
    this.modeISRadio.checked = (this._solveMode === "imagesolver");
-   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver (Single only)";
+   this.modeISRadio.toolTip = "PixInsight built-in ImageSolver";
    this.modeISRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "imagesolver"; updateModeUI(); }
    };
@@ -3520,16 +3605,8 @@ function SplitSolverDialog() {
    gridSizer.add(this.recommendButton);
    gridSizer.addStretch();
 
-   // Note label for ImageSolver mode (Single only)
-   this.gridNoteLabel = new Label(this);
-   this.gridNoteLabel.text = "* ImageSolver (built-in) supports Single mode only. Use API or Local for Split.";
-   this.gridNoteLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
-   this.gridNoteLabel.visible = false;
-
    var gridNoteSizer = new HorizontalSizer;
    gridNoteSizer.spacing = 6;
-   gridNoteSizer.addSpacing(120 + 6);
-   gridNoteSizer.add(this.gridNoteLabel, 100);
 
    var fovSizer = new HorizontalSizer;
    fovSizer.spacing = 6;
@@ -3738,33 +3815,16 @@ function SplitSolverDialog() {
       self.radiusUnitLabel.enabled = isApi;
       self.scaleErrorLabel.enabled = isApi || isLocal;
       self.scaleErrorUnitLabel.enabled = isApi || isLocal;
-      // ImageSolver: Single only (no split support)
-      if (isImageSolver) {
-         self.gridCombo.currentItem = 0; // Force "1x1 (Single)"
-         self.gridCombo.enabled = false;
-         self.recommendButton.visible = false;
-         self.gridNoteLabel.visible = true;
-         self.overlapEdit.enabled = false;
-         self.overlapLabel.enabled = false;
-         self.overlapUnitLabel.enabled = false;
-         self.skipLabel.enabled = false;
-         self.skipTopSpin.enabled = false;
-         self.skipBottomSpin.enabled = false;
-         self.skipLeftSpin.enabled = false;
-         self.skipRightSpin.enabled = false;
-      } else {
-         self.gridCombo.enabled = true;
-         self.recommendButton.visible = true;
-         self.gridNoteLabel.visible = false;
-         self.overlapEdit.enabled = true;
-         self.overlapLabel.enabled = true;
-         self.overlapUnitLabel.enabled = true;
-         self.skipLabel.enabled = true;
-         self.skipTopSpin.enabled = true;
-         self.skipBottomSpin.enabled = true;
-         self.skipLeftSpin.enabled = true;
-         self.skipRightSpin.enabled = true;
-      }
+      self.gridCombo.enabled = true;
+      self.recommendButton.visible = true;
+      self.overlapEdit.enabled = true;
+      self.overlapLabel.enabled = true;
+      self.overlapUnitLabel.enabled = true;
+      self.skipLabel.enabled = true;
+      self.skipTopSpin.enabled = true;
+      self.skipBottomSpin.enabled = true;
+      self.skipLeftSpin.enabled = true;
+      self.skipRightSpin.enabled = true;
       updateScaleAndFov();
       if (typeof updatePreviewGrid === "function") updatePreviewGrid();
    };
@@ -3778,6 +3838,7 @@ function SplitSolverDialog() {
          self._scriptDir = s.scriptDir;
          self._saveTiles = s.saveTiles;
          self._tileOutputDir = s.tileOutputDir;
+         self._isCatalog = s.isCatalog;
          // Reflect default mode from Settings onto radio buttons (only if changed)
          if (s.solveMode !== self._solveMode) {
             self._solveMode = s.solveMode;
@@ -4032,14 +4093,14 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    if (solveMode === "api") {
       if (apiKey.length === 0) {
-         var msg = new MessageBox("API キーが設定されていません。\nSettings から API キーを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("API key is not set.\nPlease set the API key in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
          msg.execute();
          return;
       }
    } else if (solveMode === "local") {
       // Local mode validation
       if (this._pythonPath.length === 0 || this._scriptDir.length === 0) {
-         var msg = new MessageBox("Local モードの設定が不完全です。\nSettings から Python パスとスクリプトディレクトリを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("Local mode settings are incomplete.\nPlease set the Python path and script directory in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
          msg.execute();
          return;
       }
@@ -4148,7 +4209,16 @@ SplitSolverDialog.prototype.doSolve = function() {
    console.writeln("========================================");
    console.writeln("Solve Parameters");
    console.writeln("========================================");
+   // Pass catalog selection to hints (used by solveSingleTileIS and doSingleSolveIS)
+   if (solveMode === "imagesolver") {
+      hints.isCatalog = this._isCatalog || "auto";
+   }
+
    console.writeln("  Solve mode:  " + (solveMode === "local" ? "Local (solve-field)" : solveMode === "imagesolver" ? "ImageSolver (built-in)" : "API (astrometry.net)"));
+   if (solveMode === "imagesolver") {
+      var _catLabel = hints.isCatalog === "auto" ? "Automatic" : hints.isCatalog;
+      console.writeln("  Catalog:     " + _catLabel);
+   }
    console.writeln("  Target:      " + targetWindow.mainView.id + " (" + imageWidth + "x" + imageHeight + ")");
    console.writeln("  Camera:      " + this.cameraCombo.itemText(this.cameraCombo.currentItem));
    console.writeln("  Lens:        " + this.lensCombo.itemText(this.lensCombo.currentItem));
@@ -4389,6 +4459,15 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       solver.solverCfg.generateErrorImg = false;
       solver.solverCfg.generateDistortModel = false;
 
+      // Apply catalog setting
+      var singleCatalogId = hints.isCatalog || "auto";
+      if (singleCatalogId === "auto") {
+         solver.solverCfg.catalogMode = 2; // Automatic
+      } else {
+         solver.solverCfg.catalogMode = 3; // LocalXPSDServer
+         solver.solverCfg.catalog = singleCatalogId;
+      }
+
       // Solve
       this.progressLabel.text = "ImageSolver: detecting stars and matching catalog...";
       this.progressLabel.toolTip = "ImageSolver is running. Use the console X button to abort.";
@@ -4560,8 +4639,9 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
          },
          solverFn, abortCheckFn, skipCheckFn, rateLimitMs);
 
-      if (successCount < 2) {
-         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
+      var minRequired = Math.min(2, tiles.length);
+      if (successCount < minRequired) {
+         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least " + minRequired + " required.";
       }
 
       // 5. Write debug fixture if requested
@@ -4598,17 +4678,25 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       }
 
       // 6. Overlap validation
-      this.progressLabel.text = "Validating overlap...";
-      processEvents();
+      // IS mode: skip. The linear CD matrix from extractWcsFromMetadata (no SIP)
+      // is accurate only near the tile center. For wide-angle lenses the deviation
+      // at tile boundaries can exceed thousands of arcseconds even for correct solutions.
+      // Individual tile quality is guaranteed by solveSingleTileIS false-positive filters.
+      if (modeName !== "ImageSolver") {
+         this.progressLabel.text = "Validating overlap...";
+         processEvents();
 
-      var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
-      invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
-      if (invalidated > 0) {
-         successCount -= invalidated;
-         console.writeln(invalidated + " tiles invalidated by overlap check");
-         if (successCount < 2) {
-            throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
+         var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
+         invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
+         if (invalidated > 0) {
+            successCount -= invalidated;
+            console.writeln(invalidated + " tiles invalidated by overlap check");
+            if (successCount < 2) {
+               throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
+            }
          }
+      } else {
+         console.writeln("Overlap validation: skipped (ImageSolver mode)");
       }
 
       // 7. Merge WCS solutions
@@ -4851,7 +4939,22 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
             cd2_1:  r.cd2_1 * sf, cd2_2: r.cd2_2 * sf
          };
          if (r.sip_order && r.sip_a && r.sip_b) {
-            tile.wcs.sip = { order: r.sip_order, a: r.sip_a, b: r.sip_b };
+            // Convert Python dict format {"p_q": value} to [[p, q, value]] array
+            // and rescale from downsampled to original pixel space: A_pq_orig = A_pq_down * sf^(p+q-1)
+            var sipDictToScaledArray = function(dict) {
+               var arr = [];
+               for (var key in dict) {
+                  var kp = key.split("_");
+                  var p = parseInt(kp[0], 10), q = parseInt(kp[1], 10);
+                  arr.push([p, q, dict[key] * Math.pow(sf, p + q - 1)]);
+               }
+               return arr;
+            };
+            tile.wcs.sipCoeffs = {
+               a: sipDictToScaledArray(r.sip_a),
+               b: sipDictToScaledArray(r.sip_b)
+            };
+            tile.wcs.aOrder = r.sip_order;
          }
          tile.calibration = { pixscale: r.pixel_scale, ra: r.crval1, dec: r.crval2 };
 

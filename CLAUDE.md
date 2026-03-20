@@ -15,6 +15,8 @@ Split Image Solver は、広角星野写真をタイルに分割してプレー�
 | UT | ユニットテスト | 純粋関数の数学的正しさ。外部依存なし | Node.js / pytest |
 | IT-Solver | インテグレーションテスト Solver | 正しいヒントを与えて per-tile ソルブの動作確認 | solve-field 必要 |
 | IT-Wavefront | インテグレーションテスト Wavefront | wavefront パイプライン全体の性能ゲート | solve-field 必要 |
+| IT-Solver IS | インテグレーションテスト Solver (ImageSolver) | per-tile IS ソルブの動作確認 | PixInsight 必要（手動） |
+| IT-Wavefront IS | インテグレーションテスト Wavefront (ImageSolver) | IS wavefront パイプライン全体の性能ゲート | PixInsight 必要（手動） |
 | E2E | E2Eテスト | PixInsight GUI から全パイプライン | PixInsight 必要（手動） |
 
 ### テスト実施ルール
@@ -40,7 +42,7 @@ Split Image Solver は、広角星野写真をタイルに分割してプレー�
 node tests/ut/test_functions.js
 node tests/ut/test_hint_propagation.js
 node tests/ut/test_api_regression.js
-PYTHONPATH="." .venv/bin/pytest tests/python/test_coordinate_transform.py -v
+PYTHONPATH="." .venv/bin/pytest tests/ut/ -v
 
 # IT-Solver（solve-field + タイル FITS 必要）
 PYTHONPATH="." .venv/bin/pytest tests/it/local/test_solver_2x2.py -v -s
@@ -66,6 +68,18 @@ node tests/it/api/test_wavefront_8x6.js
 node tests/it/api/test_wavefront_equisolid_8x6.js
 node tests/it/api/test_wavefront_equidistant_12x8.js
 
+# IT-Solver IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equidistant_12x8.js
+
+# IT-Wavefront IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equidistant_12x8.js
+
 # リリースビルド
 bash build-split-release.sh
 ```
@@ -74,7 +88,7 @@ bash build-split-release.sh
 
 - **ES5 スタイル必須**: PJSR は `let`/`const`/アロー関数/テンプレートリテラルを未サポート。`var` 宣言のみ使用。
 - コード内の変数名・関数名・コメント・コンソール出力（`console.writeln`）は全て英語。
-- UI テキスト（ラベル・メッセージボックス）は日本語可。
+- UI テキスト（ラベル・メッセージボックス・ツールチップ）も全て英語。
 
 ## 実装上の重要な注意点
 

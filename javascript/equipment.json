@@ -463,6 +463,34 @@
       "sensor_height": 2822
     },
     {
+      "name": "ZWO Seestar S50 (IMX462)",
+      "instrume": "Seestar S50",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1936,
+      "sensor_height": 1096
+    },
+    {
+      "name": "ZWO Seestar S30 (IMX662)",
+      "instrume": "Seestar S30",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
+    {
+      "name": "DWARFLAB DWARF 3 (IMX678)",
+      "instrume": "DWARF 3",
+      "pixel_pitch": 2.00,
+      "sensor_width": 3856,
+      "sensor_height": 2180
+    },
+    {
+      "name": "DWARFLAB DWARF mini (IMX662)",
+      "instrume": "DWARF mini",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
+    {
       "name": "Custom",
       "instrume": "",
       "pixel_pitch": 0,
@@ -507,6 +535,84 @@
       "projection": "rectilinear"
     },
     {
+      "name": "Sony FE 35mm f/1.8",
+      "model": "SEL35F18F",
+      "focal_length": 35,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 28mm f/2",
+      "model": "SEL28F20",
+      "focal_length": 28,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 40mm f/2.5 G",
+      "model": "SEL40F25G",
+      "focal_length": 40,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 50mm f/1.2 GM",
+      "model": "SEL50F12GM",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 50mm f/1.4 ZA",
+      "model": "SEL50F14Z",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 50mm f/1.8",
+      "model": "SEL50F18F",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 50mm f/2.5 G",
+      "model": "SEL50F25G",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 55mm f/1.8 ZA",
+      "model": "SEL55F18Z",
+      "focal_length": 55,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 85mm f/1.4 GM",
+      "model": "SEL85F14GM",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 85mm f/1.4 GM II",
+      "model": "SEL85F14GM2",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 85mm f/1.8",
+      "model": "SEL85F18",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 100mm f/2.8 STF GM",
+      "model": "SEL100F28GM",
+      "focal_length": 100,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sony FE 135mm f/1.8 GM",
+      "model": "SEL135F18GM",
+      "focal_length": 135,
+      "projection": "rectilinear"
+    },
+    {
       "name": "Sigma 14mm f/1.4 DG DN Art",
       "model": "14mm F1.4 Art",
       "focal_length": 14,
@@ -546,6 +652,48 @@
       "name": "Sigma 35mm f/2 DG DN Contemp.",
       "model": "35mm F2 Contemp.",
       "focal_length": 35,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 24mm f/1.4 DG DN Art",
+      "model": "24mm F1.4 Art",
+      "focal_length": 24,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 45mm f/2.8 DG DN Contemp.",
+      "model": "45mm F2.8 Contemp.",
+      "focal_length": 45,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 50mm f/1.2 DG DN Art",
+      "model": "50mm F1.2 Art",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 50mm f/1.4 DG DN Art",
+      "model": "50mm F1.4 Art",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 65mm f/2 DG DN Contemp.",
+      "model": "65mm F2 Contemp.",
+      "focal_length": 65,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 85mm f/1.4 DG DN Art",
+      "model": "85mm F1.4 Art",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Sigma 90mm f/2.8 DG DN Contemp.",
+      "model": "90mm F2.8 Contemp.",
+      "focal_length": 90,
       "projection": "rectilinear"
     },
     {
@@ -597,6 +745,54 @@
       "projection": "rectilinear"
     },
     {
+      "name": "NIKKOR Z 40mm f/2",
+      "model": "Z 40mm f/2",
+      "focal_length": 40,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 50mm f/1.2 S",
+      "model": "Z 50mm f/1.2 S",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 50mm f/1.4",
+      "model": "Z 50mm f/1.4",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 50mm f/1.8 S",
+      "model": "Z 50mm f/1.8 S",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 58mm f/0.95 S Noct",
+      "model": "Z 58mm f/0.95 S Noct",
+      "focal_length": 58,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 85mm f/1.2 S",
+      "model": "Z 85mm f/1.2 S",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 85mm f/1.8 S",
+      "model": "Z 85mm f/1.8 S",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "NIKKOR Z 135mm f/1.8 S Plena",
+      "model": "Z 135mm f/1.8 S Plena",
+      "focal_length": 135,
+      "projection": "rectilinear"
+    },
+    {
       "name": "Canon RF 14mm f/1.4 L VCM",
       "model": "RF 14mm f/1.4 L",
       "focal_length": 14,
@@ -642,6 +838,54 @@
       "name": "Canon RF 35mm f/1.8 Macro IS STM",
       "model": "RF 35mm f/1.8 Macro",
       "focal_length": 35,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 45mm f/2.8 Macro IS STM",
+      "model": "RF 45mm f/2.8 Macro",
+      "focal_length": 45,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 50mm f/1.2 L USM",
+      "model": "RF 50mm f/1.2 L",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 50mm f/1.4 L VCM",
+      "model": "RF 50mm f/1.4 L",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 50mm f/1.8 STM",
+      "model": "RF 50mm f/1.8",
+      "focal_length": 50,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 85mm f/1.2 L USM",
+      "model": "RF 85mm f/1.2 L",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 85mm f/1.2 L USM DS",
+      "model": "RF 85mm f/1.2 L DS",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 85mm f/2 Macro IS STM",
+      "model": "RF 85mm f/2 Macro",
+      "focal_length": 85,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "Canon RF 135mm f/1.8 L IS USM",
+      "model": "RF 135mm f/1.8 L",
+      "focal_length": 135,
       "projection": "rectilinear"
     },
     {
@@ -800,6 +1044,30 @@
       "name": "8mm Fisheye Circular",
       "focal_length": 8,
       "projection": "equidistant"
+    },
+    {
+      "name": "ZWO Seestar S50 (250mm f/5.0)",
+      "model": "Seestar S50",
+      "focal_length": 250,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "ZWO Seestar S30 (150mm f/5.0)",
+      "model": "Seestar S30",
+      "focal_length": 150,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "DWARFLAB DWARF 3 (150mm f/4.3)",
+      "model": "DWARF 3",
+      "focal_length": 150,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "DWARFLAB DWARF mini (150mm f/5.0)",
+      "model": "DWARF mini",
+      "focal_length": 150,
+      "projection": "rectilinear"
     }
   ]
 }

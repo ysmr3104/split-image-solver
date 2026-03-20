@@ -9,6 +9,8 @@ Split Image Solver のテストは 4 層構成で、上位ほど外部依存が�
 | L1 | UT | ユニットテスト | 純粋関数の数学的正しさ | Node.js / pytest | 数秒 |
 | L2a | IT-Solver | インテグレーションテスト Solver | 正しいヒントを与えて per-tile ソルブの動作確認 | solve-field 必要 | 数分 |
 | L2b | IT-Wavefront | インテグレーションテスト Wavefront | wavefront パイプライン全体の性能ゲート | solve-field 必要 | 数分〜十数分 |
+| L2c | IT-Solver IS | インテグレーションテスト Solver (ImageSolver) | IS 実解座標ヒントで per-tile IS ソルブの動作確認 | PixInsight（手動） | 数分 |
+| L2d | IT-Wavefront IS | インテグレーションテスト Wavefront (ImageSolver) | IS wavefront パイプライン全体の性能ゲート | PixInsight（手動） | 数十分 |
 | L3 | E2E | E2Eテスト | PixInsight GUI から全パイプライン | PixInsight（手動） | 数十分 |
 
 ### UT (L1)
@@ -77,6 +79,8 @@ PixInsight GUI 上で手動実行。スクリプト実行前にコンソール�
 | IT-Wavefront Local | `tests/it/local/test_wavefront_2x2.js` |
 | IT-Solver API | `tests/it/api/test_solver_2x2.js` |
 | IT-Wavefront API | `tests/it/api/test_wavefront_2x2.js` |
+| IT-Solver IS | `tests/pjsr/test_solver_is_2x2.js` |
+| IT-Wavefront IS | `tests/pjsr/test_wavefront_is_2x2.js` |
 
 ### 8x6 (rectilinear, Samyang 14mm)
 
@@ -97,6 +101,8 @@ PixInsight GUI 上で手動実行。スクリプト実行前にコンソール�
 | IT-Wavefront Local | `tests/it/local/test_wavefront_8x6.js` |
 | IT-Solver API | `tests/it/api/test_solver_8x6.js` |
 | IT-Wavefront API | `tests/it/api/test_wavefront_8x6.js` |
+| IT-Solver IS | `tests/pjsr/test_solver_is_8x6.js` |
+| IT-Wavefront IS | `tests/pjsr/test_wavefront_is_8x6.js` |
 
 ### equisolid_8x6 (Sigma 15mm 対角魚眼)
 
@@ -121,6 +127,8 @@ PixInsight GUI 上で手動実行。スクリプト実行前にコンソール�
 | IT-Wavefront Local | `tests/it/local/test_wavefront_equisolid_8x6.js` |
 | IT-Solver API | `tests/it/api/test_solver_equisolid_8x6.js` |
 | IT-Wavefront API | `tests/it/api/test_wavefront_equisolid_8x6.js` |
+| IT-Solver IS | `tests/pjsr/test_solver_is_equisolid_8x6.js` |
+| IT-Wavefront IS | `tests/pjsr/test_wavefront_is_equisolid_8x6.js` |
 
 ### equidistant_12x8 (AstrHori 6.5mm 超広角魚眼)
 
@@ -143,6 +151,8 @@ PixInsight GUI 上で手動実行。スクリプト実行前にコンソール�
 | IT-Wavefront Local | `tests/it/local/test_wavefront_equidistant_12x8.js` |
 | IT-Solver API | `tests/it/api/test_solver_equidistant_12x8.js` |
 | IT-Wavefront API | `tests/it/api/test_wavefront_equidistant_12x8.js` |
+| IT-Solver IS | `tests/pjsr/test_solver_is_equidistant_12x8.js` |
+| IT-Wavefront IS | `tests/pjsr/test_wavefront_is_equidistant_12x8.js` |
 
 ---
 
@@ -177,6 +187,18 @@ node tests/it/api/test_wavefront_2x2.js
 node tests/it/api/test_wavefront_8x6.js
 node tests/it/api/test_wavefront_equisolid_8x6.js
 node tests/it/api/test_wavefront_equidistant_12x8.js
+
+# IT-Solver IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_solver_is_equidistant_12x8.js
+
+# IT-Wavefront IS（PixInsight + ImageSolver 必要、手動実行専用）
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_2x2.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equisolid_8x6.js
+bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_wavefront_is_equidistant_12x8.js
 ```
 
 ---
