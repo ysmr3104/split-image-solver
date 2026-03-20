@@ -29,9 +29,9 @@ PixInsight の ImageSolver では対応できない超広角な範囲の星空�
 |--------|------|-----------|------|-------|
 | **API** (デフォルト) | astrometry.net API でソルブ | API キーのみ（Python 不要） | 良好 | 対応 |
 | **Local** | ローカル solve-field でソルブ | Python + solve-field + 星カタログ | 最高 | 対応 |
-| **ImageSolver** | PixInsight 内蔵 ImageSolver でソルブ | 追加環境不要 | — | Single のみ |
+| **ImageSolver** | PixInsight 内蔵 ImageSolver でソルブ | 追加環境不要 | — | 対応 |
 
-精度の順: **Local > API > ImageSolver**。Local モードはローカルにインストールされた solve-field と星カタログを使用するため、最も高精度な結果を得られます。API モードはタイルを astrometry.net サーバーに送信します。ImageSolver（内蔵）は Single（1x1）モードに限定されます。分割された広角タイルを個別にソルブすることが難しいためです。
+精度の順: **Local > API > ImageSolver**。Local モードはローカルにインストールされた solve-field と星カタログを使用するため、最も高精度な結果を得られます。API モードはタイルを astrometry.net サーバーに送信します。ImageSolver（内蔵）は Single（1x1）と Grid（NxM）の両モードに対応しています。ただし広角レンズでは WCS 精度が Local/API より低くなります（SIP 歪み補正なしの線形 WCS のため）。
 
 **ImageSolver モード**は単一画像のプレートソルブに非常に便利です。API キーも Python も不要で、PixInsight だけで完結します。最も手軽に使い始められるモードです。ぜひご活用ください。
 
@@ -120,8 +120,6 @@ Local モードを利用する場合は [docs/setup.md](docs/setup.md) を参照
 5. 星景写真の場合、**Skip edges** で地上部分をスキップ（例: B:2 で下2行をスキップ）
 6. 必要に応じて **天体名** を入力し「Search」で RA/DEC を取得
 7. 「Solve」をクリック
-
-> **Note**: ImageSolver（内蔵）モードは Single（1x1）グリッドのみ対応です。Split ソルブには API または Local モードをお使いください。
 
 ### パラメータ
 
