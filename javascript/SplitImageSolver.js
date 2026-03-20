@@ -2270,7 +2270,7 @@ function SolverSettingsDialog(parent) {
    this.modeCombo.addItem("Local (solve-field)");
    this.modeCombo.addItem("ImageSolver (built-in)");
    this.modeCombo.currentItem = (this._solveMode === "local") ? 1 : (this._solveMode === "imagesolver") ? 2 : 0;
-   this.modeCombo.toolTip = "API: astrometry.net API (Python不要)\nLocal: ローカル solve-field (Python必須)\nImageSolver: PixInsight内蔵ソルバー (カタログ自動取得)";
+   this.modeCombo.toolTip = "API: astrometry.net API (no Python required)\nLocal: local solve-field (Python required)\nImageSolver: PixInsight built-in solver (auto catalog selection)";
 
    var modeSizer = new HorizontalSizer;
    modeSizer.spacing = 4;
@@ -2399,7 +2399,7 @@ function SolverSettingsDialog(parent) {
    catalogLabel.setFixedWidth(120);
 
    this.catalogCombo = new ComboBox(isGroup);
-   this.catalogCombo.addItem("自動 (Automatic)");
+   this.catalogCombo.addItem("Automatic");
    this.catalogCombo.addItem("Gaia DR3/SP XPSD  (~220M stars, recommended)");
    this.catalogCombo.addItem("Gaia DR3 XPSD     (~1.8B stars, full)");
    this.catalogCombo.addItem("Gaia EDR3 XPSD    (~1.8B stars)");
@@ -2411,10 +2411,10 @@ function SolverSettingsDialog(parent) {
    }
    this.catalogCombo.currentItem = _catalogInitIdx;
    this.catalogCombo.toolTip =
-      "自動: PixInsight がインストール済みの最良カタログを自動選択します。\n" +
-      "Gaia DR3/SP XPSD: スペクトル測光サブセット（約2.2億星）。速度重視。\n" +
-      "Gaia DR3 XPSD: フル版（約18億星）。星密度の高い領域に有効。\n" +
-      "GaiaDR3SP_XPSD・GaiaDR3_XPSD は PixInsight の Gaia プロセスが必要です。";
+      "Automatic: PixInsight selects the best installed catalog automatically.\n" +
+      "Gaia DR3/SP XPSD: Spectro-photometric subset (~220M stars). Faster.\n" +
+      "Gaia DR3 XPSD: Full catalog (~1.8B stars). Better for dense star fields.\n" +
+      "GaiaDR3SP_XPSD and GaiaDR3_XPSD require the Gaia process in PixInsight.";
 
    var catalogSizer = new HorizontalSizer;
    catalogSizer.spacing = 4;
@@ -3054,7 +3054,7 @@ function SplitSolverDialog() {
    this.modeApiRadio = new RadioButton(this);
    this.modeApiRadio.text = "API";
    this.modeApiRadio.checked = (this._solveMode === "api");
-   this.modeApiRadio.toolTip = "astrometry.net API (APIキー必要)";
+   this.modeApiRadio.toolTip = "astrometry.net API (API key required)";
    this.modeApiRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "api"; updateModeUI(); }
    };
@@ -3062,7 +3062,7 @@ function SplitSolverDialog() {
    this.modeLocalRadio = new RadioButton(this);
    this.modeLocalRadio.text = "Local";
    this.modeLocalRadio.checked = (this._solveMode === "local");
-   this.modeLocalRadio.toolTip = "ローカル solve-field (Python必要)";
+   this.modeLocalRadio.toolTip = "Local solve-field (Python required)";
    this.modeLocalRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "local"; updateModeUI(); }
    };
@@ -3070,7 +3070,7 @@ function SplitSolverDialog() {
    this.modeISRadio = new RadioButton(this);
    this.modeISRadio.text = "ImageSolver";
    this.modeISRadio.checked = (this._solveMode === "imagesolver");
-   this.modeISRadio.toolTip = "PixInsight内蔵 ImageSolver";
+   this.modeISRadio.toolTip = "PixInsight built-in ImageSolver";
    this.modeISRadio.onCheck = function(checked) {
       if (checked) { self._solveMode = "imagesolver"; updateModeUI(); }
    };
@@ -4093,14 +4093,14 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    if (solveMode === "api") {
       if (apiKey.length === 0) {
-         var msg = new MessageBox("API キーが設定されていません。\nSettings から API キーを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("API key is not set.\nPlease set the API key in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
          msg.execute();
          return;
       }
    } else if (solveMode === "local") {
       // Local mode validation
       if (this._pythonPath.length === 0 || this._scriptDir.length === 0) {
-         var msg = new MessageBox("Local モードの設定が不完全です。\nSettings から Python パスとスクリプトディレクトリを設定してください。", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("Local mode settings are incomplete.\nPlease set the Python path and script directory in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
          msg.execute();
          return;
       }
@@ -4216,7 +4216,7 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    console.writeln("  Solve mode:  " + (solveMode === "local" ? "Local (solve-field)" : solveMode === "imagesolver" ? "ImageSolver (built-in)" : "API (astrometry.net)"));
    if (solveMode === "imagesolver") {
-      var _catLabel = hints.isCatalog === "auto" ? "自動 (Automatic)" : hints.isCatalog;
+      var _catLabel = hints.isCatalog === "auto" ? "Automatic" : hints.isCatalog;
       console.writeln("  Catalog:     " + _catLabel);
    }
    console.writeln("  Target:      " + targetWindow.mainView.id + " (" + imageWidth + "x" + imageHeight + ")");
