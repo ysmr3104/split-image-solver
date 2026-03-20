@@ -137,6 +137,18 @@ function getWavefrontResult() {
         tiles:  tiles,
         merged: merged
     };
+
+    var tilesJsonPath = PROJECT_ROOT + "tests/pjsr/results/test_wavefront_is_2x2_tiles.json";
+    var debugEntries = [];
+    for (var di = 0; di < tiles.length; di++) {
+        var dt = tiles[di];
+        var entry = { row: dt.row, col: dt.col, status: dt.status };
+        if (dt.wcs) { entry.crval1 = dt.wcs.crval1; entry.crval2 = dt.wcs.crval2; }
+        debugEntries.push(entry);
+    }
+    var tf = new File(); tf.createForWriting(tilesJsonPath);
+    tf.outText(JSON.stringify(debugEntries, null, 2)); tf.close();
+
     return _wavefrontResult;
 }
 

@@ -82,8 +82,8 @@ function _buildTileRequests(fx, tileDir) {
         if (!File.exists(filePath)) { continue; }
         var maxEdge = ft ? Math.max(ft.tile_width, ft.tile_height) : 2000;
         var sf      = (maxEdge > 2000) ? (2000.0 / maxEdge) : 1.0;
-        var scaleEst = ft ? (ft.scale_lower + ft.scale_upper) / 2.0 / sf
-                          : fx.hints.scaleEst / sf;
+        // equidistant: scale is constant everywhere (projectionScale returns baseScale)
+        var scaleEst = fx.hints.scaleEst / sf;
         requests.push({
             tile: {
                 filePath:       filePath,
