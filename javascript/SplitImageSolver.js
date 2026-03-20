@@ -1342,6 +1342,23 @@ function solveSingleTile(client, tile, tileHints, scaleBounds, expectedRaDec, co
          wcsData.cd2_1 *= tile.scaleFactor;
          wcsData.cd2_2 *= tile.scaleFactor;
       }
+      // Rescale SIP coefficients from downsampled to original pixel space.
+      // A_pq was fitted for downsampled coords (u_down = u_orig * sf).
+      // A_pq_orig = A_pq_down * sf^(p+q-1) so that the correction in
+      // original pixels is: sum(A_pq_orig * u_orig^p * v_orig^q) = delta_u_down / sf
+      if (wcsData.sipCoeffs) {
+         var sipSf = tile.scaleFactor;
+         var rescaleSip = function(coeffs) {
+            if (!coeffs) return;
+            for (var k = 0; k < coeffs.length; k++) {
+               coeffs[k][2] *= Math.pow(sipSf, coeffs[k][0] + coeffs[k][1] - 1);
+            }
+         };
+         rescaleSip(wcsData.sipCoeffs.a);
+         rescaleSip(wcsData.sipCoeffs.b);
+         rescaleSip(wcsData.sipCoeffs.ap);
+         rescaleSip(wcsData.sipCoeffs.bp);
+      }
    }
 
    // Apply tile offset (top-down convention, same as Python)
