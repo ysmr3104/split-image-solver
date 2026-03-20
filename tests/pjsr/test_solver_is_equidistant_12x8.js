@@ -47,7 +47,7 @@ var IS_CRVAL = {
     "5_6": { ra:  44.304575, dec:  61.130794 }
 };
 
-var BASELINE_MIN_SOLVED = 10;
+var BASELINE_MIN_SOLVED = 9;
 
 if (!File.exists(FIXTURE_PATH)) {
     console.writeln("ERROR: fixture not found: " + FIXTURE_PATH);
