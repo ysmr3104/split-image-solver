@@ -4639,8 +4639,9 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
          },
          solverFn, abortCheckFn, skipCheckFn, rateLimitMs);
 
-      if (successCount < 2) {
-         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least 2 required.";
+      var minRequired = Math.min(2, tiles.length);
+      if (successCount < minRequired) {
+         throw "Too few tiles solved (" + successCount + "/" + tiles.length + "). At least " + minRequired + " required.";
       }
 
       // 5. Write debug fixture if requested
