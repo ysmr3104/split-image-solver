@@ -4660,17 +4660,25 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       }
 
       // 6. Overlap validation
-      this.progressLabel.text = "Validating overlap...";
-      processEvents();
+      // IS mode: skip. The linear CD matrix from extractWcsFromMetadata (no SIP)
+      // is accurate only near the tile center. For wide-angle lenses the deviation
+      // at tile boundaries can exceed thousands of arcseconds even for correct solutions.
+      // Individual tile quality is guaranteed by solveSingleTileIS false-positive filters.
+      if (modeName !== "ImageSolver") {
+         this.progressLabel.text = "Validating overlap...";
+         processEvents();
 
-      var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
-      invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
-      if (invalidated > 0) {
-         successCount -= invalidated;
-         console.writeln(invalidated + " tiles invalidated by overlap check");
-         if (successCount < 2) {
-            throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
+         var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
+         invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
+         if (invalidated > 0) {
+            successCount -= invalidated;
+            console.writeln(invalidated + " tiles invalidated by overlap check");
+            if (successCount < 2) {
+               throw "Too few valid tiles after overlap validation (" + successCount + "/" + tiles.length + ").";
+            }
          }
+      } else {
+         console.writeln("Overlap validation: skipped (ImageSolver mode)");
       }
 
       // 7. Merge WCS solutions
