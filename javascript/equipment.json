@@ -463,6 +463,34 @@
       "sensor_height": 2822
     },
     {
+      "name": "ZWO Seestar S50 (IMX462)",
+      "instrume": "Seestar S50",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1936,
+      "sensor_height": 1096
+    },
+    {
+      "name": "ZWO Seestar S30 (IMX662)",
+      "instrume": "Seestar S30",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
+    {
+      "name": "DWARFLAB DWARF 3 (IMX678)",
+      "instrume": "DWARF 3",
+      "pixel_pitch": 2.00,
+      "sensor_width": 3856,
+      "sensor_height": 2180
+    },
+    {
+      "name": "DWARFLAB DWARF mini (IMX662)",
+      "instrume": "DWARF mini",
+      "pixel_pitch": 2.90,
+      "sensor_width": 1920,
+      "sensor_height": 1080
+    },
+    {
       "name": "Custom",
       "instrume": "",
       "pixel_pitch": 0,
@@ -800,6 +828,30 @@
       "name": "8mm Fisheye Circular",
       "focal_length": 8,
       "projection": "equidistant"
+    },
+    {
+      "name": "ZWO Seestar S50 (250mm f/5.0)",
+      "model": "Seestar S50",
+      "focal_length": 250,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "ZWO Seestar S30 (150mm f/5.0)",
+      "model": "Seestar S30",
+      "focal_length": 150,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "DWARFLAB DWARF 3 (150mm f/4.3)",
+      "model": "DWARF 3",
+      "focal_length": 150,
+      "projection": "rectilinear"
+    },
+    {
+      "name": "DWARFLAB DWARF mini (150mm f/5.0)",
+      "model": "DWARF mini",
+      "focal_length": 150,
+      "projection": "rectilinear"
     }
   ]
 }
