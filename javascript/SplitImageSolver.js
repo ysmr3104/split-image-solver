@@ -4938,7 +4938,22 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
             cd2_1:  r.cd2_1 * sf, cd2_2: r.cd2_2 * sf
          };
          if (r.sip_order && r.sip_a && r.sip_b) {
-            tile.wcs.sip = { order: r.sip_order, a: r.sip_a, b: r.sip_b };
+            // Convert Python dict format {"p_q": value} to [[p, q, value]] array
+            // and rescale from downsampled to original pixel space: A_pq_orig = A_pq_down * sf^(p+q-1)
+            var sipDictToScaledArray = function(dict) {
+               var arr = [];
+               for (var key in dict) {
+                  var kp = key.split("_");
+                  var p = parseInt(kp[0], 10), q = parseInt(kp[1], 10);
+                  arr.push([p, q, dict[key] * Math.pow(sf, p + q - 1)]);
+               }
+               return arr;
+            };
+            tile.wcs.sipCoeffs = {
+               a: sipDictToScaledArray(r.sip_a),
+               b: sipDictToScaledArray(r.sip_b)
+            };
+            tile.wcs.aOrder = r.sip_order;
          }
          tile.calibration = { pixscale: r.pixel_scale, ra: r.crval1, dec: r.crval2 };
 
