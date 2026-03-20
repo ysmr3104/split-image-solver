@@ -72,7 +72,7 @@ split-image-solver/
 - **`astrometry_api.js`** — `AstrometryClient` class. Calls astrometry.net API via ExternalProcess + curl (login → upload → pollSubmission → pollJob → getCalibration → getWcsFile).
 - **`wcs_math.js`** — WCS math library. `WCSFitter` (CD matrix + SIP fitting), `tanProject`/`tanDeproject` (TAN projection), `pixelToRaDec`/`raDecToPixel`, `angularSeparation`, etc. Shared with manual-image-solver. Compatible with both PJSR and Node.js.
 - **`wcs_keywords.js`** — FITS WCS keyword utilities (`isWCSKeyword`, `makeFITSKeyword`).
-- **`equipment_data.jsh`** — Equipment database source (71 cameras + 63 lenses/telescopes). Cameras have `instrume` (model ID) field; lenses have `model` field. Runtime data is read from `equipment.json` (same directory).
+- **`equipment_data.jsh`** — Equipment database source (71 cameras + 99 lenses/telescopes). Cameras have `instrume` (model ID) field; lenses have `model` field. Runtime data is read from `equipment.json` (same directory).
 - **`imagesolver_bridge.jsh`** — Bridge file for using PixInsight's built-in ImageSolver as a library. Includes AdP scripts (`WCSmetadata.jsh`, `AstronomicalCatalogs.jsh`, `ImageSolver.js`) via relative paths for cross-platform compatibility.
 
 ## Settings Persistence (Settings API)
