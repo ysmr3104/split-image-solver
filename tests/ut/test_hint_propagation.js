@@ -81,14 +81,19 @@ function loadSplitImageSolver() {
         "function CheckBox(){}; function ComboBox(){}; ComboBox.prototype = { addItem: function(){}, currentIndex: 0 };",
         "function SpinBox(){}; function NumericControl(){}; function Slider(){};",
         "function TreeBox(){}; TreeBox.prototype = { clear: function(){} }; function TreeBoxNode(){};",
-        // PJSR 定数
-        "var UndoFlag_NoSwapFile=0; var ImageOp_Mov=0;",
-        "var StdIcon_Information=0; var StdIcon_Error=0; var StdIcon_Warning=0;",
-        "var StdButton_Ok=0; var StdButton_Cancel=0; var StdButton_Yes=0; var StdButton_No=0;",
-        "var PropertyType_String=0; var PropertyAttribute_Storable=0; var PropertyAttribute_Permanent=0; var PropertyAttribute_Protected=0;",
-        "var SampleType_UInt16=0; var SampleType_Real32=0; var DataType_Float32=0;",
-        "var StdCursor_Arrow=0; var StdCursor_Wait=0; var StdCursor_PointingHand=0;",
-        "var TextAlign_VertCenter=0; var TextAlign_Left=0; var TextAlign_Right=0;",
+        // CoreApplication (V8)
+        "var CoreApplication = { processEvents: function(){}, versionMajor: 1, versionMinor: 9, versionRelease: 4, versionLE: false, ensureMinimumVersion: function(){}, instance: 0 };",
+        // PJSR 定数 (V8 クラス静的プロパティ形式)
+        "var UndoFlag = { NoSwapFile: 0, Keywords: 0 };",
+        "var ImageOp = { Mov: 0, Sub: 0, Mul: 0 };",
+        "var StdIcon = { Information: 0, Error: 0, Warning: 0, Question: 0 };",
+        "var StdButton = { Ok: 0, Cancel: 0, Yes: 0, No: 0 };",
+        "var PropertyType = { String: 0, Int32: 0, Float32: 0, Float64: 0, Boolean: 0, F64Vector: 0, F64Matrix: 0, TimePoint: 0 };",
+        "var PropertyAttribute = { Storable: 0, Permanent: 0, Protected: 0 };",
+        "var DataType = { String: 0, Boolean: 0, Float32: 0, Int32: 0, Double: 0 };",
+        "var PixelSampleType = { UInt16: 0, Real32: 0 };",
+        "var StdCursor = { Arrow: 0, Wait: 0, PointingHand: 0, ClosedHand: 0 };",
+        "var TextAlignment = { VerticalCenter: 0, Left: 0, Right: 0 };",
         // PJSR オブジェクト
         "function MessageBox(){ return { execute: function(){return 0;} }; }",
         "var ImageWindow = { open: function(){return [];} };",

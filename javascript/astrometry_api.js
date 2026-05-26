@@ -28,7 +28,7 @@ AstrometryClient.prototype._sleep = function(ms) {
    while (remaining > 0) {
       msleep(Math.min(step, remaining));
       remaining -= step;
-      processEvents();
+      CoreApplication.processEvents();
       if (console.abortRequested ||
           (typeof this.abortCheck === "function" && this.abortCheck())) {
          this.aborted = true;
