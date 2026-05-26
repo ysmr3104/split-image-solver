@@ -4,14 +4,25 @@
       <title>Split Image Solver</title>
       <brief_description>Automatic plate solver using astrometry.net API or local solve-field for PixInsight</brief_description>
    </description>
-   <platform os="all" arch="noarch" version="1.8.9:9.9.9">
+   <platform os="all" arch="noarch" version="1.8.9:1.9.3">
       <package fileName="SplitImageSolver-1.2.0.zip"
                sha1="5386e8a4e032f8d6c16516ebd8ddb8bcc99e3093"
                type="script"
                releaseDate="20260320">
          <title>Split Image Solver</title>
          <description>
-            <p>Automatic plate solver using astrometry.net API or local solve-field. Supports single-image and split-tile solve with WCS application.</p>
+            <p>Automatic plate solver using astrometry.net API or local solve-field (SpiderMonkey runtime / PixInsight &lt;= 1.9.3)</p>
+         </description>
+      </package>
+   </platform>
+   <platform os="all" arch="noarch" version="1.9.4:9.9.9">
+      <package fileName="SplitImageSolver-2.0.0.zip"
+               sha1="22f56632b9bfa6a0e1b9d42f92dd961883774469"
+               type="script"
+               releaseDate="20260527">
+         <title>Split Image Solver</title>
+         <description>
+            <p>Automatic plate solver using astrometry.net API or local solve-field (V8 runtime / PixInsight &gt;= 1.9.4)</p>
          </description>
       </package>
    </platform>
