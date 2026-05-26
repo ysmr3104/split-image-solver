@@ -4,15 +4,11 @@
 // 実行:
 //   bash tests/pjsr/run_pjsr_tests.sh tests/pjsr/test_split_tiles.js
 
+#engine v8
+
 // PixInsight --automation-mode では #include が使えるため、
 // ライブラリモードでメインスクリプトを読み込む
 var __SPLIT_SOLVER_LIBRARY_MODE = true;
-
-#include <pjsr/UndoFlag.jsh>
-#include <pjsr/ImageOp.jsh>
-#include <pjsr/SampleType.jsh>
-#include <pjsr/DataType.jsh>
-#include <pjsr/StdCursor.jsh>
 
 #include "../../javascript/SplitImageSolver.js"
 #include "pjsr_test_framework.js"
@@ -25,7 +21,7 @@ var RESULT_PATH = PROJECT_ROOT + "tests/pjsr/results/test_split_tiles_result.jso
 // ============================================================
 function makeDummyWindow(w, h, id) {
     var win = new ImageWindow(w, h, 1, 16, false, false, id || "dummy");
-    win.mainView.beginProcess(UndoFlag_NoSwapFile);
+    win.mainView.beginProcess(UndoFlag.NoSwapFile);
     // 全画素を0.5に設定（星らしきものがないとstretchに影響するが関係なし）
     win.mainView.image.fill(0.5);
     win.mainView.endProcess();

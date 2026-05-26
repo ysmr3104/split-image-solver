@@ -86,7 +86,10 @@ bash build-split-release.sh
 
 ## コーディング規約
 
-- **ES5 スタイル必須**: PJSR は `let`/`const`/アロー関数/テンプレートリテラルを未サポート。`var` 宣言のみ使用。
+- **ES5 スタイル（V8版でも維持）**: `var` 宣言のみ使用。`let`/`const` は使用しない。アロー関数不可。テンプレートリテラル不可。
+- **クラス定義**: V8 では `this.__base__` パターンは機能しない。PJSR クラスを継承する場合は `var ClassName = class extends Base { constructor() { super(); ... } }` のクラス式を使用。
+- **定数**: V8 では旧 SpiderMonkey グローバル定数（`TextAlign_*`、`StdIcon_*` 等）は使用不可。クラス静的プロパティ形式（`TextAlignment.Right` 等）を使用。
+- **processEvents**: `CoreApplication.processEvents()` を使用（`processEvents()` グローバル呼び出し不可）。
 - コード内の変数名・関数名・コメント・コンソール出力（`console.writeln`）は全て英語。
 - UI テキスト（ラベル・メッセージボックス・ツールチップ）も全て英語。
 

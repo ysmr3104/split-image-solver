@@ -1,3 +1,5 @@
+#engine v8
+
 #feature-id    SplitImageSolver : Astrometry > SplitImageSolver
 #feature-info  Automatic plate solver using astrometry.net API or local solve-field: \
    single-image or split-tile solve with WCS application for PixInsight.
@@ -11,22 +13,10 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "1.2.0"
+#define VERSION "2.0.0"
 #define VERSION_SUFFIX ""
 
-#include <pjsr/DataType.jsh>
-#include <pjsr/StdIcon.jsh>
-#include <pjsr/StdButton.jsh>
-#include <pjsr/TextAlign.jsh>
-#include <pjsr/Sizer.jsh>
-#include <pjsr/UndoFlag.jsh>
-#include <pjsr/NumericControl.jsh>
-#include <pjsr/Color.jsh>
-#include <pjsr/PropertyType.jsh>
-#include <pjsr/PropertyAttribute.jsh>
-#include <pjsr/SampleType.jsh>
-#include <pjsr/ImageOp.jsh>
-#include <pjsr/StdCursor.jsh>
+// V8 runtime: pjsr include files are not needed
 
 #include "wcs_math.js"
 #include "wcs_keywords.js"
@@ -38,7 +28,10 @@
 // This enables using PixInsight's ImageSolver engine instead of astrometry.net.
 // Requires PixInsight 1.9.0+ with ImageSolver 6.x installed.
 // To disable: comment out the #define line below.
-#define ENABLE_IMAGESOLVER
+// Note: ENABLE_IMAGESOLVER is disabled in V8 version.
+// The AdP library (ImageSolver.js) uses the SpiderMonkey-specific __base__ pattern
+// and is not compatible with the V8 runtime.
+// #define ENABLE_IMAGESOLVER
 
 #ifdef ENABLE_IMAGESOLVER
 #include "imagesolver_bridge.jsh"
@@ -327,7 +320,7 @@ function applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight) {
    // regenerateAstrometricSolution() rebuilds the internal solution from keywords,
    // but some tools (e.g. SPFC) check these properties directly.
    var view = targetWindow.mainView;
-   var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+   var attrs = PropertyAttribute.Storable | PropertyAttribute.Permanent;
 
    // Remove any existing SplineWorldTransformation properties from previous solutions.
    // If left behind, regenerateAstrometricSolution() tries to rebuild the spline
@@ -344,18 +337,18 @@ function applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight) {
    view.deleteProperty("PCL:AstrometricSolution:Information");
 
    // Projection system (TAN = Gnomonic)
-   view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType_String8, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType.String, attrs);
 
    // Reference celestial coordinates (projection origin in degrees)
    var refCelestial = new Vector([wcsResult.crval1, wcsResult.crval2]);
-   view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates", refCelestial, PropertyType_F64Vector, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates", refCelestial, PropertyType.F64Vector, attrs);
 
    // Reference image coordinates (I-coordinates: 0-based x, bottom-up y)
    // Convert from our FITS BU convention (1-based) to I-coordinates (0-based)
    var refImgX = wcsResult.crpix1 - 1;
    var refImgY = wcsResult.crpix2;  // Already bottom-up in our convention
    var refImage = new Vector([refImgX, refImgY]);
-   view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates", refImage, PropertyType_F64Vector, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates", refImage, PropertyType.F64Vector, attrs);
 
    // Linear transformation matrix (2x2, I-coordinates to gnomonic native coordinates)
    // In I-coordinates (0-based x, bottom-up y), CD matrix maps directly
@@ -364,33 +357,33 @@ function applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight) {
    ltMatrix.at(0, 1, wcsResult.cd[0][1]);
    ltMatrix.at(1, 0, wcsResult.cd[1][0]);
    ltMatrix.at(1, 1, wcsResult.cd[1][1]);
-   view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType_F64Matrix, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType.F64Matrix, attrs);
 
    // Native coordinates of the reference point (standard for TAN: 0, 90)
    var refNative = new Vector([0, 90]);
-   view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates", refNative, PropertyType_F64Vector, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates", refNative, PropertyType.F64Vector, attrs);
 
    // Celestial pole native coordinates
    var plon = (wcsResult.crval2 < 90) ? 180 : 0;
    var plat = 90;
    var celestialPole = new Vector([plon, plat]);
-   view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates", celestialPole, PropertyType_F64Vector, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates", celestialPole, PropertyType.F64Vector, attrs);
 
    // Observation center coordinates
-   view.setPropertyValue("Observation:Center:RA", imgCenter[0], PropertyType_Float64, attrs);
-   view.setPropertyValue("Observation:Center:Dec", imgCenter[1], PropertyType_Float64, attrs);
-   view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType_String8, attrs);
-   view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType_Float64, attrs);
+   view.setPropertyValue("Observation:Center:RA", imgCenter[0], PropertyType.Float64, attrs);
+   view.setPropertyValue("Observation:Center:Dec", imgCenter[1], PropertyType.Float64, attrs);
+   view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType.String, attrs);
+   view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType.Float64, attrs);
 
    // Creation metadata
-   view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType_TimePoint, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType.TimePoint, attrs);
    var creatorApp = format("PixInsight %s%d.%d.%d",
       CoreApplication.versionLE ? "LE " : "",
       CoreApplication.versionMajor,
       CoreApplication.versionMinor,
       CoreApplication.versionRelease);
-   view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType_String, attrs);
-   view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType_String, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType.String, attrs);
+   view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType.String, attrs);
 
    // NOTE: Do NOT call regenerateAstrometricSolution() here.
    // It must be called AFTER setCustomControlPoints() writes spline control points,
@@ -583,16 +576,16 @@ function setCustomControlPoints(window, wcsResult, starPairs, imageWidth, imageH
    }
 
    // 4. Write to image properties (full spline config overwrite)
-   var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+   var attrs = PropertyAttribute.Storable | PropertyAttribute.Permanent;
    var prefix = "PCL:AstrometricSolution:SplineWorldTransformation:";
-   view.setPropertyValue(prefix + "RBFType", "ThinPlateSpline", PropertyType_String8, attrs);
-   view.setPropertyValue(prefix + "SplineOrder", 2, PropertyType_Int32, attrs);
-   view.setPropertyValue(prefix + "SplineSmoothness", 0, PropertyType_Float32, attrs);
-   view.setPropertyValue(prefix + "MaxSplinePoints", nTotal, PropertyType_Int32, attrs);
-   view.setPropertyValue(prefix + "UseSimplifiers", false, PropertyType_Boolean, attrs);
-   view.setPropertyValue(prefix + "SimplifierRejectFraction", 0.10, PropertyType_Float32, attrs);
-   view.setPropertyValue(prefix + "ControlPoints:Image", cI, PropertyType_F64Vector, attrs);
-   view.setPropertyValue(prefix + "ControlPoints:World", cW, PropertyType_F64Vector, attrs);
+   view.setPropertyValue(prefix + "RBFType", "ThinPlateSpline", PropertyType.String, attrs);
+   view.setPropertyValue(prefix + "SplineOrder", 2, PropertyType.Int32, attrs);
+   view.setPropertyValue(prefix + "SplineSmoothness", 0, PropertyType.Float32, attrs);
+   view.setPropertyValue(prefix + "MaxSplinePoints", nTotal, PropertyType.Int32, attrs);
+   view.setPropertyValue(prefix + "UseSimplifiers", false, PropertyType.Boolean, attrs);
+   view.setPropertyValue(prefix + "SimplifierRejectFraction", 0.10, PropertyType.Float32, attrs);
+   view.setPropertyValue(prefix + "ControlPoints:Image", cI, PropertyType.F64Vector, attrs);
+   view.setPropertyValue(prefix + "ControlPoints:World", cW, PropertyType.F64Vector, attrs);
 
    var modeLabel = gridMode === "smooth" ? " (smooth)" : gridMode === "linear" ? " (linear)" : "";
    console.writeln("  Control points overwritten: grid " + gridPoints.length + " + stars " + starPoints.length + " = " + nTotal + " points" + modeLabel);
@@ -778,9 +771,9 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
             "tile_" + col + "_" + row);
 
          // Copy pixel data from source using selectedRect
-         tileWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         tileWin.mainView.beginProcess(UndoFlag.NoSwapFile);
          image.selectedRect = new Rect(x0, y0, x1, y1);
-         tileWin.mainView.image.apply(image, ImageOp_Mov);
+         tileWin.mainView.image.apply(image, ImageOp.Mov);
          image.resetSelections();
          tileWin.mainView.endProcess();
 
@@ -824,10 +817,10 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
          if (vmax <= vmin) vmax = vmin + 0.001;
          console.writeln("  Tile [" + col + "," + row + "] stretch: vmin=" +
             vmin.toFixed(6) + " vmax=" + vmax.toFixed(6));
-         tileWin.mainView.beginProcess(UndoFlag_NoSwapFile);
+         tileWin.mainView.beginProcess(UndoFlag.NoSwapFile);
          // Rescale: (pixel - vmin) / (vmax - vmin), clipped to [0, 1]
-         tileImg.apply(vmin, ImageOp_Sub);
-         tileImg.apply(1.0 / (vmax - vmin), ImageOp_Mul);
+         tileImg.apply(vmin, ImageOp.Sub);
+         tileImg.apply(1.0 / (vmax - vmin), ImageOp.Mul);
          tileImg.truncate(0, 1);
          tileWin.mainView.endProcess();
 
@@ -840,11 +833,11 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
             var newH = Math.round(tileH * scaleFactor);
 
             var resample = new Resample;
-            resample.mode = Resample.prototype.AbsolutePixels;
-            resample.absoluteMode = Resample.prototype.ForceWidthAndHeight;
+            resample.mode = Resample.AbsolutePixels;
+            resample.absoluteMode = Resample.ForceWidthAndHeight;
             resample.xSize = newW;
             resample.ySize = newH;
-            resample.interpolation = Resample.prototype.Auto;
+            resample.interpolation = Resample.Auto;
             resample.executeOn(tileWin.mainView);
          }
 
@@ -852,8 +845,8 @@ function splitImageToTiles(targetWindow, gridX, gridY, overlap, skipEdges) {
          var currentW = tileWin.mainView.image.width;
          var currentH = tileWin.mainView.image.height;
          var outWin = new ImageWindow(currentW, currentH, 1, 16, false, false, "out_tile");
-         outWin.mainView.beginProcess(UndoFlag_NoSwapFile);
-         outWin.mainView.image.apply(tileWin.mainView.image, ImageOp_Mov);
+         outWin.mainView.beginProcess(UndoFlag.NoSwapFile);
+         outWin.mainView.image.apply(tileWin.mainView.image, ImageOp.Mov);
          outWin.mainView.endProcess();
          tileWin.forceClose();
 
@@ -1578,7 +1571,7 @@ function solveWavefront(client, tiles, hints, imageWidth, imageHeight, gridX, gr
 
       for (var wi = 0; wi < currentWave.length; wi++) {
          // Check for abort (works for all modes including ImageSolver where client is null)
-         processEvents();
+         CoreApplication.processEvents();
          if (console.abortRequested ||
              (client && typeof client.abortCheck === "function" && client.abortCheck()) ||
              (typeof abortCheckFn === "function" && abortCheckFn())) {
@@ -2231,22 +2224,22 @@ var SETTINGS_KEY = "SplitImageSolver";
 // Settings Dialog
 //============================================================================
 
-function SolverSettingsDialog(parent) {
-   this.__base__ = Dialog;
-   this.__base__();
+var SolverSettingsDialog = class extends Dialog {
+   constructor(parent) {
+      super();
 
    this.windowTitle = "Settings";
 
    var d = this;
 
    // Load saved settings
-   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType_String);
-   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
-   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
-   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
-   var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
-   var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
-   var savedIsCatalog = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
+   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType.String);
+   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType.String);
+   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType.String);
+   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType.String);
+   var savedSaveTiles = Settings.read(SETTINGS_KEY + "/saveTiles", DataType.Boolean);
+   var savedTileOutputDir = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType.String);
+   var savedIsCatalog = Settings.read(SETTINGS_KEY + "/isCatalog", DataType.String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
@@ -2262,7 +2255,7 @@ function SolverSettingsDialog(parent) {
 
    var modeLabel = new Label(modeGroup);
    modeLabel.text = "Mode:";
-   modeLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   modeLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    modeLabel.setFixedWidth(120);
 
    this.modeCombo = new ComboBox(modeGroup);
@@ -2288,7 +2281,7 @@ function SolverSettingsDialog(parent) {
 
    var apiKeyLabel = new Label(apiGroup);
    apiKeyLabel.text = "API Key:";
-   apiKeyLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   apiKeyLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    apiKeyLabel.setFixedWidth(120);
 
    this.apiKeyEdit = new Edit(apiGroup);
@@ -2325,7 +2318,7 @@ function SolverSettingsDialog(parent) {
 
    var pythonLabel = new Label(localGroup);
    pythonLabel.text = "Python:";
-   pythonLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   pythonLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    pythonLabel.setFixedWidth(120);
 
    this.pythonEdit = new Edit(localGroup);
@@ -2355,7 +2348,7 @@ function SolverSettingsDialog(parent) {
 
    var scriptDirLabel = new Label(localGroup);
    scriptDirLabel.text = "Script directory:";
-   scriptDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   scriptDirLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    scriptDirLabel.setFixedWidth(120);
 
    this.scriptDirEdit = new Edit(localGroup);
@@ -2395,7 +2388,7 @@ function SolverSettingsDialog(parent) {
 
    var catalogLabel = new Label(isGroup);
    catalogLabel.text = "Catalog:";
-   catalogLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   catalogLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    catalogLabel.setFixedWidth(120);
 
    this.catalogCombo = new ComboBox(isGroup);
@@ -2439,7 +2432,7 @@ function SolverSettingsDialog(parent) {
 
    var tileOutputDirLabel = new Label(tileGroup);
    tileOutputDirLabel.text = "Output directory:";
-   tileOutputDirLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   tileOutputDirLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    tileOutputDirLabel.setFixedWidth(120);
 
    this.tileOutputDirEdit = new Edit(tileGroup);
@@ -2510,37 +2503,36 @@ function SolverSettingsDialog(parent) {
    this.sizer.add(btnSizer);
 
    this.adjustToContents();
-}
+   }
 
-SolverSettingsDialog.prototype = new Dialog;
+   // Save all settings and return values as object
+   getSettings() {
+      var mode = (this.modeCombo.currentItem === 1) ? "local" : (this.modeCombo.currentItem === 2) ? "imagesolver" : "api";
+      var apiKey = this.apiKeyEdit.text.trim();
+      var pythonPath = this.pythonEdit.text.trim();
+      var scriptDir = this.scriptDirEdit.text.trim();
+      var saveTiles = this.saveTilesCheck.checked;
+      var tileOutputDir = this.tileOutputDirEdit.text.trim();
+      var isCatalog = this._catalogIds[this.catalogCombo.currentItem] || "auto";
 
-// Save all settings and return values as object
-SolverSettingsDialog.prototype.getSettings = function() {
-   var mode = (this.modeCombo.currentItem === 1) ? "local" : (this.modeCombo.currentItem === 2) ? "imagesolver" : "api";
-   var apiKey = this.apiKeyEdit.text.trim();
-   var pythonPath = this.pythonEdit.text.trim();
-   var scriptDir = this.scriptDirEdit.text.trim();
-   var saveTiles = this.saveTilesCheck.checked;
-   var tileOutputDir = this.tileOutputDirEdit.text.trim();
-   var isCatalog = this._catalogIds[this.catalogCombo.currentItem] || "auto";
+      Settings.write(SETTINGS_KEY + "/solveMode", DataType.String, mode);
+      Settings.write(SETTINGS_KEY + "/apiKey", DataType.String, apiKey);
+      Settings.write(SETTINGS_KEY + "/pythonPath", DataType.String, pythonPath);
+      Settings.write(SETTINGS_KEY + "/scriptDir", DataType.String, scriptDir);
+      Settings.write(SETTINGS_KEY + "/saveTiles", DataType.Boolean, saveTiles);
+      Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType.String, tileOutputDir);
+      Settings.write(SETTINGS_KEY + "/isCatalog", DataType.String, isCatalog);
 
-   Settings.write(SETTINGS_KEY + "/solveMode", DataType_String, mode);
-   Settings.write(SETTINGS_KEY + "/apiKey", DataType_String, apiKey);
-   Settings.write(SETTINGS_KEY + "/pythonPath", DataType_String, pythonPath);
-   Settings.write(SETTINGS_KEY + "/scriptDir", DataType_String, scriptDir);
-   Settings.write(SETTINGS_KEY + "/saveTiles", DataType_Boolean, saveTiles);
-   Settings.write(SETTINGS_KEY + "/tileOutputDir", DataType_String, tileOutputDir);
-   Settings.write(SETTINGS_KEY + "/isCatalog", DataType_String, isCatalog);
-
-   return {
-      solveMode: mode,
-      apiKey: apiKey,
-      pythonPath: pythonPath,
-      scriptDir: scriptDir,
-      saveTiles: saveTiles,
-      tileOutputDir: tileOutputDir,
-      isCatalog: isCatalog
-   };
+      return {
+         solveMode: mode,
+         apiKey: apiKey,
+         pythonPath: pythonPath,
+         scriptDir: scriptDir,
+         saveTiles: saveTiles,
+         tileOutputDir: tileOutputDir,
+         isCatalog: isCatalog
+      };
+   }
 };
 
 //============================================================================
@@ -2675,9 +2667,9 @@ function createStretchedBitmap(image, maxEdge, stretchMode) {
 // Grid Preview Control - Image preview with grid overlay
 //============================================================================
 
-function GridPreviewControl(parent) {
-   this.__base__ = ScrollBox;
-   this.__base__(parent);
+var GridPreviewControl = class extends ScrollBox {
+   constructor(parent) {
+      super(parent);
 
    this.bitmap = null;
    this.bitmapScale = 1.0;
@@ -2710,7 +2702,7 @@ function GridPreviewControl(parent) {
 
    var self = this;
 
-   this.viewport.cursor = new Cursor(StdCursor_Arrow);
+   this.viewport.cursor = new Cursor(StdCursor.Arrow);
    this._needsFit = true;
 
    // Fit to window on first resize (viewport size is 0 during construction)
@@ -2872,7 +2864,7 @@ function GridPreviewControl(parent) {
       if (!self.hasMoved) {
          if (Math.abs(dx) > GRID_DRAG_THRESHOLD || Math.abs(dy) > GRID_DRAG_THRESHOLD) {
             self.hasMoved = true;
-            self.viewport.cursor = new Cursor(StdCursor_ClosedHand);
+            self.viewport.cursor = new Cursor(StdCursor.ClosedHand);
          }
       }
       if (self.hasMoved) {
@@ -2884,7 +2876,7 @@ function GridPreviewControl(parent) {
       if (!self.isDragging) return;
       self.isDragging = false;
       self.hasMoved = false;
-      self.viewport.cursor = new Cursor(StdCursor_Arrow);
+      self.viewport.cursor = new Cursor(StdCursor.Arrow);
    };
 
    this.viewport.onMouseWheel = function(x, y, delta, buttonState, modifiers) {
@@ -2911,114 +2903,113 @@ function GridPreviewControl(parent) {
       self.scrollY = Math.round((self.scrollY + y) * factor - y);
       self.updateViewport();
    };
-}
+   }
 
-GridPreviewControl.prototype = new ScrollBox;
-
-GridPreviewControl.prototype.setScroll = function(sx, sy) {
-   var dbmp = this.bitmap;
-   if (!dbmp) return;
-   var dispW = Math.round(dbmp.width * this.zoomLevel);
-   var dispH = Math.round(dbmp.height * this.zoomLevel);
-   var maxX = Math.max(0, dispW - this.viewport.width);
-   var maxY = Math.max(0, dispH - this.viewport.height);
-   this.scrollX = Math.max(0, Math.min(sx, maxX));
-   this.scrollY = Math.max(0, Math.min(sy, maxY));
-   this.horizontalScrollPosition = this.scrollX;
-   this.verticalScrollPosition = this.scrollY;
-   this.viewport.update();
-};
-
-GridPreviewControl.prototype.updateViewport = function() {
-   var dbmp = this.bitmap;
-   if (!dbmp) {
-      this.setHorizontalScrollRange(0, 0);
-      this.setVerticalScrollRange(0, 0);
+   setScroll(sx, sy) {
+      var dbmp = this.bitmap;
+      if (!dbmp) return;
+      var dispW = Math.round(dbmp.width * this.zoomLevel);
+      var dispH = Math.round(dbmp.height * this.zoomLevel);
+      var maxX = Math.max(0, dispW - this.viewport.width);
+      var maxY = Math.max(0, dispH - this.viewport.height);
+      this.scrollX = Math.max(0, Math.min(sx, maxX));
+      this.scrollY = Math.max(0, Math.min(sy, maxY));
+      this.horizontalScrollPosition = this.scrollX;
+      this.verticalScrollPosition = this.scrollY;
       this.viewport.update();
-      return;
    }
-   var dispW = Math.round(dbmp.width * this.zoomLevel);
-   var dispH = Math.round(dbmp.height * this.zoomLevel);
-   var viewW = this.viewport.width;
-   var viewH = this.viewport.height;
 
-   this.setHorizontalScrollRange(0, Math.max(0, dispW - viewW));
-   this.setVerticalScrollRange(0, Math.max(0, dispH - viewH));
-
-   // Clamp scroll
-   if (this.scrollX > Math.max(0, dispW - viewW))
-      this.scrollX = Math.max(0, dispW - viewW);
-   if (this.scrollY > Math.max(0, dispH - viewH))
-      this.scrollY = Math.max(0, dispH - viewH);
-
-   this.horizontalScrollPosition = this.scrollX;
-   this.verticalScrollPosition = this.scrollY;
-   this.viewport.update();
-};
-
-GridPreviewControl.prototype.fitToWindow = function() {
-   if (!this.bitmap) return;
-   var viewW = this.viewport.width;
-   var viewH = this.viewport.height;
-   if (viewW <= 0 || viewH <= 0) return;
-
-   var scaleX = viewW / this.bitmap.width;
-   var scaleY = viewH / this.bitmap.height;
-   var fitZoom = Math.min(scaleX, scaleY);
-
-   // Use exact fit zoom (not snapped to preset levels)
-   this.zoomLevel = fitZoom;
-   // Set zoomIndex to nearest preset for wheel zoom reference
-   this.zoomIndex = 0;
-   for (var i = this.zoomLevels.length - 1; i >= 0; i--) {
-      if (this.zoomLevels[i] <= fitZoom + 1e-6) {
-         this.zoomIndex = i;
-         break;
+   updateViewport() {
+      var dbmp = this.bitmap;
+      if (!dbmp) {
+         this.setHorizontalScrollRange(0, 0);
+         this.setVerticalScrollRange(0, 0);
+         this.viewport.update();
+         return;
       }
+      var dispW = Math.round(dbmp.width * this.zoomLevel);
+      var dispH = Math.round(dbmp.height * this.zoomLevel);
+      var viewW = this.viewport.width;
+      var viewH = this.viewport.height;
+
+      this.setHorizontalScrollRange(0, Math.max(0, dispW - viewW));
+      this.setVerticalScrollRange(0, Math.max(0, dispH - viewH));
+
+      // Clamp scroll
+      if (this.scrollX > Math.max(0, dispW - viewW))
+         this.scrollX = Math.max(0, dispW - viewW);
+      if (this.scrollY > Math.max(0, dispH - viewH))
+         this.scrollY = Math.max(0, dispH - viewH);
+
+      this.horizontalScrollPosition = this.scrollX;
+      this.verticalScrollPosition = this.scrollY;
+      this.viewport.update();
    }
-   this.scrollX = 0;
-   this.scrollY = 0;
-   this.updateViewport();
-};
 
-GridPreviewControl.prototype.setBitmap = function(bmp, bmpScale, imgW, imgH) {
-   this.bitmap = bmp;
-   this.bitmapScale = bmpScale;
-   this.imageWidth = imgW;
-   this.imageHeight = imgH;
-   this.fitToWindow();
-};
+   fitToWindow() {
+      if (!this.bitmap) return;
+      var viewW = this.viewport.width;
+      var viewH = this.viewport.height;
+      if (viewW <= 0 || viewH <= 0) return;
 
-GridPreviewControl.prototype.setGrid = function(cols, rows, overlapPx, skipEdges) {
-   this.gridCols = cols;
-   this.gridRows = rows;
-   this.overlapPx = overlapPx;
-   this.skipEdges = skipEdges || { top: 0, bottom: 0, left: 0, right: 0 };
-   this.viewport.update();
+      var scaleX = viewW / this.bitmap.width;
+      var scaleY = viewH / this.bitmap.height;
+      var fitZoom = Math.min(scaleX, scaleY);
+
+      // Use exact fit zoom (not snapped to preset levels)
+      this.zoomLevel = fitZoom;
+      // Set zoomIndex to nearest preset for wheel zoom reference
+      this.zoomIndex = 0;
+      for (var i = this.zoomLevels.length - 1; i >= 0; i--) {
+         if (this.zoomLevels[i] <= fitZoom + 1e-6) {
+            this.zoomIndex = i;
+            break;
+         }
+      }
+      this.scrollX = 0;
+      this.scrollY = 0;
+      this.updateViewport();
+   }
+
+   setBitmap(bmp, bmpScale, imgW, imgH) {
+      this.bitmap = bmp;
+      this.bitmapScale = bmpScale;
+      this.imageWidth = imgW;
+      this.imageHeight = imgH;
+      this.fitToWindow();
+   }
+
+   setGrid(cols, rows, overlapPx, skipEdges) {
+      this.gridCols = cols;
+      this.gridRows = rows;
+      this.overlapPx = overlapPx;
+      this.skipEdges = skipEdges || { top: 0, bottom: 0, left: 0, right: 0 };
+      this.viewport.update();
+   }
 };
 
 //============================================================================
 // Main Dialog
 //============================================================================
 
-function SplitSolverDialog() {
-   this.__base__ = Dialog;
-   this.__base__();
+var SplitSolverDialog = class extends Dialog {
+   constructor() {
+      super();
 
    this.windowTitle = TITLE + " v" + VERSION + VERSION_SUFFIX;
 
    var self = this;
 
    // Load saved settings
-   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType_String);
-   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType_String);
-   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType_String);
-   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType_String);
-   var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType_String);
-   var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType_String);
-   var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType_Boolean);
-   var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType_String);
-   var savedIsCatalog2 = Settings.read(SETTINGS_KEY + "/isCatalog", DataType_String);
+   var savedMode = Settings.read(SETTINGS_KEY + "/solveMode", DataType.String);
+   var savedApiKey = Settings.read(SETTINGS_KEY + "/apiKey", DataType.String);
+   var savedPythonPath = Settings.read(SETTINGS_KEY + "/pythonPath", DataType.String);
+   var savedScriptDir = Settings.read(SETTINGS_KEY + "/scriptDir", DataType.String);
+   var savedCamera = Settings.read(SETTINGS_KEY + "/camera", DataType.String);
+   var savedLens = Settings.read(SETTINGS_KEY + "/lens", DataType.String);
+   var savedSaveTiles2 = Settings.read(SETTINGS_KEY + "/saveTiles", DataType.Boolean);
+   var savedTileOutputDir2 = Settings.read(SETTINGS_KEY + "/tileOutputDir", DataType.String);
+   var savedIsCatalog2 = Settings.read(SETTINGS_KEY + "/isCatalog", DataType.String);
 
    this._solveMode = savedMode || "api";
    this._apiKey = savedApiKey || "";
@@ -3033,7 +3024,7 @@ function SplitSolverDialog() {
 
    this.targetLabel = new Label(this);
    this.targetLabel.text = "Target:";
-   this.targetLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.targetLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.targetLabel.setFixedWidth(120);
 
    this.targetEdit = new Edit(this);
@@ -3048,7 +3039,7 @@ function SplitSolverDialog() {
    // Solve mode radio buttons
    var modeLabel = new Label(this);
    modeLabel.text = "Solve mode:";
-   modeLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   modeLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    modeLabel.setFixedWidth(120);
 
    this.modeApiRadio = new RadioButton(this);
@@ -3089,7 +3080,7 @@ function SplitSolverDialog() {
 
    this.cameraLabel = new Label(this);
    this.cameraLabel.text = "Camera:";
-   this.cameraLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.cameraLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.cameraLabel.setFixedWidth(120);
 
    this.cameraCombo = new ComboBox(this);
@@ -3144,7 +3135,7 @@ function SplitSolverDialog() {
 
    this.lensLabel = new Label(this);
    this.lensLabel.text = "Lens:";
-   this.lensLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.lensLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.lensLabel.setFixedWidth(120);
 
    this.lensCombo = new ComboBox(this);
@@ -3212,7 +3203,7 @@ function SplitSolverDialog() {
    // ---- FOV info + recommended grid ----
    this.fovInfoLabel = new Label(this);
    this.fovInfoLabel.text = "";
-   this.fovInfoLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.fovInfoLabel.textAlignment = TextAlignment.Left | TextAlignment.VerticalCenter;
 
    // Need imageWidth/imageHeight for scale correction when image is resampled
    var imageWidth = targetWindow.isNull ? 0 : targetWindow.mainView.image.width;
@@ -3221,7 +3212,7 @@ function SplitSolverDialog() {
    // ---- Focal Length ----
    this.focalLengthLabel = new Label(this);
    this.focalLengthLabel.text = "Focal length:";
-   this.focalLengthLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.focalLengthLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.focalLengthLabel.setFixedWidth(120);
 
    this.focalLengthEdit = new Edit(this);
@@ -3234,7 +3225,7 @@ function SplitSolverDialog() {
    // ---- Pixel Pitch ----
    this.pixelPitchLabel = new Label(this);
    this.pixelPitchLabel.text = "Pixel pitch:";
-   this.pixelPitchLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.pixelPitchLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.pixelPitchLabel.setFixedWidth(120);
 
    this.pixelPitchEdit = new Edit(this);
@@ -3247,7 +3238,7 @@ function SplitSolverDialog() {
    // ---- Drizzle Scale ----
    this.drizzleLabel = new Label(this);
    this.drizzleLabel.text = "Drizzle:";
-   this.drizzleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.drizzleLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.drizzleLabel.setFixedWidth(120);
 
    this.drizzleCombo = new ComboBox(this);
@@ -3255,7 +3246,7 @@ function SplitSolverDialog() {
    this.drizzleCombo.addItem("2x");
    this.drizzleCombo.addItem("3x");
    this.drizzleCombo.addItem("4x");
-   var savedDrizzle = Settings.read(SETTINGS_KEY + "/drizzleFactor", DataType_Int32);
+   var savedDrizzle = Settings.read(SETTINGS_KEY + "/drizzleFactor", DataType.Int32);
    this.drizzleCombo.currentItem = (savedDrizzle !== null && savedDrizzle >= 0 && savedDrizzle <= 3) ? savedDrizzle : 0;
    this.drizzleCombo.toolTip = "Drizzle integration scale factor. Adjusts effective pixel pitch for plate solving.";
 
@@ -3266,7 +3257,7 @@ function SplitSolverDialog() {
    // ---- Scale Error ----
    this.scaleErrorLabel = new Label(this);
    this.scaleErrorLabel.text = "Error:";
-   this.scaleErrorLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.scaleErrorLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
 
    this.scaleErrorEdit = new Edit(this);
    this.scaleErrorEdit.text = "30";
@@ -3403,7 +3394,7 @@ function SplitSolverDialog() {
    // ---- Object name search ----
    this.objectLabel = new Label(this);
    this.objectLabel.text = "Object:";
-   this.objectLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.objectLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.objectLabel.setFixedWidth(120);
 
    this.objectEdit = new Edit(this);
@@ -3424,7 +3415,7 @@ function SplitSolverDialog() {
          console.writeln("  Found: RA=" + raToHMS(result.ra) + " Dec=" + decToDMS(result.dec));
       } else {
          console.writeln("  Not found: " + name);
-         var msg = new MessageBox("Object '" + name + "' not found.", TITLE, StdIcon_Warning, StdButton_Ok);
+         var msg = new MessageBox("Object '" + name + "' not found.", TITLE, StdIcon.Warning, StdButton.Ok);
          msg.execute();
       }
    };
@@ -3438,7 +3429,7 @@ function SplitSolverDialog() {
    // ---- RA / DEC ----
    this.raLabel = new Label(this);
    this.raLabel.text = "RA:";
-   this.raLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.raLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.raLabel.setFixedWidth(120);
 
    this.raEdit = new Edit(this);
@@ -3457,7 +3448,7 @@ function SplitSolverDialog() {
 
    this.decLabel = new Label(this);
    this.decLabel.text = "DEC:";
-   this.decLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.decLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.decLabel.setFixedWidth(120);
 
    this.decEdit = new Edit(this);
@@ -3476,7 +3467,7 @@ function SplitSolverDialog() {
 
    this.radiusLabel = new Label(this);
    this.radiusLabel.text = "Radius:";
-   this.radiusLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.radiusLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.radiusLabel.setFixedWidth(120);
 
    this.radiusEdit = new Edit(this);
@@ -3526,7 +3517,7 @@ function SplitSolverDialog() {
    // ---- Grid / Split mode ----
    this.gridLabel = new Label(this);
    this.gridLabel.text = "Grid:";
-   this.gridLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.gridLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.gridLabel.setFixedWidth(120);
 
    this.gridCombo = new ComboBox(this);
@@ -3570,7 +3561,7 @@ function SplitSolverDialog() {
 
    this.overlapLabel = new Label(this);
    this.overlapLabel.text = "Overlap:";
-   this.overlapLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.overlapLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.overlapLabel.setFixedWidth(120);
 
    this.overlapEdit = new Edit(this);
@@ -3623,7 +3614,7 @@ function SplitSolverDialog() {
    // ---- Skip Edge Tiles ----
    this.skipLabel = new Label(this);
    this.skipLabel.text = "Skip edges:";
-   this.skipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.skipLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.skipLabel.setFixedWidth(120);
 
    this.skipTopSpin = new SpinBox(this);
@@ -3683,7 +3674,7 @@ function SplitSolverDialog() {
    // ---- Downsample ----
    this.downsampleLabel = new Label(this);
    this.downsampleLabel.text = "Downsample:";
-   this.downsampleLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.downsampleLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
    this.downsampleLabel.setFixedWidth(120);
 
    this.downsampleCombo = new ComboBox(this);
@@ -3696,7 +3687,7 @@ function SplitSolverDialog() {
    // ---- SIP order ----
    this.sipLabel = new Label(this);
    this.sipLabel.text = "SIP Order:";
-   this.sipLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.sipLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
 
    this.sipCombo = new ComboBox(this);
    this.sipCombo.addItem("2");
@@ -3707,7 +3698,7 @@ function SplitSolverDialog() {
 
    this.timeoutLabel = new Label(this);
    this.timeoutLabel.text = "Timeout:";
-   this.timeoutLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+   this.timeoutLabel.textAlignment = TextAlignment.Right | TextAlignment.VerticalCenter;
 
    this.timeoutEdit = new Edit(this);
    this.timeoutEdit.text = "1";
@@ -3733,7 +3724,7 @@ function SplitSolverDialog() {
    // ---- Progress display ----
    this.progressLabel = new Label(this);
    this.progressLabel.text = "";
-   this.progressLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   this.progressLabel.textAlignment = TextAlignment.Left | TextAlignment.VerticalCenter;
 
    // ---- Buttons ----
    this._abortRequested = false;
@@ -3763,8 +3754,8 @@ function SplitSolverDialog() {
    this.abortButton.hide();
    this.abortButton.onClick = function() {
       var msg = new MessageBox("Abort the current solve?",
-         TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
-      if (msg.execute() === StdButton_Yes) {
+         TITLE, StdIcon.Question, StdButton.Yes, StdButton.No);
+      if (msg.execute() === StdButton.Yes) {
          self._abortRequested = true;
          self.progressLabel.text = "Aborting...";
       }
@@ -3779,8 +3770,8 @@ function SplitSolverDialog() {
       } else {
          // During solve, Close acts as abort with confirmation
          var msg = new MessageBox("Abort the current solve and close?",
-            TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
-         if (msg.execute() === StdButton_Yes) {
+            TITLE, StdIcon.Question, StdButton.Yes, StdButton.No);
+         if (msg.execute() === StdButton.Yes) {
             self._abortRequested = true;
             self.progressLabel.text = "Aborting...";
          }
@@ -3880,13 +3871,13 @@ function SplitSolverDialog() {
    var rebuildPreviewBitmap = function() {
       var tw = ImageWindow.activeWindow;
       if (tw.isNull) return;
-      self.cursor = new Cursor(StdCursor_Wait);
+      self.cursor = new Cursor(StdCursor.Wait);
       var result = createStretchedBitmap(
          tw.mainView.image, MAX_PREVIEW_EDGE, self._stretchMode);
       self.previewControl.setBitmap(
          result.bitmap, result.scale,
          tw.mainView.image.width, tw.mainView.image.height);
-      self.cursor = new Cursor(StdCursor_Arrow);
+      self.cursor = new Cursor(StdCursor.Arrow);
    };
 
    var updateStretchButtons = function() {
@@ -3898,7 +3889,7 @@ function SplitSolverDialog() {
    // STF stretch buttons
    var stretchLabel = new Label(this);
    stretchLabel.text = "STF:";
-   stretchLabel.textAlignment = TextAlign_Left | TextAlign_VertCenter;
+   stretchLabel.textAlignment = TextAlignment.Left | TextAlignment.VerticalCenter;
 
    this.stretchNoneButton = new PushButton(this);
    this.stretchNoneButton.text = "None";
@@ -4055,8 +4046,8 @@ function SplitSolverDialog() {
    this.onClose = function() {
       if (self._isSolving) {
          var msg = new MessageBox("Abort the current solve?",
-            TITLE, StdIcon_Question, StdButton_Yes, StdButton_No);
-         if (msg.execute() === StdButton_Yes) {
+            TITLE, StdIcon.Question, StdButton.Yes, StdButton.No);
+         if (msg.execute() === StdButton.Yes) {
             self._abortRequested = true;
             self.progressLabel.text = "Aborting...";
          }
@@ -4068,21 +4059,19 @@ function SplitSolverDialog() {
    this.adjustToContents();
    this.setMinWidth(1000);
    this.setMinHeight(600);
-}
+   }
 
-SplitSolverDialog.prototype = new Dialog;
+   //============================================================================
+   // Solve execution
+   //============================================================================
 
-//============================================================================
-// Solve execution
-//============================================================================
-
-SplitSolverDialog.prototype.doSolve = function() {
+   doSolve() {
    var self = this;
 
    // Validation
    var targetWindow = ImageWindow.activeWindow;
    if (targetWindow.isNull) {
-      var msg = new MessageBox("Please open an image before running.", TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox("Please open an image before running.", TITLE, StdIcon.Error, StdButton.Ok);
       msg.execute();
       return;
    }
@@ -4093,14 +4082,14 @@ SplitSolverDialog.prototype.doSolve = function() {
 
    if (solveMode === "api") {
       if (apiKey.length === 0) {
-         var msg = new MessageBox("API key is not set.\nPlease set the API key in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("API key is not set.\nPlease set the API key in Settings.", TITLE, StdIcon.Error, StdButton.Ok);
          msg.execute();
          return;
       }
    } else if (solveMode === "local") {
       // Local mode validation
       if (this._pythonPath.length === 0 || this._scriptDir.length === 0) {
-         var msg = new MessageBox("Local mode settings are incomplete.\nPlease set the Python path and script directory in Settings.", TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox("Local mode settings are incomplete.\nPlease set the Python path and script directory in Settings.", TITLE, StdIcon.Error, StdButton.Ok);
          msg.execute();
          return;
       }
@@ -4150,7 +4139,7 @@ SplitSolverDialog.prototype.doSolve = function() {
       var errText = this.scaleErrorEdit.text.trim();
       var errPct = parseFloat(errText);
       hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
-      Settings.write(SETTINGS_KEY + "/pixelScale", DataType_Double, scale);
+      Settings.write(SETTINGS_KEY + "/pixelScale", DataType.Double, scale);
    }
 
    // Save camera/lens selection
@@ -4161,10 +4150,10 @@ SplitSolverDialog.prototype.doSolve = function() {
          ? this.equipDB.cameras[camSaveIdx].name : "";
       var lensName = (lensSaveIdx >= 0 && lensSaveIdx < this.equipDB.lenses.length)
          ? this.equipDB.lenses[lensSaveIdx].name : "";
-      Settings.write(SETTINGS_KEY + "/camera", DataType_String, camName);
-      Settings.write(SETTINGS_KEY + "/lens", DataType_String, lensName);
+      Settings.write(SETTINGS_KEY + "/camera", DataType.String, camName);
+      Settings.write(SETTINGS_KEY + "/lens", DataType.String, lensName);
    }
-   Settings.write(SETTINGS_KEY + "/drizzleFactor", DataType_Int32, this.drizzleCombo.currentItem);
+   Settings.write(SETTINGS_KEY + "/drizzleFactor", DataType.Int32, this.drizzleCombo.currentItem);
 
    // RA/DEC hints
    var ra = parseRAInput(this.raEdit.text);
@@ -4260,7 +4249,7 @@ SplitSolverDialog.prototype.doSolve = function() {
    if (isSplitMode) this.skipButton.show();
    this.progressLabel.text = "Starting solve...";
    console.abortEnabled = true;
-   processEvents();
+   CoreApplication.processEvents();
 
    try {
       if (solveMode === "local") {
@@ -4284,7 +4273,7 @@ SplitSolverDialog.prototype.doSolve = function() {
       } else {
          console.writeln("ERROR: " + errMsg);
          this.progressLabel.text = "Error: " + errMsg;
-         var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+         var msg = new MessageBox(errMsg, TITLE, StdIcon.Error, StdButton.Ok);
          msg.execute();
       }
    }
@@ -4295,18 +4284,18 @@ SplitSolverDialog.prototype.doSolve = function() {
    this.skipButton.hide();
    this.solveButton.show();
    this.solveButton.enabled = true;
-};
+   }
 
-//----------------------------------------------------------------------------
-// Single image solve (original Phase 1 flow)
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs) {
+   //----------------------------------------------------------------------------
+   // Single image solve (original Phase 1 flow)
+   //----------------------------------------------------------------------------
+   doSingleSolve(targetWindow, apiKey, hints, imageWidth, imageHeight, timeoutMs) {
    var self = this;
    // Save image to temporary FITS
    var tmpFits = File.systemTempDirectory + "/split_solver_upload.fits";
    console.writeln("Saving temporary FITS: " + tmpFits);
    this.progressLabel.text = "Saving image as FITS...";
-   processEvents();
+   CoreApplication.processEvents();
 
    var fmt = new FileFormat("FITS");
    var wrt = new FileFormatInstance(fmt);
@@ -4324,7 +4313,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
    try {
       // Login
       this.progressLabel.text = "Logging in to API...";
-      processEvents();
+      CoreApplication.processEvents();
       console.writeln("Logging in to astrometry.net...");
       if (!client.login()) {
          throw "API login failed. Please check your API key.";
@@ -4333,7 +4322,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 
       // Upload
       this.progressLabel.text = "Uploading image...";
-      processEvents();
+      CoreApplication.processEvents();
       console.writeln("Uploading image...");
       var subId = client.upload(tmpFits, hints);
       if (subId === null) throw "Image upload failed.";
@@ -4341,21 +4330,21 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 
       // Poll submission
       this.progressLabel.text = "Waiting for job assignment...";
-      processEvents();
+      CoreApplication.processEvents();
       var jobId = client.pollSubmission(subId);
       if (jobId === null) throw "Submission timed out.";
       console.writeln("  Job ID: " + jobId);
 
       // Poll job
       this.progressLabel.text = "Solving... (up to 5 min)";
-      processEvents();
+      CoreApplication.processEvents();
       var status = client.pollJob(jobId);
       if (status !== "success") throw "Solve failed. Try adjusting hint parameters.";
       console.writeln("  Solve successful!");
 
       // Get calibration
       this.progressLabel.text = "Retrieving results...";
-      processEvents();
+      CoreApplication.processEvents();
       var calibration = client.getCalibration(jobId);
       if (!calibration) throw "Failed to retrieve calibration data.";
       console.writeln("  Calibration: RA=" + calibration.ra.toFixed(4) +
@@ -4370,7 +4359,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
 
       // Parse WCS from FITS
       this.progressLabel.text = "Applying WCS...";
-      processEvents();
+      CoreApplication.processEvents();
       var wcsData = readWcsFromFits(wcsPath);
       if (!wcsData) throw "Failed to parse WCS FITS file.";
 
@@ -4381,7 +4370,7 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
       var errMsg = (typeof e === "string") ? e : e.toString();
       console.writeln("ERROR: " + errMsg);
       this.progressLabel.text = "Error: " + errMsg;
-      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox(errMsg, TITLE, StdIcon.Error, StdButton.Ok);
       msg.execute();
    }
 
@@ -4391,17 +4380,17 @@ SplitSolverDialog.prototype.doSingleSolve = function(targetWindow, apiKey, hints
       var wcsCleanPath = File.systemTempDirectory + "/split_solver_wcs.fits";
       if (File.exists(wcsCleanPath)) File.remove(wcsCleanPath);
    } catch (e) {}
-};
+   }
 
-//----------------------------------------------------------------------------
-// Split image solve (Phase 2: tile splitting + multi-solve + WCS merge)
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs, skipEdges) {
+   //----------------------------------------------------------------------------
+   // Split image solve (Phase 2: tile splitting + multi-solve + WCS merge)
+   //----------------------------------------------------------------------------
+   doSplitSolve(targetWindow, apiKey, hints, gridX, gridY, overlap, imageWidth, imageHeight, timeoutMs, skipEdges) {
    var self = this;
 
    // API login (mode-specific setup)
    this.progressLabel.text = "Logging in to API...";
-   processEvents();
+   CoreApplication.processEvents();
    var client = new AstrometryClient(apiKey);
    client.timeout = timeoutMs;
    client.abortCheck = function() { return self._abortRequested; };
@@ -4422,16 +4411,16 @@ SplitSolverDialog.prototype.doSplitSolve = function(targetWindow, apiKey, hints,
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
       2000, null);
-};
+   }
 
-//----------------------------------------------------------------------------
-// Single image solve using ImageSolver (built-in)
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imageWidth, imageHeight) {
+   //----------------------------------------------------------------------------
+   // Single image solve using ImageSolver (built-in)
+   //----------------------------------------------------------------------------
+   doSingleSolveIS(targetWindow, hints, imageWidth, imageHeight) {
    var self = this;
 
    this.progressLabel.text = "Solving with ImageSolver...";
-   processEvents();
+   CoreApplication.processEvents();
 
    try {
       // Create and configure ImageSolver
@@ -4471,7 +4460,7 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       // Solve
       this.progressLabel.text = "ImageSolver: detecting stars and matching catalog...";
       this.progressLabel.toolTip = "ImageSolver is running. Use the console X button to abort.";
-      processEvents();
+      CoreApplication.processEvents();
 
       if (!solver.SolveImage(targetWindow)) {
          // Check if abort was requested during SolveImage
@@ -4482,7 +4471,7 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       }
 
       // Check abort after solve completes
-      processEvents();
+      CoreApplication.processEvents();
       if (this._abortRequested || console.abortRequested) {
          throw "Aborted by user";
       }
@@ -4490,7 +4479,7 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       // Extract WCS from the solved window
       this.progressLabel.text = "Extracting WCS...";
       this.progressLabel.toolTip = "";
-      processEvents();
+      CoreApplication.processEvents();
 
       var isWcs = extractWcsFromMetadata(solver.metadata);
       if (!isWcs || isWcs.crval1 === undefined) {
@@ -4548,15 +4537,15 @@ SplitSolverDialog.prototype.doSingleSolveIS = function(targetWindow, hints, imag
       var errMsg = (typeof e === "string") ? e : e.toString();
       console.writeln("ERROR: " + errMsg);
       this.progressLabel.text = "Error: " + errMsg;
-      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox(errMsg, TITLE, StdIcon.Error, StdButton.Ok);
       msg.execute();
    }
-};
+   }
 
-//----------------------------------------------------------------------------
-// Split image solve using ImageSolver (built-in)
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
+   //----------------------------------------------------------------------------
+   // Split image solve using ImageSolver (built-in)
+   //----------------------------------------------------------------------------
+   doSplitSolveIS(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
 
    // solverFactory: return solveSingleTileIS directly (no setup needed)
@@ -4569,25 +4558,25 @@ SplitSolverDialog.prototype.doSplitSolveIS = function(targetWindow, hints, gridX
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
       0, null);
-};
+   }
 
-//----------------------------------------------------------------------------
-// doSplitSolveCore
-//
-// Unified split-solve pipeline shared by all solver modes (API / IS / Local).
-// The only mode-specific part is solverFactory, which receives the tile array
-// after splitting and returns a solverFn:
-//
-//   solverFactory(tiles) -> solverFn
-//   solverFn(tile, tileHints, scaleBounds, expectedRaDec) -> bool
-//
-// Optional debugFixturePath: if set, writes per-tile snapshot JSON after
-// solveWavefront() completes (used to generate integration test fixtures).
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doSplitSolveCore = function(
-      targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight,
-      skipEdges, solverFactory, modeName, abortCheckFn, skipCheckFn, rateLimitMs,
-      debugFixturePath) {
+   //----------------------------------------------------------------------------
+   // doSplitSolveCore
+   //
+   // Unified split-solve pipeline shared by all solver modes (API / IS / Local).
+   // The only mode-specific part is solverFactory, which receives the tile array
+   // after splitting and returns a solverFn:
+   //
+   //   solverFactory(tiles) -> solverFn
+   //   solverFn(tile, tileHints, scaleBounds, expectedRaDec) -> bool
+   //
+   // Optional debugFixturePath: if set, writes per-tile snapshot JSON after
+   // solveWavefront() completes (used to generate integration test fixtures).
+   //----------------------------------------------------------------------------
+   doSplitSolveCore(
+         targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight,
+         skipEdges, solverFactory, modeName, abortCheckFn, skipCheckFn, rateLimitMs,
+         debugFixturePath) {
    var self = this;
    var tiles = [];
    var invalidated = 0;
@@ -4595,7 +4584,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
    try {
       // 1. Split image into tiles
       this.progressLabel.text = "Splitting image into tiles... (" + gridX + "x" + gridY + ")";
-      processEvents();
+      CoreApplication.processEvents();
       console.writeln("");
       console.writeln("<b>Splitting image into " + gridX + "x" + gridY + " tiles (overlap=" + overlap + "px)</b>");
 
@@ -4635,7 +4624,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       var successCount = solveWavefront(null, tiles, hints, imageWidth, imageHeight, gridX, gridY,
          function(message) {
             self.progressLabel.text = message;
-            processEvents();
+            CoreApplication.processEvents();
          },
          solverFn, abortCheckFn, skipCheckFn, rateLimitMs);
 
@@ -4684,7 +4673,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
       // Individual tile quality is guaranteed by solveSingleTileIS false-positive filters.
       if (modeName !== "ImageSolver") {
          this.progressLabel.text = "Validating overlap...";
-         processEvents();
+         CoreApplication.processEvents();
 
          var overlapTolerance = Math.max(5.0, (hints.scale_est || 5.0) * 3);
          invalidated = validateOverlap(tiles, imageWidth, imageHeight, overlapTolerance);
@@ -4701,7 +4690,7 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
 
       // 7. Merge WCS solutions
       this.progressLabel.text = "Merging WCS solutions...";
-      processEvents();
+      CoreApplication.processEvents();
       console.writeln("");
       console.writeln("<b>Merging WCS solutions from " + successCount + " tiles...</b>");
 
@@ -4736,22 +4725,22 @@ SplitSolverDialog.prototype.doSplitSolveCore = function(
          "Tiles: " + successCount + "/" + tiles.length + " succeeded" +
          (invalidated > 0 ? " (" + invalidated + " invalidated)" : "") + "\n" +
          "RMS: " + wcsResult.rms_arcsec.toFixed(2) + " arcsec",
-         TITLE, StdIcon_Information, StdButton_Ok);
+         TITLE, StdIcon.Information, StdButton.Ok);
       msg.execute();
 
    } catch (e) {
       var errMsg = (typeof e === "string") ? e : e.toString();
       console.writeln("ERROR: " + errMsg);
       this.progressLabel.text = "Error: " + errMsg;
-      var msg = new MessageBox(errMsg, TITLE, StdIcon_Error, StdButton_Ok);
+      var msg = new MessageBox(errMsg, TITLE, StdIcon.Error, StdButton.Ok);
       msg.execute();
    }
-};
+   }
 
-//----------------------------------------------------------------------------
-// Common: Apply WCS and display coordinates
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, imageWidth, imageHeight, calibration) {
+   //----------------------------------------------------------------------------
+   // Common: Apply WCS and display coordinates
+   //----------------------------------------------------------------------------
+   applyAndDisplay(targetWindow, wcsResult, imageWidth, imageHeight, calibration) {
    console.writeln("");
    console.writeln("<b>Applying WCS to image: " + targetWindow.mainView.id + "</b>");
    console.writeln("  CRVAL = (" + wcsResult.crval1.toFixed(6) + ", " + wcsResult.crval2.toFixed(6) + ")");
@@ -4773,7 +4762,7 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
    // Writing SplineWorldTransformation control points bypasses the CD matrix
    // interpretation and maps PixInsight pixel coords directly to gnomonic coords.
    // (Same fix as manual-image-solver commit 2eebfa7.)
-   targetWindow.mainView.beginProcess(UndoFlag_Keywords);
+   targetWindow.mainView.beginProcess(UndoFlag.Keywords);
    applyWCSToImage(targetWindow, wcsResult, imageWidth, imageHeight);
    setCustomControlPoints(targetWindow, wcsResult, [], imageWidth, imageHeight, "linear");
    targetWindow.regenerateAstrometricSolution();
@@ -4799,15 +4788,15 @@ SplitSolverDialog.prototype.applyAndDisplay = function(targetWindow, wcsResult, 
          "DEC: " + decToDMS(calibration.dec) + "\n" +
          "Scale: " + calibration.pixscale.toFixed(4) + " arcsec/px\n" +
          "Rotation: " + calibration.orientation.toFixed(2) + " deg",
-         TITLE, StdIcon_Information, StdButton_Ok);
+         TITLE, StdIcon.Information, StdButton.Ok);
       msg.execute();
    }
-};
+   }
 
-//----------------------------------------------------------------------------
-// Local solve (Python backend)
-//----------------------------------------------------------------------------
-SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs) {
+   //----------------------------------------------------------------------------
+   // Local solve (Python backend)
+   //----------------------------------------------------------------------------
+   doLocalSolve(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges, timeoutMs) {
    var self = this;
    var pythonPath = this._pythonPath;
    var scriptDir = this._scriptDir;
@@ -4852,7 +4841,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
          shellCmd += " 2>> " + quotePath(stderrFile);
 
          self.progressLabel.text = "Solving tile [" + tile.row + "][" + tile.col + "]...";
-         processEvents();
+         CoreApplication.processEvents();
 
          var P = new ExternalProcess;
          P.workingDirectory = scriptDir;
@@ -4866,7 +4855,7 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
 
          while (elapsed < jsWatchdogMs) {
             if (P.waitForFinished(pollIntervalMs)) break;
-            processEvents();
+            CoreApplication.processEvents();
 
             if (self._abortRequested || console.abortRequested) {
                console.warningln("<b>Abort requested. Killing Python process...</b>");
@@ -4978,14 +4967,14 @@ SplitSolverDialog.prototype.doLocalSolve = function(targetWindow, hints, gridX, 
       function() { return self._abortRequested; },
       function() { return self._skipToMerge; },
       0, null);
-};
+   }
 
-// ---------------------------------------------------------------------------
-// _doLocalSolve_legacy (旧実装を保持: Python フルパイプライン呼び出し)
-// 将来的に削除予定。Single (1x1) モード等で従来の Python WCSIntegrator が
-// 必要になった場合の参照用として残す。
-// ---------------------------------------------------------------------------
-SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
+   // ---------------------------------------------------------------------------
+   // _doLocalSolve_legacy (旧実装を保持: Python フルパイプライン呼び出し)
+   // 将来的に削除予定。Single (1x1) モード等で従来の Python WCSIntegrator が
+   // 必要になった場合の参照用として残す。
+   // ---------------------------------------------------------------------------
+   _doLocalSolve_legacy(targetWindow, hints, gridX, gridY, overlap, imageWidth, imageHeight, skipEdges) {
    var self = this;
    var pythonPath = this._pythonPath;
    var scriptDir = this._scriptDir;
@@ -4998,7 +4987,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
 
    console.writeln("Saving current view to temporary file...");
    this.progressLabel.text = "Saving image...";
-   processEvents();
+   CoreApplication.processEvents();
 
    if (File.exists(tmpInput)) try { File.remove(tmpInput); } catch (e) {}
    if (File.exists(resultFile)) try { File.remove(resultFile); } catch (e) {}
@@ -5078,7 +5067,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
    console.writeln("Executing Python solver...");
    console.writeln("Command: " + shellCmd);
    this.progressLabel.text = "Running Python solver...";
-   processEvents();
+   CoreApplication.processEvents();
 
    var P = new ExternalProcess;
    P.workingDirectory = scriptDir;
@@ -5095,7 +5084,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
       if (P.waitForFinished(pollIntervalMs)) {
          break;
       }
-      processEvents();
+      CoreApplication.processEvents();
 
       if (self._abortRequested || console.abortRequested) {
          console.writeln("");
@@ -5119,7 +5108,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
                   console.flush();
                   // Update progress with last line
                   self.progressLabel.text = newLines[newLines.length - 1];
-                  processEvents();
+                  CoreApplication.processEvents();
                }
                lastStderrSize = currentStderr.length;
             }
@@ -5325,7 +5314,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
 
    // Apply WCS to active window
    this.progressLabel.text = "Applying WCS...";
-   processEvents();
+   CoreApplication.processEvents();
    console.writeln("");
    console.writeln("<b>Applying WCS keywords to active window...</b>");
 
@@ -5358,7 +5347,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
       var pcrpix2 = wcsKeys["CRPIX2"];
       if (pcrval1 !== undefined && pcrpix1 !== undefined) {
          var view = targetWindow.mainView;
-         var attrs = PropertyAttribute_Storable | PropertyAttribute_Permanent;
+         var attrs = PropertyAttribute.Storable | PropertyAttribute.Permanent;
 
          // Remove existing SplineWorldTransformation properties
          var existingProps = view.properties;
@@ -5370,39 +5359,39 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
          view.deleteProperty("Transformation_ImageToProjection");
          view.deleteProperty("PCL:AstrometricSolution:Information");
 
-         view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType_String8, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:ProjectionSystem", "Gnomonic", PropertyType.String, attrs);
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceCelestialCoordinates",
-            new Vector([pcrval1, pcrval2]), PropertyType_F64Vector, attrs);
+            new Vector([pcrval1, pcrval2]), PropertyType.F64Vector, attrs);
 
          var refImgX = pcrpix1 - 1;
          var refImgY = pcrpix2;
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceImageCoordinates",
-            new Vector([refImgX, refImgY]), PropertyType_F64Vector, attrs);
+            new Vector([refImgX, refImgY]), PropertyType.F64Vector, attrs);
 
          var cd11 = wcsKeys["CD1_1"] || 0, cd12 = wcsKeys["CD1_2"] || 0;
          var cd21 = wcsKeys["CD2_1"] || 0, cd22 = wcsKeys["CD2_2"] || 0;
          var ltMatrix = new Matrix(2, 2);
          ltMatrix.at(0, 0, cd11); ltMatrix.at(0, 1, cd12);
          ltMatrix.at(1, 0, cd21); ltMatrix.at(1, 1, cd22);
-         view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType_F64Matrix, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:LinearTransformationMatrix", ltMatrix, PropertyType.F64Matrix, attrs);
 
          view.setPropertyValue("PCL:AstrometricSolution:ReferenceNativeCoordinates",
-            new Vector([0, 90]), PropertyType_F64Vector, attrs);
+            new Vector([0, 90]), PropertyType.F64Vector, attrs);
          var plon = (pcrval2 < 90) ? 180 : 0;
          view.setPropertyValue("PCL:AstrometricSolution:CelestialPoleNativeCoordinates",
-            new Vector([plon, 90]), PropertyType_F64Vector, attrs);
+            new Vector([plon, 90]), PropertyType.F64Vector, attrs);
 
-         view.setPropertyValue("Observation:Center:RA", pcrval1, PropertyType_Float64, attrs);
-         view.setPropertyValue("Observation:Center:Dec", pcrval2, PropertyType_Float64, attrs);
-         view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType_String8, attrs);
-         view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType_Float64, attrs);
+         view.setPropertyValue("Observation:Center:RA", pcrval1, PropertyType.Float64, attrs);
+         view.setPropertyValue("Observation:Center:Dec", pcrval2, PropertyType.Float64, attrs);
+         view.setPropertyValue("Observation:CelestialReferenceSystem", "ICRS", PropertyType.String, attrs);
+         view.setPropertyValue("Observation:Equinox", 2000.0, PropertyType.Float64, attrs);
 
-         view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType_TimePoint, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:CreationTime", (new Date).toISOString(), PropertyType.TimePoint, attrs);
          var creatorApp = format("PixInsight %s%d.%d.%d",
             CoreApplication.versionLE ? "LE " : "",
             CoreApplication.versionMajor, CoreApplication.versionMinor, CoreApplication.versionRelease);
-         view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType_String, attrs);
-         view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType_String, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:CreatorApplication", creatorApp, PropertyType.String, attrs);
+         view.setPropertyValue("PCL:AstrometricSolution:CreatorModule", "SplitImageSolver " + VERSION, PropertyType.String, attrs);
       }
 
       targetWindow.regenerateAstrometricSolution();
@@ -5416,6 +5405,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
    // Cleanup
    try { if (File.exists(tmpInput)) File.remove(tmpInput); } catch (e) {}
    try { if (File.exists(tmpOutput)) File.remove(tmpOutput); } catch (e) {}
+   }
 };
 
 //============================================================================
@@ -5423,6 +5413,7 @@ SplitSolverDialog.prototype._doLocalSolve_legacy = function(targetWindow, hints,
 //============================================================================
 
 function main() {
+   CoreApplication.ensureMinimumVersion( 1, 9, 4 );
    console.show();
    console.writeln("<b>" + TITLE + " v" + VERSION + VERSION_SUFFIX + "</b>");
    console.writeln("---");
