@@ -4139,7 +4139,7 @@ var SplitSolverDialog = class extends Dialog {
       var errText = this.scaleErrorEdit.text.trim();
       var errPct = parseFloat(errText);
       hints.scale_err = (!isNaN(errPct) && errPct > 0) ? errPct : 30;
-      Settings.write(SETTINGS_KEY + "/pixelScale", DataType.Float64, scale);
+      Settings.write(SETTINGS_KEY + "/pixelScale", DataType.Double, scale);
    }
 
    // Save camera/lens selection
