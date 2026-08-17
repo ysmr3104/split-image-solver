@@ -180,6 +180,14 @@ Local モードを利用する場合は [docs/setup.md](docs/setup.md) を参照
 - .venv を使用している場合、`/path/to/.venv/bin/python3` を直接入力
 - solve-field がインストールされ、PATH に含まれているか確認
 
+## 支援について
+
+このスクリプトは無料で公開しており、今後も無料のままです。役に立った、開発を続けてほしいと思っていただけたら、GitHub Sponsors から支援いただけます。
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-ysmr3104-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/ysmr3104)
+
+支援は任意です。バグ報告や機能要望も同じくらいありがたいです。
+
 ## ライセンス
 
 MIT License

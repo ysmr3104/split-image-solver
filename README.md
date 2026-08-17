@@ -180,6 +180,14 @@ See [docs/architecture.md](docs/architecture.md) for project structure, processi
 - For .venv, enter the full path: `/path/to/.venv/bin/python3`
 - Verify solve-field is installed and in PATH
 
+## Support
+
+This script is free, and will stay free. If it saved you time, you can support its continued development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-ysmr3104-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/ysmr3104)
+
+Sponsorship is entirely optional. Bug reports and feature requests are just as valuable.
+
 ## License
 
 MIT License
