@@ -16,10 +16,10 @@
       </package>
    </platform>
    <platform os="all" arch="noarch" version="1.9.4:9.9.9">
-      <package fileName="SplitImageSolver-2.0.0.zip"
-               sha1="22f56632b9bfa6a0e1b9d42f92dd961883774469"
+      <package fileName="SplitImageSolver-2.0.1.zip"
+               sha1="2f60ee6a5ffc93921e6c81b01b7172f7de0475fa"
                type="script"
-               releaseDate="20260527">
+               releaseDate="20260819">
          <title>Split Image Solver</title>
          <description>
             <p>Automatic plate solver using astrometry.net API or local solve-field (V8 runtime / PixInsight &gt;= 1.9.4)</p>
