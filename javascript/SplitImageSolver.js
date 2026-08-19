@@ -1,6 +1,6 @@
 #engine v8
 
-#feature-id    SplitImageSolver : Astrometry > SplitImageSolver
+#feature-id    SplitImageSolver : Astrometry > SplitImageSolver | ysmrastro > SplitImageSolver
 #feature-info  Automatic plate solver using astrometry.net API or local solve-field: \
    single-image or split-tile solve with WCS application for PixInsight.
 
@@ -13,7 +13,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "2.0.0"
+#define VERSION "2.0.1"
 #define VERSION_SUFFIX ""
 
 // V8 runtime: pjsr include files are not needed
