@@ -30,18 +30,43 @@ echo "=== ${PACKAGE_NAME} v${VERSION} リリースビルド ==="
 # 解決される。PixInsight 同梱のスクリプト（../AdP/ など）を取り込むと、PixInsight の
 # 更新で署名が無効になる（2.0.1 が 1.9.5 で "Invalid code signature" になった）
 SIGNATURE="${SCRIPT_DIR}/javascript/SplitImageSolver.xsgn"
-if grep -nE '^[[:space:]]*#include[[:space:]]*("\.\./|<|"imagesolver_bridge)' "${MAIN_SCRIPT}"; then
-    echo "ERROR: PixInsight 同梱スクリプトを #include しています（上の行）。署名が PixInsight の版に縛られます" >&2
+# 署名の対象になるファイル（本体と、本体が #include するもの）
+SIGNED_SOURCES=(
+    "${MAIN_SCRIPT}"
+    "${SCRIPT_DIR}/javascript/wcs_math.js"
+    "${SCRIPT_DIR}/javascript/wcs_keywords.js"
+    "${SCRIPT_DIR}/javascript/astrometry_api.js"
+)
+# 許可するのは同じディレクトリのファイル名だけの #include。それ以外（"../"、絶対パス、
+# <...>、サブディレクトリ経由）は PixInsight 同梱スクリプトを取り込みうるので止める
+if grep -nE '^[[:space:]]*#include' "${SIGNED_SOURCES[@]}" \
+        | grep -vE ':[[:space:]]*#include[[:space:]]+"[A-Za-z0-9_]+\.(js|jsh)"'; then
+    echo "ERROR: 同じディレクトリ以外のファイルを #include しています（上の行）。署名が PixInsight の版に縛られます" >&2
+    exit 1
+fi
+# 同じディレクトリにあっても、ブリッジは同梱の AdP を取り込むので止める
+if grep -nE '^[[:space:]]*#include[[:space:]]+"imagesolver_bridge\.jsh"' "${SIGNED_SOURCES[@]}"; then
+    echo "ERROR: imagesolver_bridge.jsh を #include しています（上の行）。PixInsight 同梱の AdP を取り込むため署名が版に縛られます" >&2
+    exit 1
+fi
+# 本体が #include するのは上の 3 本だけであること（増えたら SIGNED_SOURCES に足す）
+INCLUDED=$(grep -hE '^[[:space:]]*#include' "${MAIN_SCRIPT}" | sed -E 's/.*"([^"]+)".*/\1/' | sort | tr '\n' ' ')
+if [ "${INCLUDED}" != "astrometry_api.js wcs_keywords.js wcs_math.js " ]; then
+    echo "ERROR: 本体の #include が想定と違う: ${INCLUDED}（SIGNED_SOURCES を見直すこと）" >&2
     exit 1
 fi
 if [ ! -f "${SIGNATURE}" ]; then
     echo "ERROR: ${SIGNATURE} がありません。先に署名してください" >&2
     exit 1
 fi
-if [ "${SIGNATURE}" -ot "${MAIN_SCRIPT}" ]; then
-    echo "ERROR: 署名が SplitImageSolver.js より古い。署名し直してください" >&2
-    exit 1
-fi
+for SRC in "${SIGNED_SOURCES[@]}"; do
+    if [ "${SIGNATURE}" -ot "${SRC}" ]; then
+        echo "ERROR: 署名が $(basename "${SRC}") より古い。署名し直してください" >&2
+        exit 1
+    fi
+done
+# mtime の比較は完全ではない（clone 直後など）。最後の砦は配信前の
+# Security.getScriptSignature() による検証（pixinsight-handbook/docs/release.md）
 
 # 1. repository/ ディレクトリ作成
 mkdir -p "${REPO_DIR}"

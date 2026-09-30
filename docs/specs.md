@@ -545,7 +545,7 @@ split-image-solver/
 │   ├── wcs_math.js                 # WCS 数学ライブラリ (WCSFitter 含む)
 │   ├── wcs_keywords.js             # FITS キーワードユーティリティ
 │   ├── equipment_data.jsh          # 機材DB (カメラ + レンズ)
-│   └── imagesolver_bridge.jsh      # PI ImageSolver ブリッジ
+│   └── imagesolver_bridge.jsh      # PI ImageSolver ブリッジ（SpiderMonkey 版 1.x 専用。V8 版では #include も配布もしない）
 ├── python/
 │   ├── main.py                     # CLI エントリーポイント, single_tile_solve
 │   ├── solvers/

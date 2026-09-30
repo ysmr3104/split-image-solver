@@ -10,6 +10,12 @@
 // See the original source files for full license text.
 //
 // Copyright (c) 2026 Split Image Solver Project (bridge integration)
+//
+// SpiderMonkey version (1.x) only. The V8 version (2.x) must NOT #include this
+// file, not even inside a disabled #ifdef: the code signature covers the
+// preprocessed source, and this file pulls in PixInsight's own AdP scripts, so
+// any PixInsight update that changes them invalidates the signature.
+// build-split-release.sh refuses to build if it is included.
 // ============================================================================
 
 #ifndef __IMAGESOLVER_BRIDGE_JSH
