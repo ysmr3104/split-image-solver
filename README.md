@@ -69,7 +69,7 @@ API mode works out of the box with no additional installation. For Local mode se
    wcs_math.js
    wcs_keywords.js
    equipment_data.jsh
-   imagesolver_bridge.jsh
+   equipment.json
    ```
 
    Script directory locations:

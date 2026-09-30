@@ -70,7 +70,7 @@ Local モードを利用する場合は [docs/setup.md](docs/setup.md) を参照
    wcs_math.js
    wcs_keywords.js
    equipment_data.jsh
-   imagesolver_bridge.jsh
+   equipment.json
    ```
 
    スクリプトディレクトリの場所:

@@ -12,7 +12,7 @@ split-image-solver/
 │   ├── wcs_math.js            — WCS math library (shared with manual-image-solver)
 │   ├── wcs_keywords.js        — FITS keyword utilities (shared)
 │   ├── equipment_data.jsh     — Equipment DB (cameras + lenses, with model numbers)
-│   └── imagesolver_bridge.jsh — Bridge for PixInsight built-in ImageSolver
+│   └── imagesolver_bridge.jsh — Bridge for PixInsight built-in ImageSolver (SpiderMonkey 1.x only; not included or distributed in the V8 version)
 ├── python/                    — Local mode Python implementation
 ├── build-split-release.sh     — Release build script
 ├── repository/                — PixInsight repository distribution package
@@ -24,7 +24,7 @@ split-image-solver/
 
 - **API mode** (default): PJSR only. Communicates with astrometry.net API via ExternalProcess + curl. No Python required.
 - **Local mode**: PJSR calls Python `main.py` via ExternalProcess. Uses local solve-field for solving.
-- **ImageSolver mode**: PJSR uses PixInsight's built-in ImageSolver via `imagesolver_bridge.jsh`. Supports both Single (1x1) and Grid (NxM) modes. Overlap validation is skipped in this mode because the linear CD-matrix WCS (no SIP) produced by ImageSolver diverges significantly at tile boundaries for wide-angle lenses.
+- **ImageSolver mode** (SpiderMonkey 1.x only): PJSR uses PixInsight's built-in ImageSolver via `imagesolver_bridge.jsh`. **Not available in the V8 version (2.x)**: the AdP library is SpiderMonkey-only, and the bridge must not be `#include`d even inside a disabled `#ifdef`, because the code signature covers the preprocessed source and the bridge pulls in PixInsight's own AdP scripts — any PixInsight update that changes them invalidates the signature (2.0.1 failed on PixInsight 1.9.5 this way). Supports both Single (1x1) and Grid (NxM) modes. Overlap validation is skipped in this mode because the linear CD-matrix WCS (no SIP) produced by ImageSolver diverges significantly at tile boundaries for wide-angle lenses.
 
 ## Processing Pipeline
 
@@ -73,7 +73,7 @@ split-image-solver/
 - **`wcs_math.js`** — WCS math library. `WCSFitter` (CD matrix + SIP fitting), `tanProject`/`tanDeproject` (TAN projection), `pixelToRaDec`/`raDecToPixel`, `angularSeparation`, etc. Shared with manual-image-solver. Compatible with both PJSR and Node.js.
 - **`wcs_keywords.js`** — FITS WCS keyword utilities (`isWCSKeyword`, `makeFITSKeyword`).
 - **`equipment_data.jsh`** — Equipment database source (71 cameras + 99 lenses/telescopes). Cameras have `instrume` (model ID) field; lenses have `model` field. Runtime data is read from `equipment.json` (same directory).
-- **`imagesolver_bridge.jsh`** — Bridge file for using PixInsight's built-in ImageSolver as a library. Includes AdP scripts (`WCSmetadata.jsh`, `AstronomicalCatalogs.jsh`, `ImageSolver.js`) via relative paths for cross-platform compatibility.
+- **`imagesolver_bridge.jsh`** — (SpiderMonkey 1.x only; see Solve Modes) Bridge file for using PixInsight's built-in ImageSolver as a library. Includes AdP scripts (`WCSmetadata.jsh`, `AstronomicalCatalogs.jsh`, `ImageSolver.js`) via relative paths for cross-platform compatibility.
 
 ## Settings Persistence (Settings API)
 
