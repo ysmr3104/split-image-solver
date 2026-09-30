@@ -50,9 +50,14 @@ if grep -nE '^[[:space:]]*#include[[:space:]]+"imagesolver_bridge\.jsh"' "${SIGN
     exit 1
 fi
 # 本体が #include するのは上の 3 本だけであること（増えたら SIGNED_SOURCES に足す）
-INCLUDED=$(grep -hE '^[[:space:]]*#include' "${MAIN_SCRIPT}" | sed -E 's/.*"([^"]+)".*/\1/' | sort | tr '\n' ' ')
+INCLUDED=$( (grep -hE '^[[:space:]]*#include' "${MAIN_SCRIPT}" || true) | sed -E 's/.*"([^"]+)".*/\1/' | sort | tr '\n' ' ')
 if [ "${INCLUDED}" != "astrometry_api.js wcs_keywords.js wcs_math.js " ]; then
     echo "ERROR: 本体の #include が想定と違う: ${INCLUDED}（SIGNED_SOURCES を見直すこと）" >&2
+    exit 1
+fi
+# include 先がさらに #include すると、そのファイルが新旧の判定から漏れるので止める
+if grep -nE '^[[:space:]]*#include' "${SIGNED_SOURCES[@]:1}"; then
+    echo "ERROR: include 先がさらに #include しています（上の行）。SIGNED_SOURCES に足してから検査を見直すこと" >&2
     exit 1
 fi
 if [ ! -f "${SIGNATURE}" ]; then
