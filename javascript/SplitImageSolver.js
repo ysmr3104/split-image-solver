@@ -13,7 +13,7 @@
 // Copyright (c) 2026 Split Image Solver Project
 //----------------------------------------------------------------------------
 
-#define VERSION "2.0.1"
+#define VERSION "2.0.2"
 #define VERSION_SUFFIX ""
 
 // V8 runtime: pjsr include files are not needed
@@ -24,18 +24,15 @@
 
 #define TITLE "Split Image Solver"
 
-// ImageSolver library integration (PixInsight built-in solver)
-// This enables using PixInsight's ImageSolver engine instead of astrometry.net.
-// Requires PixInsight 1.9.0+ with ImageSolver 6.x installed.
-// To disable: comment out the #define line below.
-// Note: ENABLE_IMAGESOLVER is disabled in V8 version.
-// The AdP library (ImageSolver.js) uses the SpiderMonkey-specific __base__ pattern
-// and is not compatible with the V8 runtime.
-// #define ENABLE_IMAGESOLVER
-
-#ifdef ENABLE_IMAGESOLVER
-#include "imagesolver_bridge.jsh"
-#endif
+// ImageSolver library integration (imagesolver_bridge.jsh) is NOT included in the
+// V8 version. The AdP library (ImageSolver.js) uses the SpiderMonkey-specific
+// __base__ pattern and is not compatible with the V8 runtime.
+//
+// Do not add the #include back, not even inside a disabled #ifdef block:
+// the code signature covers the preprocessed source, and include directives
+// are resolved even in disabled blocks. The bridge pulls in PixInsight's own
+// AdP scripts, so every PixInsight update that changes them invalidates this
+// script's signature ("Invalid code signature" in 2.0.1 after PixInsight 1.9.5).
 
 // Equipment data is loaded at runtime from equipment.json (same directory as this script)
 

@@ -25,6 +25,24 @@ echo "=== ${PACKAGE_NAME} v${VERSION} リリースビルド ==="
 # V8版の既存ZIPを削除しないよう注意
 # SpiderMonkey版 (1.2.0) は repository/ に保持する
 
+# 0. 署名の検査
+# 署名は #include を展開したあとのコードにかかり、無効な #ifdef の中の #include も
+# 解決される。PixInsight 同梱のスクリプト（../AdP/ など）を取り込むと、PixInsight の
+# 更新で署名が無効になる（2.0.1 が 1.9.5 で "Invalid code signature" になった）
+SIGNATURE="${SCRIPT_DIR}/javascript/SplitImageSolver.xsgn"
+if grep -nE '^[[:space:]]*#include[[:space:]]*("\.\./|<|"imagesolver_bridge)' "${MAIN_SCRIPT}"; then
+    echo "ERROR: PixInsight 同梱スクリプトを #include しています（上の行）。署名が PixInsight の版に縛られます" >&2
+    exit 1
+fi
+if [ ! -f "${SIGNATURE}" ]; then
+    echo "ERROR: ${SIGNATURE} がありません。先に署名してください" >&2
+    exit 1
+fi
+if [ "${SIGNATURE}" -ot "${MAIN_SCRIPT}" ]; then
+    echo "ERROR: 署名が SplitImageSolver.js より古い。署名し直してください" >&2
+    exit 1
+fi
+
 # 1. repository/ ディレクトリ作成
 mkdir -p "${REPO_DIR}"
 
@@ -39,7 +57,6 @@ cp "${SCRIPT_DIR}/javascript/wcs_math.js"          "${TMPDIR_BASE}/src/scripts/$
 cp "${SCRIPT_DIR}/javascript/wcs_keywords.js"      "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/equipment_data.jsh"   "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/equipment.json"       "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
-cp "${SCRIPT_DIR}/javascript/imagesolver_bridge.jsh" "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 cp "${SCRIPT_DIR}/javascript/SplitImageSolver.xsgn"  "${TMPDIR_BASE}/src/scripts/${PACKAGE_NAME}/"
 
 echo "ファイルをコピーしました:"
